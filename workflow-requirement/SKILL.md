@@ -3,7 +3,7 @@ name: workflow-requirement
 description: 当需要在编码前把 PRD 沉淀为需求池、任务看板和可审计交接材料时使用。
 ---
 
-# Workflow Requirement Skill (v2.2.0)
+# Workflow Requirement Skill (v2.3.0)
 
 把正式 `PRD` 沉淀为可执行、可追溯、可审计的需求材料，并在人工审核门前收口；如仓库支持任务记忆目录，还负责初始化 `task memory` 入口。
 
@@ -14,6 +14,7 @@ description: 当需要在编码前把 PRD 沉淀为需求池、任务看板和�
 1. 需要把需求正式入池
 2. 需要把 `PRD` 展开成 dated 需求包、任务看板和追溯材料
 3. 需要检查某个需求是否已经具备交接到开发执行的前置条件
+4. 需要在需求收口后同步更新 `.ai/runtime/project-state.json`，让驾驶舱读取同一份事实源
 
 ## 先读什么
 
@@ -39,6 +40,7 @@ description: 当需要在编码前把 PRD 沉淀为需求池、任务看板和�
 2. 未经过人工审核，不能从 requirement 直接进入 execution
 3. 只要结论、状态或交付物发生变化，就必须同步更新需求池、任务看板和至少一份追溯证据
 4. 若仓库存在 `.ai/memory/` 或历史 `.ai/memory/tasks/` 记忆结构，requirement 阶段至少要初始化任务记忆目录和任务索引
+5. requirement 收口后必须同步更新 `.ai/runtime/project-state.json`
 
 ## 关键入口
 
@@ -92,6 +94,7 @@ python3 <skill-dir>/scripts/run_requirement_round.py \
    - 同步任务看板
    - 若支持记忆层，则优先初始化 `.ai/memory/tasks/<task>/` 并更新 `.ai/memory/tasks/index.md`
    - 老仓库无 `.ai/` 时，兼容回退 `.ai/memory/tasks/<task>/`
+   - 同步 `.ai/runtime/project-state.json`
 5. 同步索引：
    - 更新根 README 或当前需求目录 `00-目录说明.md`
 6. 交接检查：
@@ -134,11 +137,13 @@ python3 <skill-dir>/scripts/run_requirement_round.py \
 5. 当前是在“待人工审核”还是仍有缺口
 6. 推荐的显式开工指令
 7. 若启用了记忆层，明确任务记忆目录位置
+8. 若启用了状态骨架，明确 `.ai/runtime/project-state.json` 的更新结果
 
 ## 维护说明
 
-1. 版本：`v2.2.0`
+1. 版本：`v2.3.0`
 2. 本 skill 与 `workflow-bootstrap`、`workflow-execution` 配套使用
 3. `references/shared-governance.md` 必须与 execution 中的同名文件保持一致
 4. 不再依赖 `_shared`；保持 skill 自包含
 5. 新仓库默认以 `.ai/memory` 为记忆主路径
+6. 需求状态与任务状态会同步回写到 `.ai/runtime/project-state.json`

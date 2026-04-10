@@ -11,6 +11,7 @@ from pathlib import Path
 from cli_common import add_dry_run_arg, add_profile_arg, load_profile_from_args, print_header
 from md_board_utils import find_requirement_row, get_cell
 from profile_paths import ProjectPaths
+from project_state import build_project_state, write_project_state
 
 from select_next_task import TaskRecord, load_tasks
 
@@ -214,6 +215,7 @@ def execution_self_check(
 ) -> tuple[list[str], list[str]]:
     infos: list[str] = []
     warnings: list[str] = []
+    project_state_path = project_paths.workspace_root / ".ai/runtime/project-state.json"
     if task_file.exists():
         infos.append(f"task_board={task_file}")
     else:
@@ -244,6 +246,10 @@ def execution_self_check(
         infos.append(f"task_memory_dir={task_memory_dir}")
     else:
         warnings.append("task_memory_dir=not_found")
+    if project_state_path.exists():
+        infos.append(f"project_state={project_state_path}")
+    else:
+        warnings.append(f"project_state_missing={project_state_path}")
     return infos, warnings
 
 
@@ -541,6 +547,29 @@ def main() -> int:
         print(f"- push_enabled: {'no' if args.no_push else 'yes'}")
         print(f"- release_gate_enabled: {'no' if args.no_release_gate else 'yes'}")
         infos, warnings = execution_self_check(project_paths, task_file, build_commands, test_commands, req_id, task_memory_dir)
+        preview_state = build_project_state(
+            project_paths.workspace_root,
+            profile,
+            requirements_pool=project_paths.requirements_pool,
+            task_board=task_file,
+            stage="execution",
+            gate_status="预览",
+            health="预览",
+            risk="观察中" if warnings or args.blocker else "低",
+            sync_source="execution",
+            sync_status="preview",
+            current_req_id=req_id or selected.req_id or "",
+            current_req_title=req_ctx.title if req_ctx else "",
+            current_task_id=selected.task_id,
+            current_task_title=selected.title,
+            current_task_status=selected.status,
+            current_mode=resolved_mode,
+            summary=args.summary or f"{selected.task_id} 执行预览",
+            blockers=list(args.blocker) or warnings,
+            evidence_refs=[str(p) for p in (*record_files, *test_result_files)],
+        )
+        preview_path = write_project_state(project_paths.workspace_root, preview_state, dry_run=True)
+        print(f"- action: update project-state preview at `{preview_path}`")
         for item in infos:
             print(f"- selfcheck-info: {item}")
         for item in warnings:
@@ -939,6 +968,30 @@ def main() -> int:
             print(output)
         if code != 0:
             return code
+
+    state = build_project_state(
+        project_paths.workspace_root,
+        profile,
+        requirements_pool=project_paths.requirements_pool,
+        task_board=task_file,
+        stage="execution",
+        gate_status="已完成" if final_task_status == "done" else ("阻塞中" if final_task_status == "blocked" else "执行中"),
+        health="异常" if blockers or task_blocked or fatal_failure or commit_failed else "正常",
+        risk="高" if blockers or task_blocked or fatal_failure or commit_failed else "低",
+        sync_source="execution",
+        sync_status="fresh",
+        current_req_id=req_id or selected.req_id or "",
+        current_req_title=req_ctx.title if req_ctx else "",
+        current_task_id=selected.task_id,
+        current_task_title=selected.title,
+        current_task_status=final_task_status,
+        current_mode=resolved_mode,
+        summary=args.summary or f"{selected.task_id} 执行回合已{final_task_status}",
+        blockers=blockers,
+        evidence_refs=[str(p) for p in (*record_files, *test_result_files, *gate_doc_files)],
+    )
+    state_path = write_project_state(project_paths.workspace_root, state, dry_run=False)
+    print(f"- project_state: {state_path}")
 
     print(f"- final_task_status: {final_task_status}")
     if final_task_status == "done" and task_memory_dir and not args.archive_task_memory and "archived" not in task_memory_dir.parts:

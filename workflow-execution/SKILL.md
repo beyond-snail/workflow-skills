@@ -3,7 +3,7 @@ name: workflow-execution
 description: 当任务已通过人工审核且用户显式要求进入实现阶段时使用。
 ---
 
-# Workflow Execution Skill (v2.4.0)
+# Workflow Execution Skill (v2.5.0)
 
 在人工审核通过并收到显式开工指令后，按任务看板实现、验证、回写证据、同步任务记忆、提交并跑发布闸门。
 
@@ -14,6 +14,7 @@ description: 当任务已通过人工审核且用户显式要求进入实现阶�
 1. 用户在人工审核通过后显式说 `开干`
 2. 已明确进入执行阶段，需要推进下一条任务
 3. 需要对某条已进入执行态的任务做开发收口
+4. 需要在执行收口后同步更新 `.ai/runtime/project-state.json`，让驾驶舱读取同一份事实源
 
 ## 先读什么
 
@@ -42,6 +43,7 @@ description: 当任务已通过人工审核且用户显式要求进入实现阶�
 3. 代码、测试、状态结论变化时，必须同步更新证据和相关文档
 4. bugfix / continuation 回合不能只补代码不补 `verify.md` / `inbox.md` 等任务记忆
 5. 新仓库默认优先读取 `.ai/memory`，老仓库兼容回退到 `.ai/memory/tasks` / `.ai/memory/knowledge`
+6. execution 收口后必须同步更新 `.ai/runtime/project-state.json`
 
 ## 关键入口
 
@@ -111,6 +113,7 @@ python3 <skill-dir>/scripts/run_execution_round.py \
 6. 提交与发布：
    - 默认提交 / 推送 / 发布闸门
    - 若用户明确说“只改代码不提交”或“只实现不跑闸门”，按要求缩小范围
+   - 同步 `.ai/runtime/project-state.json`
 7. 输出收口结论：
    - done / blocked / still doing
    - 验证结果
@@ -151,10 +154,11 @@ python3 <skill-dir>/scripts/run_execution_round.py \
 5. 当前是完整模式还是轻量模式
 6. 当前结果是 `done`、`blocked` 还是仍需继续
 7. 如涉及需求对齐，明确本次 `PRD` 基线和剩余未对齐点
+8. 若启用了状态骨架，明确 `.ai/runtime/project-state.json` 的更新结果
 
 ## 维护说明
 
-1. 版本：`v2.4.0`
+1. 版本：`v2.5.0`
 2. 本 skill 与 `workflow-bootstrap`、`workflow-requirement` 配套使用
 3. `references/shared-governance.md` 必须与 requirement 中的同名文件保持一致
 4. 不再依赖 `_shared`；保持 skill 自包含

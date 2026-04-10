@@ -14,6 +14,7 @@ from cli_common import add_dry_run_arg, add_profile_arg, load_profile_from_args,
 from profile_paths import ProjectPaths
 
 from create_requirement_bundle import next_req_id, next_task_id
+from project_state import build_project_state, write_project_state
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -194,6 +195,7 @@ def run_python(script_name: str, script_args: list[str], dry_run: bool) -> int:
 def requirement_self_check(project_paths: ProjectPaths, planned: PlannedRound, task_memory_dir_rel: Path | None) -> tuple[list[str], list[str]]:
     infos: list[str] = []
     warnings: list[str] = []
+    project_state_path = project_paths.workspace_root / ".ai/runtime/project-state.json"
     if planned.requirements_pool.exists():
         infos.append(f"requirements_pool={planned.requirements_pool}")
     else:
@@ -216,6 +218,10 @@ def requirement_self_check(project_paths: ProjectPaths, planned: PlannedRound, t
         infos.append(f"tasks_index={project_paths.tasks_index}")
     else:
         warnings.append(f"tasks_index_missing={project_paths.tasks_index}")
+    if project_state_path.exists():
+        infos.append(f"project_state={project_state_path}")
+    else:
+        warnings.append(f"project_state_missing={project_state_path}")
     return infos, warnings
 
 
@@ -292,6 +298,27 @@ def main() -> int:
             planned,
             None if args.skip_task_memory_init else task_memory_dir_rel,
         )
+        preview_state = build_project_state(
+            project_paths.workspace_root,
+            profile,
+            requirements_pool=planned.requirements_pool,
+            task_board=planned.task_board,
+            stage="requirement",
+            gate_status="待人工审核",
+            health="待审核",
+            risk="观察中" if warnings else "低",
+            sync_source="requirement",
+            sync_status="preview",
+            current_req_id=planned.req_id,
+            current_req_title=args.theme,
+            current_task_id=planned.task_id,
+            current_task_title=args.initial_task_title or args.theme,
+            current_task_status=args.task_memory_status,
+            summary=args.summary or f"{planned.req_id} 需求已入池，等待人工审核",
+            blockers=warnings,
+        )
+        preview_path = write_project_state(project_paths.workspace_root, preview_state, dry_run=True)
+        print(f"- action: update project-state preview at `{preview_path}`")
         for item in infos:
             print(f"- selfcheck-info: {item}")
         for item in warnings:
@@ -431,6 +458,27 @@ def main() -> int:
         planned,
         None if args.skip_task_memory_init else task_memory_dir_rel,
     )
+    state = build_project_state(
+        project_paths.workspace_root,
+        profile,
+        requirements_pool=planned.requirements_pool,
+        task_board=planned.task_board,
+        stage="requirement",
+        gate_status="待人工审核",
+        health="待审核",
+        risk="观察中" if warnings else "低",
+        sync_source="requirement",
+        sync_status="fresh",
+        current_req_id=planned.req_id,
+        current_req_title=args.theme,
+        current_task_id=planned.task_id,
+        current_task_title=task_memory_title,
+        current_task_status=args.task_memory_status,
+        summary=args.summary or f"{planned.req_id} 需求已入池，等待人工审核",
+        blockers=warnings,
+    )
+    state_path = write_project_state(project_paths.workspace_root, state, dry_run=False)
+    print(f"- project_state: {state_path}")
     for item in infos:
         print(f"- selfcheck-info: {item}")
     for item in warnings:
