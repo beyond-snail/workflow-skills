@@ -1093,6 +1093,56 @@ button:disabled {
   overflow: hidden;
 }
 
+.focus-banner {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 220px;
+  gap: 12px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+  border-radius: 18px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  background:
+    linear-gradient(135deg, rgba(66, 221, 255, 0.08), transparent 35%),
+    rgba(255, 255, 255, 0.03);
+}
+
+.focus-banner__main,
+.focus-banner__meta {
+  display: grid;
+  gap: 6px;
+}
+
+.focus-banner__label,
+.focus-banner__meta span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.focus-banner__main strong,
+.focus-banner__meta strong {
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.focus-banner__main p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.focus-banner__meta {
+  grid-template-columns: 1fr;
+  align-content: start;
+}
+
+.focus-banner__meta div {
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  background: rgba(255, 255, 255, 0.02);
+}
+
 .task-card {
   min-height: 132px;
   padding: 14px;
@@ -1457,7 +1507,8 @@ button:disabled {
   .stage-grid,
   .home-grid,
   .summary-grid,
-  .field-grid {
+  .field-grid,
+  .focus-banner {
     grid-template-columns: 1fr;
   }
 

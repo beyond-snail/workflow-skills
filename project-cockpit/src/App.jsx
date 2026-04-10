@@ -460,6 +460,25 @@ function App() {
           </aside>
 
           <section className="panel panel--tasks">
+            <div className="focus-banner">
+              <div className="focus-banner__main">
+                <span className="focus-banner__label">当前焦点</span>
+                <strong>{activeProject?.currentFocus ?? '等待下一步'}</strong>
+                <p>{activeProject?.blocker ?? '暂无阻塞'}</p>
+              </div>
+
+              <div className="focus-banner__meta">
+                <div>
+                  <span>当前任务</span>
+                  <strong>{activeProject?.currentTask ?? '未设置'}</strong>
+                </div>
+                <div>
+                  <span>证据</span>
+                  <strong>{activeProject?.evidence?.length ?? 0} 条</strong>
+                </div>
+              </div>
+            </div>
+
             <div className="panel-head">
               <div className="panel-head__spacer" />
 
