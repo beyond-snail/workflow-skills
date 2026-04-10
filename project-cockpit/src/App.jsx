@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { startTransition, useEffect, useState } from 'react';
 import { projects as seedProjects, stageMeta, workspace } from './data';
 
 const statusLabels = {
@@ -240,6 +240,8 @@ function App() {
   const [composerOpen, setComposerOpen] = useState(false);
   const [draft, setDraft] = useState(createProjectDraft());
   const [inspectorTab, setInspectorTab] = useState('summary');
+  const [syncing, setSyncing] = useState(false);
+  const [composerError, setComposerError] = useState('');
 
   const activeProject =
     projects.find((project) => project.id === activeProjectId) ?? projects[0] ?? null;
@@ -255,6 +257,17 @@ function App() {
       ? activeProject.tasks
       : activeProject?.tasks.filter((task) => task.status === taskFilter) ?? [];
 
+  useEffect(() => {
+    const localProjects = projects.filter((project) => project.sourceType === 'local');
+    if (!localProjects.length) return undefined;
+
+    const intervalId = window.setInterval(() => {
+      syncProjects(localProjects);
+    }, 15000);
+
+    return () => window.clearInterval(intervalId);
+  }, [projects]);
+
   function openProject(projectId) {
     setActiveProjectId(projectId);
     setView('project');
@@ -267,21 +280,61 @@ function App() {
     setComposerOpen(false);
   }
 
-  function handleRefresh() {
+  async function syncProjects(targetProjects) {
+    const syncTargets = targetProjects.filter((project) => project.sourceType === 'local' && project.sourcePath);
+    if (!syncTargets.length) return;
+
+    setSyncing(true);
+    const syncedProjects = await Promise.all(
+      syncTargets.map(async (project) => {
+        const snapshot = await fetchProjectSnapshot(project.sourcePath);
+        if (!snapshot) {
+          return {
+            ...project,
+            syncStatus: 'stale',
+            syncLabel: '同步失败',
+          };
+        }
+        return mergeProjectSnapshot(project, snapshot);
+      }),
+    );
+
+    startTransition(() => {
+      setProjects((current) =>
+        current.map((project) => syncedProjects.find((item) => item.id === project.id) ?? project),
+      );
+    });
+    setSyncing(false);
+  }
+
+  async function handleRefresh() {
+    if (activeProject?.sourceType === 'local') {
+      await syncProjects([activeProject]);
+      return;
+    }
+
     const now = formatTimestamp(new Date());
     setProjects((current) =>
       current.map((project) =>
-        project.id === activeProject?.id ? { ...project, lastUpdated: now } : project,
+        project.id === activeProject?.id
+          ? { ...project, lastUpdated: now, syncLabel: '手动刷新', syncStatus: 'fresh' }
+          : project,
       ),
     );
   }
 
-  function handleCreateProject(event) {
+  async function handleCreateProject(event) {
     event.preventDefault();
     const sourcePath = draft.sourcePath.trim();
     if (!sourcePath) return;
 
-    const createdProject = buildProjectFromDraft(draft, projects.length + 1);
+    setComposerError('');
+    const createdProject = await buildProjectFromDraft(draft, projects.length + 1);
+    if (!createdProject) {
+      setComposerError('项目路径不可用，或者本地状态文件暂时无法读取。');
+      return;
+    }
+
     setProjects((current) => [createdProject, ...current]);
     setActiveProjectId(createdProject.id);
     setHomePage(0);
@@ -369,7 +422,7 @@ function App() {
               title="项目概览"
               action={
                 <button className="ghost-button" type="button" onClick={handleRefresh}>
-                  同步状态
+                  {syncing ? '同步中' : '同步状态'}
                 </button>
               }
             />
@@ -383,6 +436,10 @@ function App() {
               <MetaChip label="阶段" value={activeProject ? stageTitle(activeProject.stage) : '—'} />
               <MetaChip label="门禁" value={activeProject?.gateStatus ?? '—'} />
               <MetaChip label="任务" value={String(activeProject?.tasks?.length ?? 0)} tone="muted" />
+            </div>
+
+            <div className="project-rail__chips">
+              <MetaChip label="同步" value={activeProject?.syncLabel ?? '未同步'} tone={activeProject?.syncStatus === 'stale' ? 'danger' : 'muted'} />
             </div>
 
             <div className="stage-strip stage-strip--stacked">
@@ -564,6 +621,8 @@ function App() {
               />
             </div>
 
+            {composerError ? <p className="composer-error">{composerError}</p> : null}
+
             <button className="submit-button" type="submit">
               创建项目
             </button>
@@ -587,6 +646,9 @@ function buildInitialProjects(baseProjects) {
 function cloneProject(project) {
   return {
     ...project,
+    sourceType: project.sourceType || 'demo',
+    syncStatus: project.syncStatus || 'fresh',
+    syncLabel: project.syncLabel || '演示数据',
     metrics: { ...project.metrics },
     stageStates: { ...project.stageStates },
     tasks: project.tasks.map((task) => ({ ...task })),
@@ -600,6 +662,9 @@ function cloneProject(project) {
 function createProjectFromSpec(spec) {
   return {
     ...spec,
+    sourceType: spec.sourceType || 'demo',
+    syncStatus: spec.syncStatus || 'fresh',
+    syncLabel: spec.syncLabel || '演示数据',
     metrics: { ...spec.metrics },
     stageStates: buildStageStates(spec.stage),
     tasks: spec.tasks.map(([id, reqId, title, status, owner, priority, blocker, next, evidence]) => ({
@@ -620,12 +685,12 @@ function createProjectFromSpec(spec) {
   };
 }
 
-function buildProjectFromDraft(draft, index) {
+async function buildProjectFromDraft(draft, index) {
   const sourcePath = draft.sourcePath.trim();
-  const localProfile = resolveLocalProjectProfile({ sourcePath });
+  const snapshot = await fetchProjectSnapshot(sourcePath);
 
-  if (localProfile) {
-    return localProfile;
+  if (snapshot) {
+    return mapProjectSnapshotToProject(snapshot, index);
   }
 
   const resolvedName = shortLabel(sourcePath) || `未命名项目 ${index}`;
@@ -643,6 +708,7 @@ function buildProjectFromDraft(draft, index) {
     name: resolvedName,
     alias,
     sourcePath,
+    sourceType: 'local',
     domain,
     owner,
     lead: '产品 + 设计 + 工程',
@@ -654,6 +720,8 @@ function buildProjectFromDraft(draft, index) {
     risk: stage === 'execution' ? '中' : '低',
     lastUpdated: formatTimestamp(new Date()),
     summary,
+    syncStatus: 'stale',
+    syncLabel: '未检测到状态文件',
     metrics: {
       totalTasks: 0,
       doing: 0,
@@ -671,122 +739,186 @@ function buildProjectFromDraft(draft, index) {
     evidence: [
       {
         title: '创建状态',
-        value: '已创建',
-        detail: '请继续补充需求、任务和证据。',
+        value: '未初始化',
+        detail: '当前路径下还没有 project-state.json，先执行 workflow-bootstrap。',
       },
     ],
-    risks: ['新建项目尚未拆任务，后续需要补充需求池和任务看板。'],
+    risks: ['当前项目还没有状态骨架，驾驶舱无法读取动态任务数据。'],
     timeline: [
       {
         time: formatClock(new Date()),
         label: '创建项目',
-        desc: '通过驾驶舱新增入口创建。',
+        desc: '路径已接入，但还未检测到 project-state.json。',
       },
     ],
     members: [owner],
   };
 }
 
-function resolveLocalProjectProfile({ sourcePath }) {
-  const normalizedSource = shortLabel(sourcePath).toLowerCase();
-  const normalizedPath = sourcePath.toLowerCase();
-  const projectTemplate = localProjectTemplates.find((item) => {
-    return item.match(normalizedSource, normalizedPath);
-  });
+async function fetchProjectSnapshot(sourcePath) {
+  const normalizedPath = sourcePath.trim();
+  if (!normalizedPath) return null;
 
-  if (!projectTemplate) return null;
-
-  const now = new Date();
-  return projectTemplate.build({ now, sourcePath });
+  try {
+    const response = await fetch(`/api/project-state?path=${encodeURIComponent(normalizedPath)}`);
+    const result = await response.json();
+    if (!response.ok || result.error) {
+      return {
+        found: false,
+        projectPath: normalizedPath,
+        error: result.error || '读取失败',
+      };
+    }
+    return result;
+  } catch (error) {
+    return {
+      found: false,
+      projectPath: normalizedPath,
+      error: error instanceof Error ? error.message : '读取失败',
+    };
+  }
 }
 
-const localProjectTemplates = [
-  {
-    match(normalizedSource, normalizedPath) {
-      return (
-        normalizedSource === 'erp-finance' ||
-        normalizedSource === 'erp-finance-web' ||
-        normalizedPath.includes('/erp-finance')
-      );
-    },
-    build({ now, sourcePath }) {
-      return createLocalSnapshot({
-        id: `project-erp-finance-${now.getTime()}`,
-        name: 'ERP 财务管理系统',
-        alias: 'ERP',
-        sourcePath: sourcePath.trim() || '/Users/wucongpeng/Documents/jty-work/erp-finance',
-        domain: '财务 / 凭证 / 报销',
-        owner: '财务协作组',
-        lead: '产品 + 前端 + 后端 + 数据',
-        iteration: 'V3.0 workflow 接入',
-        release: '本地项目',
-        stage: 'requirement',
-        gateStatus: '进行中',
-        health: '观察中',
-        risk: '中',
-        lastUpdated: formatTimestamp(now),
-        summary:
-          '本地财务系统已接入 workflow 底座与运行态记忆，当前围绕需求治理、任务回写和验证收口推进。',
-        metrics: {
-          totalTasks: 5,
-          doing: 2,
-          blocked: 1,
-          review: 1,
-          done: 1,
-          evidenceCoverage: 64,
-          releaseGate: '待验证',
-        },
-        currentTask: 'TASK-901',
-        currentFocus: 'workflow 状态快照接入',
-        blocker: '本地项目快照已创建，待继续补齐任务记忆与证据回写。',
-        tasks: [
-          ['TASK-901', 'REQ-901', 'workflow 底座接入', 'done', '平台', 'P1', '', '已完成并归档', 'PROJECT_CONTEXT / AGENTS 已接入'],
-          ['TASK-902', 'REQ-902', '需求池与任务看板同步', 'doing', '治理', 'P0', '需要同步本地需求目录', '补齐 doc/requirements/', '需求治理目录已定位'],
-          ['TASK-903', 'REQ-903', '任务记忆落点确认', 'review', '记忆', 'P1', '', '确认 .ai/memory/tasks/ 归档策略', '.ai/memory 目录已识别'],
-          ['TASK-904', 'REQ-904', '项目路径自动扫描', 'doing', '驾驶舱', 'P0', '需要补充更多目录映射规则', '扩展目录扫描规则', 'sourcePath 已接入'],
-          ['TASK-905', 'REQ-905', '发布闸门与验证记录', 'blocked', '验证', 'P1', '最终验证记录待补齐', '补齐证据后恢复', '待生成'],
-        ],
-        evidence: [
-          { title: '底座状态', value: '已接入', detail: 'PROJECT_CONTEXT / AGENTS 已识别' },
-          { title: '证据完整度', value: '64%', detail: '缺少最终验证记录与发布说明' },
-          { title: '目录落点', value: '已定位', detail: 'doc/requirements 与 .ai/memory 可继续接入' },
-        ],
-        risks: [
-          '需求池与任务看板仍需要进一步结构化',
-          '任务记忆与知识落点需要和本地规范对齐',
-          '验证记录与发布闸门还未完全闭环',
-        ],
-        timeline: [
-          { time: formatClock(now), label: '创建项目快照', desc: '根据本地路径自动挂载 ERP 财务管理系统。' },
-          { time: '09:41', label: '接入工作流事实', desc: '识别 PROJECT_CONTEXT 与 AGENTS。' },
-          { time: '09:12', label: '扫描项目目录', desc: '准备对 .ai 与 requirements 目录继续接入。' },
-        ],
-        members: ['财务协作组', '治理', '记忆', '验证'],
-      });
-    },
-  },
-];
+function mapProjectSnapshotToProject(snapshot, index, existingProject) {
+  const sourcePath = snapshot.projectPath;
+  const state = snapshot.state;
 
-function createLocalSnapshot(spec) {
+  if (!snapshot.found || !state) {
+    return existingProject
+      ? {
+          ...existingProject,
+          syncStatus: 'stale',
+          syncLabel: snapshot.error ? '读取失败' : '未检测到状态文件',
+          lastUpdated: existingProject.lastUpdated,
+          blocker: snapshot.error || '当前路径下还没有状态骨架',
+        }
+      : buildProjectFromMissingState(sourcePath, index, snapshot.error);
+  }
+
+  const project = state.project ?? {};
+  const workflow = state.workflow ?? {};
+  const metrics = state.metrics ?? {};
+  const evidence = Array.isArray(state.evidence) ? state.evidence : [];
+  const risks = Array.isArray(state.risks) ? state.risks : [];
+  const timeline = Array.isArray(state.timeline) ? state.timeline : [];
+  const tasks = Array.isArray(state.tasks) ? state.tasks : [];
+  const name = project.name || shortLabel(sourcePath) || `本地项目 ${index}`;
+  const alias = buildAlias(name, sourcePath, index);
+
   return {
-    ...spec,
-    metrics: { ...spec.metrics },
-    stageStates: buildStageStates(spec.stage),
-    tasks: spec.tasks.map(([id, reqId, title, status, owner, priority, blocker, next, evidence]) => ({
-      id,
-      reqId,
-      title,
-      status,
-      owner,
-      priority,
-      blocker,
-      next,
-      evidence,
+    id: existingProject?.id || `project-${Date.now()}-${index}`,
+    name,
+    alias,
+    sourcePath,
+    sourceType: 'local',
+    domain: project.docsRoot || '本地项目',
+    owner: existingProject?.owner || '本地项目',
+    lead: `${project.language || '未知语言'} / ${project.buildTool || '未知构建'}`,
+    iteration: workflow.currentMode || '运行态同步',
+    release: project.prdDirectory || '未设置',
+    stage: normalizeStage(workflow.stage),
+    gateStatus: workflow.gateStatus || '未同步',
+    health: workflow.health || '待扫描',
+    risk: normalizeRisk(workflow.risk),
+    lastUpdated: formatSyncTime(state.sync?.lastSyncAt || snapshot.updatedAt),
+    summary: buildSnapshotSummary(name, project, workflow),
+    syncStatus: normalizeSyncStatus(state.sync?.status),
+    syncLabel: buildSyncLabel(state.sync),
+    metrics: {
+      totalTasks: metrics.totalTasks || tasks.length,
+      doing: metrics.doing || 0,
+      blocked: metrics.blocked || 0,
+      review: metrics.review || 0,
+      done: metrics.done || 0,
+      evidenceCoverage: metrics.evidenceCoverage || 0,
+      releaseGate: workflow.stage === 'execution' ? workflow.gateStatus || '进行中' : '未进入',
+    },
+    stageStates: buildStageStates(normalizeStage(workflow.stage)),
+    currentTask: workflow.currentTaskId || '未设置',
+    currentFocus: workflow.currentTaskTitle || workflow.currentReqTitle || '等待下一步',
+    blocker: risks[0]?.text || snapshot.error || '暂无阻塞',
+    tasks: tasks.map((task) => ({
+      id: task.taskId || '未命名任务',
+      reqId: task.reqId || 'REQ-待补充',
+      title: task.title || '未命名任务',
+      status: normalizeTaskStatus(task.status),
+      owner: task.owner || '待分配',
+      priority: task.priority || 'P1',
+      blocker: '',
+      next: task.acceptance || '继续推进',
+      evidence: task.docs || '待补充',
     })),
-    evidence: spec.evidence.map((item) => ({ ...item })),
-    risks: [...spec.risks],
-    timeline: spec.timeline.map((item) => ({ ...item })),
-    members: [...spec.members],
+    evidence: buildEvidenceCards(evidence, metrics),
+    risks: risks.length ? risks.map((item) => item.text || String(item)) : ['暂无风险'],
+    timeline: buildTimelineCards(timeline),
+    members: existingProject?.members?.length ? existingProject.members : ['本地项目'],
+  };
+}
+
+function mergeProjectSnapshot(existingProject, snapshot) {
+  return mapProjectSnapshotToProject(snapshot, 1, existingProject);
+}
+
+function buildProjectFromMissingState(sourcePath, index, errorMessage = '') {
+  const fallbackProject = buildProjectFromPath(sourcePath, index);
+  return {
+    ...fallbackProject,
+    blocker: errorMessage || fallbackProject.blocker,
+  };
+}
+
+function buildProjectFromPath(sourcePath, index) {
+  const resolvedName = shortLabel(sourcePath) || `未命名项目 ${index}`;
+  const alias = buildAlias(resolvedName, sourcePath, index);
+  return {
+    id: `project-${Date.now()}-${index}`,
+    name: resolvedName,
+    alias,
+    sourcePath,
+    sourceType: 'local',
+    domain: '未接入状态骨架',
+    owner: '本地项目',
+    lead: '等待 workflow-bootstrap',
+    iteration: '尚未初始化',
+    release: '未设置',
+    stage: 'bootstrap',
+    gateStatus: '待初始化',
+    health: '待扫描',
+    risk: '中',
+    lastUpdated: formatTimestamp(new Date()),
+    summary: `${resolvedName} 已接入驾驶舱，但当前路径下还没有 project-state.json。`,
+    syncStatus: 'stale',
+    syncLabel: errorMessage ? '读取失败' : '未检测到状态文件',
+    metrics: {
+      totalTasks: 0,
+      doing: 0,
+      blocked: 0,
+      review: 0,
+      done: 0,
+      evidenceCoverage: 0,
+      releaseGate: '未进入',
+    },
+    stageStates: buildStageStates('bootstrap'),
+    currentTask: '待创建',
+    currentFocus: '先执行 workflow-bootstrap',
+    blocker: errorMessage || '当前路径下还没有状态骨架，驾驶舱无法读取动态数据。',
+    tasks: [],
+    evidence: [
+      {
+        title: '状态骨架',
+        value: '缺失',
+        detail: '先在项目里生成 .ai/runtime/project-state.json',
+      },
+    ],
+    risks: ['当前项目未完成 workflow 接入，无法显示真实任务、证据和时间线。'],
+    timeline: [
+      {
+        time: formatClock(new Date()),
+        label: '接入驾驶舱',
+        desc: '路径已记录，但还没有检测到状态文件。',
+      },
+    ],
+    members: ['本地项目'],
   };
 }
 
@@ -800,6 +932,88 @@ function buildProjectSummary(name, domain, owner, stage, sourcePath) {
   const pathText = sourcePath ? `，路径为 ${sourcePath}` : '';
 
   return `${name} 主要覆盖 ${domain}，当前由 ${owner} 负责${pathText}，阶段目标是${stageText}。`;
+}
+
+function buildSnapshotSummary(name, project, workflow) {
+  const language = project.language ? `${project.language} / ` : '';
+  const buildTool = project.buildTool || '待补充';
+  const gateStatus = workflow.gateStatus || '未同步';
+  return `${name} 已接入本地状态快照，当前阶段为 ${stageTitle(normalizeStage(workflow.stage))}，门禁状态 ${gateStatus}，技术栈 ${language}${buildTool}。`;
+}
+
+function normalizeStage(stage) {
+  if (stage === 'execution' || stage === 'requirement' || stage === 'bootstrap') {
+    return stage;
+  }
+  return 'bootstrap';
+}
+
+function normalizeRisk(risk) {
+  if (risk === '高' || risk === '中' || risk === '低') return risk;
+  if (risk === '异常') return '高';
+  if (risk === '观察中') return '中';
+  return '低';
+}
+
+function normalizeTaskStatus(status) {
+  const normalized = String(status || '').toLowerCase();
+  if (normalized === 'todo' || normalized === '待处理' || normalized === '待办') return 'todo';
+  if (normalized === 'doing' || normalized === '进行中') return 'doing';
+  if (normalized === 'review' || normalized === '待审核' || normalized === '待人工审核') return 'review';
+  if (normalized === 'blocked' || normalized === '阻塞中') return 'blocked';
+  if (normalized === 'done' || normalized === '已完成' || normalized === '已收口') return 'done';
+  return 'todo';
+}
+
+function normalizeSyncStatus(status) {
+  if (status === 'fresh' || status === 'preview') return 'fresh';
+  return 'stale';
+}
+
+function buildSyncLabel(sync) {
+  if (!sync?.lastSyncAt) return sync?.status === 'preview' ? '预览状态' : '未同步';
+  return `已同步 ${formatSyncTime(sync.lastSyncAt)}`;
+}
+
+function buildEvidenceCards(evidence, metrics) {
+  const cards = evidence.slice(0, 3).map((item, index) => ({
+    title: item.kind === 'file' ? `证据 ${index + 1}` : item.title || `证据 ${index + 1}`,
+    value: shortLabel(item.ref || item.value || '已记录'),
+    detail: item.ref || item.detail || '已接入状态快照',
+  }));
+
+  if (!cards.length) {
+    cards.push({
+      title: '证据完整度',
+      value: `${metrics.evidenceCoverage || 0}%`,
+      detail: '当前状态快照里还没有明细证据。',
+    });
+  }
+
+  return cards;
+}
+
+function buildTimelineCards(timeline) {
+  return timeline
+    .slice(-5)
+    .reverse()
+    .map((item) => ({
+      time: item.time || '--:--',
+      label: item.title || item.stage || '状态更新',
+      desc: item.detail || '已同步',
+    }));
+}
+
+function buildAlias(name, sourcePath, index) {
+  const aliasSource = shortLabel(sourcePath) || name || `P${index}`;
+  return aliasSource.replace(/[^a-zA-Z0-9]/g, '').slice(0, 4).toUpperCase() || `P${index}`;
+}
+
+function formatSyncTime(value) {
+  if (!value) return formatTimestamp(new Date());
+  const date = typeof value === 'string' ? new Date(value.replace(' ', 'T')) : new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return formatTimestamp(date);
 }
 
 function formatTimestamp(date) {

@@ -571,6 +571,13 @@ button:disabled {
   font-size: 12px;
 }
 
+.composer-error {
+  margin: 0;
+  color: #ff8f8f;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
 .add-card {
   display: grid;
   gap: 6px;
