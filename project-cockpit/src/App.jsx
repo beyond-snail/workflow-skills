@@ -462,7 +462,12 @@ function App() {
           <section className="panel panel--tasks">
             <div className="focus-banner">
               <div className="focus-banner__main">
-                <span className="focus-banner__label">当前焦点</span>
+                <div className="focus-banner__headline">
+                  <span className="focus-banner__label">当前焦点</span>
+                  <span className={`status-pill status-${activeProject?.currentTaskStatus || inferProjectStatus(activeProject)}`}>
+                    {statusLabels[activeProject?.currentTaskStatus || inferProjectStatus(activeProject)] || activeProject?.gateStatus || '未同步'}
+                  </span>
+                </div>
                 <strong>{activeProject?.currentFocus ?? '等待下一步'}</strong>
                 <p>{activeProject?.blocker ?? '暂无阻塞'}</p>
               </div>
@@ -1163,6 +1168,15 @@ function taskStatusWeight(status) {
   if (status === 'todo') return 3;
   if (status === 'done') return 4;
   return 5;
+}
+
+function inferProjectStatus(project) {
+  if (!project) return 'todo';
+  if (project.metrics?.blocked > 0) return 'blocked';
+  if (project.gateStatus === '待人工审核' || project.gateStatus === '待验证') return 'review';
+  if (project.metrics?.doing > 0) return 'doing';
+  if (project.metrics?.done > 0) return 'done';
+  return 'todo';
 }
 
 function stageTitle(stage) {

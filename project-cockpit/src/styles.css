@@ -194,8 +194,8 @@ button:disabled {
 
 .dashboard--project {
   display: grid;
-  grid-template-columns: 320px minmax(0, 1fr) 340px;
-  gap: 20px;
+  grid-template-columns: 260px minmax(0, 1.5fr) 300px;
+  gap: 16px;
   align-items: stretch;
 }
 
@@ -398,7 +398,7 @@ button:disabled {
 }
 
 .project-rail {
-  gap: 14px;
+  gap: 12px;
   overflow: auto;
   padding-right: 4px;
   scrollbar-gutter: stable;
@@ -1111,12 +1111,31 @@ button:disabled {
   background:
     linear-gradient(135deg, rgba(66, 221, 255, 0.08), transparent 35%),
     rgba(255, 255, 255, 0.03);
+  overflow: hidden;
+}
+
+.focus-banner::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(115deg, transparent 22%, rgba(66, 221, 255, 0.08) 50%, transparent 78%);
+  transform: translateX(-120%);
+  animation: focus-scan 4.8s ease-in-out infinite;
 }
 
 .focus-banner__main,
 .focus-banner__meta {
   display: grid;
   gap: 6px;
+  position: relative;
+  z-index: 1;
+}
+
+.focus-banner__headline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
 }
 
 .focus-banner__label,
@@ -1154,6 +1173,13 @@ button:disabled {
   min-height: 132px;
   padding: 14px;
   animation: rise 520ms ease both;
+  transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
+}
+
+.task-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(66, 221, 255, 0.3);
+  box-shadow: 0 0 0 1px rgba(66, 221, 255, 0.04), 0 10px 30px rgba(0, 0, 0, 0.18);
 }
 
 .task-id {
@@ -1178,6 +1204,7 @@ button:disabled {
   padding: 0 10px;
   font-size: 11px;
   font-weight: 700;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
 }
 
 .status-todo {
@@ -1188,21 +1215,25 @@ button:disabled {
 .status-doing {
   color: var(--cyan);
   background: rgba(66, 221, 255, 0.12);
+  animation: state-pulse-cyan 2.8s ease-in-out infinite alternate;
 }
 
 .status-review {
   color: var(--amber);
   background: rgba(255, 191, 115, 0.12);
+  animation: state-pulse-amber 3.2s ease-in-out infinite alternate;
 }
 
 .status-blocked {
   color: var(--rose);
   background: rgba(255, 127, 150, 0.12);
+  animation: state-pulse-rose 2.6s ease-in-out infinite alternate;
 }
 
 .status-done {
   color: var(--emerald);
   background: rgba(106, 242, 163, 0.12);
+  animation: state-pulse-emerald 3s ease-in-out infinite alternate;
 }
 
 .task-meta {
@@ -1480,6 +1511,60 @@ button:disabled {
   }
   to {
     box-shadow: 0 0 0 1px rgba(66, 221, 255, 0.1), 0 0 22px rgba(66, 221, 255, 0.09);
+  }
+}
+
+@keyframes focus-scan {
+  0% {
+    transform: translateX(-120%);
+    opacity: 0;
+  }
+  18% {
+    opacity: 1;
+  }
+  55% {
+    transform: translateX(120%);
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(120%);
+    opacity: 0;
+  }
+}
+
+@keyframes state-pulse-cyan {
+  from {
+    box-shadow: 0 0 0 0 rgba(66, 221, 255, 0.12);
+  }
+  to {
+    box-shadow: 0 0 0 6px rgba(66, 221, 255, 0.02);
+  }
+}
+
+@keyframes state-pulse-amber {
+  from {
+    box-shadow: 0 0 0 0 rgba(255, 191, 115, 0.12);
+  }
+  to {
+    box-shadow: 0 0 0 6px rgba(255, 191, 115, 0.02);
+  }
+}
+
+@keyframes state-pulse-rose {
+  from {
+    box-shadow: 0 0 0 0 rgba(255, 127, 150, 0.14);
+  }
+  to {
+    box-shadow: 0 0 0 6px rgba(255, 127, 150, 0.025);
+  }
+}
+
+@keyframes state-pulse-emerald {
+  from {
+    box-shadow: 0 0 0 0 rgba(106, 242, 163, 0.12);
+  }
+  to {
+    box-shadow: 0 0 0 6px rgba(106, 242, 163, 0.02);
   }
 }
 
