@@ -439,7 +439,7 @@ function App() {
               <MetaChip label="任务" value={String(activeProject?.tasks?.length ?? 0)} tone="muted" />
             </div>
 
-            <div className="project-rail__chips">
+            <div className="project-rail__chips project-rail__chips--single">
               <MetaChip label="同步" value={activeProject?.syncLabel ?? '未同步'} tone={activeProject?.syncStatus === 'stale' ? 'danger' : 'muted'} />
             </div>
 
@@ -474,7 +474,7 @@ function App() {
                 </div>
                 <div>
                   <span>证据</span>
-                  <strong>{activeProject?.evidence?.length ?? 0} 条</strong>
+                  <strong>{activeProject?.evidenceTotal ?? activeProject?.evidence?.length ?? 0} 条</strong>
                 </div>
               </div>
             </div>
@@ -669,6 +669,7 @@ function cloneProject(project) {
     sourceType: project.sourceType || 'demo',
     syncStatus: project.syncStatus || 'fresh',
     syncLabel: project.syncLabel || '演示数据',
+    evidenceTotal: project.evidenceTotal ?? project.evidence.length,
     metrics: { ...project.metrics },
     stageStates: { ...project.stageStates },
     tasks: project.tasks.map((task) => ({ ...task })),
@@ -685,6 +686,7 @@ function createProjectFromSpec(spec) {
     sourceType: spec.sourceType || 'demo',
     syncStatus: spec.syncStatus || 'fresh',
     syncLabel: spec.syncLabel || '演示数据',
+    evidenceTotal: spec.evidenceTotal ?? spec.evidence.length,
     metrics: { ...spec.metrics },
     stageStates: buildStageStates(spec.stage),
     tasks: spec.tasks.map(([id, reqId, title, status, owner, priority, blocker, next, evidence]) => ({
@@ -742,6 +744,7 @@ async function buildProjectFromDraft(draft, index) {
     summary,
     syncStatus: 'stale',
     syncLabel: '未检测到状态文件',
+    evidenceTotal: 0,
     metrics: {
       totalTasks: 0,
       doing: 0,
@@ -844,6 +847,7 @@ function mapProjectSnapshotToProject(snapshot, index, existingProject) {
     summary: buildSnapshotSummary(name, project, workflow),
     syncStatus: normalizeSyncStatus(state.sync?.status),
     syncLabel: buildSyncLabel(state.sync),
+    evidenceTotal: evidence.length,
     metrics: {
       totalTasks: metrics.totalTasks || tasks.length,
       doing: metrics.doing || 0,
@@ -866,7 +870,8 @@ function mapProjectSnapshotToProject(snapshot, index, existingProject) {
       priority: task.priority || '',
       blocker: '',
       next: task.acceptance || '继续推进',
-      evidence: task.docs || '待补充',
+      evidence: shortEvidenceLabel(task.docs || '待补充'),
+      evidenceDetail: task.docs || '待补充',
     })),
     evidence: buildEvidenceCards(evidence, metrics),
     risks: risks.length ? risks.map((item) => item.text || String(item)) : ['暂无风险'],
@@ -909,6 +914,7 @@ function buildProjectFromPath(sourcePath, index) {
     summary: `${resolvedName} 已接入驾驶舱，但当前路径下还没有 project-state.json。`,
     syncStatus: 'stale',
     syncLabel: errorMessage ? '读取失败' : '未检测到状态文件',
+    evidenceTotal: 0,
     metrics: {
       totalTasks: 0,
       doing: 0,
@@ -1031,6 +1037,13 @@ function buildEvidenceCards(evidence, metrics) {
   }
 
   return cards;
+}
+
+function shortEvidenceLabel(value) {
+  const text = String(value || '').trim();
+  if (!text) return '待补充';
+  if (text.length <= 32 && !text.includes('/')) return text;
+  return shortLabel(text);
 }
 
 function buildTimelineCards(timeline) {
@@ -1253,7 +1266,7 @@ function TaskCard({ task, delay }) {
         </div>
         <div>
           <span>证据</span>
-          <strong>{task.evidence}</strong>
+          <strong title={task.evidenceDetail || task.evidence}>{task.evidence}</strong>
         </div>
       </div>
 
