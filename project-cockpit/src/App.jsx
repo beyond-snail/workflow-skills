@@ -473,14 +473,14 @@ function App() {
               </div>
 
               <div className="focus-banner__meta">
-                <div>
+                <article className="focus-stat">
                   <span>当前任务</span>
                   <strong>{activeProject?.currentTask ?? '未设置'}</strong>
-                </div>
-                <div>
+                </article>
+                <article className="focus-stat">
                   <span>证据</span>
                   <strong>{activeProject?.evidenceTotal ?? activeProject?.evidence?.length ?? 0} 条</strong>
-                </div>
+                </article>
               </div>
             </div>
 
@@ -1274,11 +1274,11 @@ function TaskCard({ task, delay }) {
       </div>
 
       <div className="task-flow">
-        <div>
+        <div className="task-flow__item">
           <span>下一步</span>
           <strong>{task.next}</strong>
         </div>
-        <div>
+        <div className="task-flow__item">
           <span>证据</span>
           <strong title={task.evidenceDetail || task.evidence}>{task.evidence}</strong>
         </div>

@@ -1136,6 +1136,7 @@ button:disabled {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+  flex-wrap: wrap;
 }
 
 .focus-banner__label,
@@ -1160,9 +1161,12 @@ button:disabled {
 .focus-banner__meta {
   grid-template-columns: 1fr;
   align-content: start;
+  gap: 10px;
 }
 
-.focus-banner__meta div {
+.focus-stat {
+  display: grid;
+  gap: 4px;
   padding: 10px 12px;
   border-radius: 14px;
   border: 1px solid rgba(148, 163, 184, 0.12);
@@ -1170,10 +1174,14 @@ button:disabled {
 }
 
 .task-card {
-  min-height: 132px;
+  display: grid;
+  grid-template-rows: auto auto auto;
+  gap: 10px;
+  min-height: 0;
   padding: 14px;
   animation: rise 520ms ease both;
   transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
+  overflow: hidden;
 }
 
 .task-card:hover {
@@ -1197,6 +1205,7 @@ button:disabled {
   margin: 0;
   font-size: 12px;
   line-height: 1.4;
+  word-break: break-word;
 }
 
 .status-pill {
@@ -1240,7 +1249,6 @@ button:disabled {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin-top: 10px;
 }
 
 .task-meta span {
@@ -1254,15 +1262,28 @@ button:disabled {
 }
 
 .task-flow {
-  margin-top: 12px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(180px, 0.85fr);
+  gap: 12px;
+  align-items: start;
 }
 
-.task-flow > div {
-  flex: 1;
+.task-flow__item {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.task-flow__item strong {
+  display: block;
+  min-width: 0;
+  line-height: 1.45;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .task-blocker {
-  margin: 12px 0 0;
+  margin: 0;
   padding: 10px 12px;
   border-radius: 14px;
   background: rgba(255, 127, 150, 0.08);
@@ -1601,6 +1622,10 @@ button:disabled {
   .summary-grid,
   .field-grid,
   .focus-banner {
+    grid-template-columns: 1fr;
+  }
+
+  .task-flow {
     grid-template-columns: 1fr;
   }
 
