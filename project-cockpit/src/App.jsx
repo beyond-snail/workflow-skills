@@ -252,10 +252,11 @@ function App() {
   const visibleProjects = projects.slice(currentPage * homePageSize, currentPage * homePageSize + homePageSize);
   const isLastPage = currentPage === pageCount - 1;
   const taskCounts = countTasks(activeProject?.tasks ?? []);
+  const orderedTasks = activeProject ? rankTasks(activeProject.tasks ?? [], activeProject.currentTask) : [];
   const visibleTasks =
     activeProject && taskFilter === 'all'
-      ? activeProject.tasks
-      : activeProject?.tasks.filter((task) => task.status === taskFilter) ?? [];
+      ? getTaskWindow(orderedTasks, activeProject)
+      : getTaskWindow((activeProject?.tasks ?? []).filter((task) => task.status === taskFilter), activeProject);
 
   useEffect(() => {
     const localProjects = projects.filter((project) => project.sourceType === 'local');
@@ -352,7 +353,7 @@ function App() {
 
       <header className="topbar">
         <div>
-          <h1>{view === 'home' ? '项目驾驶舱' : activeProject?.name ?? '项目页'}</h1>
+          <h1>{view === 'home' ? '项目驾驶舱' : getProjectDisplayName(activeProject)}</h1>
         </div>
 
         <div className="topbar-actions">
@@ -429,7 +430,7 @@ function App() {
 
             <div className="project-rail__hero">
               <span className="project-alias">{activeProject?.alias ?? 'NEW'}</span>
-              <h2>{activeProject?.name ?? '未选择项目'}</h2>
+              <h2>{getProjectDisplayName(activeProject)}</h2>
             </div>
 
             <div className="project-rail__chips">
@@ -842,8 +843,8 @@ function mapProjectSnapshotToProject(snapshot, index, existingProject) {
       reqId: task.reqId || 'REQ-待补充',
       title: task.title || '未命名任务',
       status: normalizeTaskStatus(task.status),
-      owner: task.owner || '待分配',
-      priority: task.priority || 'P1',
+      owner: task.owner || '',
+      priority: task.priority || '',
       blocker: '',
       next: task.acceptance || '继续推进',
       evidence: task.docs || '待补充',
@@ -932,6 +933,26 @@ function buildProjectSummary(name, domain, owner, stage, sourcePath) {
   const pathText = sourcePath ? `，路径为 ${sourcePath}` : '';
 
   return `${name} 主要覆盖 ${domain}，当前由 ${owner} 负责${pathText}，阶段目标是${stageText}。`;
+}
+
+function getProjectDisplayName(project) {
+  if (!project) return '未选择项目';
+  return humanizeProjectName(project.name || project.alias || '未命名项目');
+}
+
+function humanizeProjectName(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '未命名项目';
+  if (/[\u4e00-\u9fa5]/.test(raw)) return raw;
+
+  return raw
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map((part) => {
+      if (part.length <= 4) return part.toUpperCase();
+      return part.charAt(0).toUpperCase() + part.slice(1);
+    })
+    .join(' ');
 }
 
 function buildSnapshotSummary(name, project, workflow) {
@@ -1074,6 +1095,44 @@ function countTasks(tasks) {
   );
 }
 
+function rankTasks(tasks, currentTaskId) {
+  return [...tasks].sort((left, right) => {
+    if (left.id === currentTaskId) return -1;
+    if (right.id === currentTaskId) return 1;
+
+    const leftWeight = taskStatusWeight(left.status);
+    const rightWeight = taskStatusWeight(right.status);
+    if (leftWeight !== rightWeight) {
+      return leftWeight - rightWeight;
+    }
+
+    return String(right.id).localeCompare(String(left.id), 'zh-Hans-CN', { numeric: true });
+  });
+}
+
+function getTaskWindow(tasks, project) {
+  if (!project) return tasks;
+  if (project.sourceType !== 'local') return tasks;
+  if (tasks.length <= 8) return tasks;
+  if (project.stage !== 'execution') return tasks.slice(0, 10);
+
+  const unfinished = tasks.filter((task) => task.status !== 'done');
+  if (unfinished.length) {
+    return tasks.slice(0, 10);
+  }
+
+  return tasks.slice(0, 6);
+}
+
+function taskStatusWeight(status) {
+  if (status === 'doing') return 0;
+  if (status === 'review') return 1;
+  if (status === 'blocked') return 2;
+  if (status === 'todo') return 3;
+  if (status === 'done') return 4;
+  return 5;
+}
+
 function stageTitle(stage) {
   return stageMeta.find((item) => item.key === stage)?.title ?? stage;
 }
@@ -1134,7 +1193,7 @@ function ProjectTile({ project, onClick, delay }) {
         <span className={`risk-pill risk-${riskClass(project.risk)}`}>{project.risk}</span>
       </div>
 
-      <h3>{project.name}</h3>
+      <h3>{getProjectDisplayName(project)}</h3>
       <p>{project.summary}</p>
 
       <div className="project-tile__meta">
@@ -1151,6 +1210,7 @@ function ProjectTile({ project, onClick, delay }) {
 }
 
 function TaskCard({ task, delay }) {
+  const metaItems = [task.reqId, task.owner, task.priority].filter(Boolean);
   return (
     <article className="task-card" style={{ animationDelay: `${delay}ms` }}>
       <div className="task-card__top">
@@ -1162,9 +1222,9 @@ function TaskCard({ task, delay }) {
       </div>
 
       <div className="task-meta">
-        <span>{task.reqId}</span>
-        <span>{task.owner}</span>
-        <span>{task.priority}</span>
+        {metaItems.map((item) => (
+          <span key={item}>{item}</span>
+        ))}
       </div>
 
       <div className="task-flow">

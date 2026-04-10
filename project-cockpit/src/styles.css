@@ -131,10 +131,10 @@ button:disabled {
 
 .topbar h1 {
   margin: 0;
-  font-family: 'Bricolage Grotesque', sans-serif;
-  font-size: clamp(26px, 2.8vw, 42px);
-  line-height: 0.95;
-  letter-spacing: -0.05em;
+  font-family: 'IBM Plex Sans SC', 'Bricolage Grotesque', sans-serif;
+  font-size: clamp(22px, 2.3vw, 34px);
+  line-height: 1.02;
+  letter-spacing: -0.035em;
 }
 
 .topbar-actions {
@@ -333,9 +333,9 @@ button:disabled {
   position: relative;
   z-index: 1;
   margin: 18px 0 0;
-  font-size: 19px;
-  line-height: 1.08;
-  letter-spacing: -0.04em;
+  font-size: 17px;
+  line-height: 1.18;
+  letter-spacing: -0.025em;
 }
 
 .project-tile p {
@@ -415,9 +415,10 @@ button:disabled {
 
 .project-rail__hero h2 {
   margin: 0;
-  font-family: 'Bricolage Grotesque', sans-serif;
-  font-size: 20px;
-  letter-spacing: -0.04em;
+  font-family: 'IBM Plex Sans SC', 'Bricolage Grotesque', sans-serif;
+  font-size: 17px;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
 }
 
 .project-rail__hero p {
@@ -1111,7 +1112,7 @@ button:disabled {
 
 .task-card h4 {
   margin: 0;
-  font-size: 13px;
+  font-size: 12px;
   line-height: 1.4;
 }
 
