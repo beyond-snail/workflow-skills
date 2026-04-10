@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import shutil
 from dataclasses import dataclass
@@ -383,6 +384,7 @@ def render_project_context(d: Detection) -> str:
 - PRD 目录：`{d.prd_directory}`
 - 当前任务记忆目录：`.ai/memory/tasks/`
 - 当前项目知识目录：`.ai/memory/knowledge/`
+- workflow 状态骨架：`.ai/runtime/project-state.json`
 
 ## 3. 自动扫描结果
 - 代码主目录：{source_line}
@@ -394,6 +396,7 @@ def render_project_context(d: Detection) -> str:
 - 详细约定：`doc/开发协作约定.md`
 - 宿主补充目录：`.ai/governance/`
 - workflow runtime profile：`.ai/runtime/profile/project-profile.yml`
+- workflow 状态骨架：`.ai/runtime/project-state.json`
 
 ## 5. 默认约束
 - 正式治理材料长期保留在 `doc/requirements/`
@@ -414,6 +417,7 @@ paths:
   requirements_pool: "{d.docs_root}/requirements/需求池.md"
   task_board: "{d.docs_root}/requirements/任务看板.md"
   prd_directory: "{d.prd_directory}"
+  project_state: ".ai/runtime/project-state.json"
   readme_index: "README.md"
   tasks_index: ".ai/memory/tasks/index.md"
   tasks_template_dir: ".ai/memory/tasks/_template"
@@ -431,6 +435,44 @@ features:
   private_registry: false
   lightweight_mode: false
 """
+
+
+def render_project_state(root: Path, d: Detection) -> str:
+    payload = {
+        "schemaVersion": "1.0",
+        "project": {
+            "name": d.project_name,
+            "path": str(root),
+            "language": d.language,
+            "buildTool": d.build_tool,
+            "docsRoot": d.docs_root,
+            "prdDirectory": d.prd_directory,
+        },
+        "workflow": {
+            "stage": "bootstrap",
+            "gateStatus": "待初始化",
+            "health": "待扫描",
+            "risk": "未知",
+        },
+        "metrics": {
+            "totalTasks": 0,
+            "doing": 0,
+            "blocked": 0,
+            "review": 0,
+            "done": 0,
+            "evidenceCoverage": 0,
+        },
+        "tasks": [],
+        "evidence": [],
+        "risks": [],
+        "timeline": [],
+        "sync": {
+            "source": "bootstrap",
+            "status": "fresh",
+            "lastSyncAt": "",
+        },
+    }
+    return json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
 
 
 def render_governance(d: Detection) -> str:
@@ -503,6 +545,7 @@ def render_governance(d: Detection) -> str:
 - 任务模板：`.ai/memory/tasks/_template/`
 - 项目知识：`.ai/memory/knowledge/`
 - runtime profile：`.ai/runtime/profile/project-profile.yml`
+- workflow 状态骨架：`.ai/runtime/project-state.json`
 - 正式需求治理：`{d.docs_root}/requirements/`
 - PRD 目录：`{d.prd_directory}`
 
@@ -618,6 +661,7 @@ def self_check(root: Path, d: Detection) -> tuple[list[str], list[str]]:
         root / ".ai/memory/tasks/index.md",
         root / ".ai/memory/knowledge/README.md",
         root / ".ai/runtime/profile/project-profile.yml",
+        root / ".ai/runtime/project-state.json",
         root / f"{d.docs_root}/requirements/需求池.md",
         root / f"{d.docs_root}/requirements/任务看板.md",
     ]
@@ -697,6 +741,7 @@ def main() -> int:
         ".ai/memory/tasks/_template/verify.md": TASK_VERIFY,
         ".ai/memory/knowledge/README.md": KNOWLEDGE_README,
         ".ai/runtime/profile/project-profile.yml": render_profile(detection),
+        ".ai/runtime/project-state.json": render_project_state(root, detection),
         f"{detection.docs_root}/requirements/需求池.md": REQUIREMENTS_POOL,
         f"{detection.docs_root}/requirements/任务看板.md": TASK_BOARD,
     }

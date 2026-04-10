@@ -3,7 +3,7 @@ name: workflow-bootstrap
 description: 当需要给一个新仓库或旧仓库补齐 workflow + memory 协作底座时使用。适用于自动初始化 AGENTS、PROJECT_CONTEXT、开发协作约定、.ai 目录骨架、宿主补充文件、任务记忆模板、runtime profile，以及最小 requirements 治理文件。
 ---
 
-# Workflow Bootstrap Skill (v1.1.0)
+# Workflow Bootstrap Skill (v1.2.0)
 
 初始化一个仓库的最小 workflow + memory 底座，让后续 `workflow-requirement` 和 `workflow-execution` 有稳定的目录和配置可用。
 
@@ -14,6 +14,7 @@ description: 当需要给一个新仓库或旧仓库补齐 workflow + memory 协
 1. 新仓库首次接入 workflow 三 skill
 2. 老仓库需要补齐 `.ai/` 目标目录和最小记忆结构，并自动迁移历史记忆目录
 3. 需要自动生成 `PROJECT_CONTEXT.md`、`doc/开发协作约定.md`、宿主补充文件和 `.ai/runtime/profile/project-profile.yml`
+4. 需要在底座初始化时同步生成 `.ai/runtime/project-state.json` 骨架，作为后续状态同步的单一事实源
 
 ## 推荐提示词
 
@@ -51,6 +52,7 @@ description: 当需要给一个新仓库或旧仓库补齐 workflow + memory 协
    - `profile/project-profile.yml`
    - `cache/.gitkeep`
    - `state/.gitkeep`
+   - `project-state.json`
 6. `.ai/bin/`
    - `workflow`
    - `wf-init`
@@ -91,6 +93,7 @@ bootstrap 会自动尝试识别：
 1. `PROJECT_CONTEXT.md`
 2. `doc/开发协作约定.md`
 3. `.ai/runtime/profile/project-profile.yml`
+4. `.ai/runtime/project-state.json`
 
 ## 可选参数
 
@@ -178,3 +181,4 @@ python3 <skill-dir>/scripts/workflow_cli.py arc --workspace-root . --task-id TAS
 1. 版本：`v1.1.0`
 2. 这是 workflow 家族的仓库初始化入口
 3. 生成的 profile 默认把 `.ai/memory` 作为任务记忆和知识主路径
+4. bootstrap 同时生成 `.ai/runtime/project-state.json` 的最小骨架，后续由 requirement / execution 增量回写
