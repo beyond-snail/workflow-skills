@@ -10,7 +10,10 @@
 ## 目录
 
 - `src/data.js`：项目、任务、证据、风险的示例数据
-- `src/App.jsx`：驾驶舱页面
+- `src/lib/cockpit.js`：状态映射、本地同步、任务排序与格式化
+- `src/components/CockpitUI.jsx`：页面通用卡片组件
+- `src/components/ComposerModal.jsx`：新建项目弹窗
+- `src/App.jsx`：驾驶舱页面装配层
 - `src/styles.css`：视觉样式与动效
 
 ## 运行
@@ -37,3 +40,4 @@ npm run build
 - 阶段总览
 - 证据与风险
 - 时间线
+- 本地状态文件同步
