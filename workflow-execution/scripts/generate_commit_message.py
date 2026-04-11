@@ -20,7 +20,7 @@ def find_task(task_file: Path, task_id: str) -> tuple[str | None, str | None]:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Generate standardized commit message for a task")
     add_profile_arg(parser)
-    parser.add_argument("--task-file", help="Path to task board, e.g. doc/requirements/任务看板.md")
+    parser.add_argument("--task-file", help="Path to task board, e.g. docs/workflow/requirements/任务看板.md")
     parser.add_argument("--task-id", required=True, help="Task ID, e.g. TASK-2026-03-19-01")
     parser.add_argument("--type", default="feat", help="Commit type: feat|fix|docs|refactor|test|chore")
     add_dry_run_arg(parser)

@@ -10,13 +10,13 @@ from pathlib import Path
 
 REQUIRED_FILES = (
     "AGENTS.md",
-    "PROJECT_CONTEXT.md",
-    "doc/开发协作约定.md",
+    "docs/workflow/PROJECT_CONTEXT.md",
+    "docs/workflow/开发协作约定.md",
     ".ai/memory/tasks/index.md",
     ".ai/memory/knowledge/README.md",
     ".ai/runtime/profile/project-profile.yml",
-    "doc/requirements/需求池.md",
-    "doc/requirements/任务看板.md",
+    "docs/workflow/requirements/需求池.md",
+    "docs/workflow/requirements/任务看板.md",
 )
 
 HOST_FILES = (

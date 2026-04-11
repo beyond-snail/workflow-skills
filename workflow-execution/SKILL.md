@@ -3,7 +3,7 @@ name: workflow-execution
 description: 当任务已通过人工审核且用户显式要求进入实现阶段时使用。
 ---
 
-# Workflow Execution Skill (v2.5.0)
+# Workflow Execution Skill (v2.6.0)
 
 在人工审核通过并收到显式开工指令后，按任务看板实现、验证、回写证据、同步任务记忆、提交并跑发布闸门。
 
@@ -158,7 +158,7 @@ python3 <skill-dir>/scripts/run_execution_round.py \
 
 ## 维护说明
 
-1. 版本：`v2.5.0`
+1. 版本：`v2.6.0`
 2. 本 skill 与 `workflow-bootstrap`、`workflow-requirement` 配套使用
 3. `references/shared-governance.md` 必须与 requirement 中的同名文件保持一致
 4. 不再依赖 `_shared`；保持 skill 自包含

@@ -1,9 +1,9 @@
 ---
 name: workflow-bootstrap
-description: 当需要给一个新仓库或旧仓库补齐 workflow + memory 协作底座时使用。适用于自动初始化 AGENTS、PROJECT_CONTEXT、开发协作约定、.ai 目录骨架、宿主补充文件、任务记忆模板、runtime profile，以及最小 requirements 治理文件。
+description: 当需要给一个新仓库或旧仓库补齐 workflow + memory 协作底座时使用。适用于自动初始化 AGENTS、docs/workflow 下的 PROJECT_CONTEXT/开发协作约定/requirements/PRD、.ai 目录骨架、宿主补充文件、任务记忆模板、runtime profile，以及最小 requirements 治理文件。
 ---
 
-# Workflow Bootstrap Skill (v1.2.0)
+# Workflow Bootstrap Skill (v2.6.0)
 
 初始化一个仓库的最小 workflow + memory 底座，让后续 `workflow-requirement` 和 `workflow-execution` 有稳定的目录和配置可用。
 
@@ -13,7 +13,7 @@ description: 当需要给一个新仓库或旧仓库补齐 workflow + memory 协
 
 1. 新仓库首次接入 workflow 三 skill
 2. 老仓库需要补齐 `.ai/` 目标目录和最小记忆结构，并自动迁移历史记忆目录
-3. 需要自动生成 `PROJECT_CONTEXT.md`、`doc/开发协作约定.md`、宿主补充文件和 `.ai/runtime/profile/project-profile.yml`
+3. 需要自动生成 `docs/workflow/PROJECT_CONTEXT.md`、`docs/workflow/开发协作约定.md`、宿主补充文件和 `.ai/runtime/profile/project-profile.yml`
 4. 需要在底座初始化时同步生成 `.ai/runtime/project-state.json` 骨架，作为后续状态同步的单一事实源
 
 ## 推荐提示词
@@ -23,7 +23,7 @@ description: 当需要给一个新仓库或旧仓库补齐 workflow + memory 协
 1. `用 workflow-bootstrap 初始化这个仓库`
 2. `给这个老项目补齐 workflow 三 skill 底座`
 3. `帮我把这个仓库接入 workflow + memory`
-4. `初始化这个项目的 AGENTS、PROJECT_CONTEXT 和 .ai 目录`
+4. `初始化这个项目的 AGENTS、docs/workflow 和 .ai 目录`
 5. `给这个仓库跑一遍 workflow bootstrap，并做健康检查`
 
 ## 核心边界
@@ -38,9 +38,10 @@ description: 当需要给一个新仓库或旧仓库补齐 workflow + memory 协
 
 1. 根目录：
    - `AGENTS.md`（若缺失）
+2. `docs/workflow/`
    - `PROJECT_CONTEXT.md`（若缺失）
-2. `doc/`
    - `开发协作约定.md`（若缺失）
+   - `PRD/.gitkeep`
 3. `.ai/governance/`
    - `codex-host.md`
    - `claude-host.md`
@@ -60,7 +61,7 @@ description: 当需要给一个新仓库或旧仓库补齐 workflow + memory 协
    - `wf-req`
    - `wf-exec`
    - `wf-arc`
-7. `doc/requirements/`
+7. `docs/workflow/requirements/`
    - `需求池.md`（若缺失）
    - `任务看板.md`（若缺失）
 
@@ -90,8 +91,8 @@ bootstrap 会自动尝试识别：
 
 并把这些结果写入：
 
-1. `PROJECT_CONTEXT.md`
-2. `doc/开发协作约定.md`
+1. `docs/workflow/PROJECT_CONTEXT.md`
+2. `docs/workflow/开发协作约定.md`
 3. `.ai/runtime/profile/project-profile.yml`
 4. `.ai/runtime/project-state.json`
 
@@ -101,8 +102,8 @@ bootstrap 会自动尝试识别：
 2. `--host claude`
 3. 可多次传入
 4. `--force-host-files` 可覆盖宿主文件骨架
-5. `--force-context` 可覆盖 `PROJECT_CONTEXT.md`
-6. `--force-governance` 可覆盖 `doc/开发协作约定.md`
+5. `--force-context` 可覆盖 `docs/workflow/PROJECT_CONTEXT.md`
+6. `--force-governance` 可覆盖 `docs/workflow/开发协作约定.md`
 7. `--force-profile` 可覆盖 `.ai/runtime/profile/project-profile.yml`
 8. `--skip-legacy-migration` 可跳过旧记忆目录迁移
 

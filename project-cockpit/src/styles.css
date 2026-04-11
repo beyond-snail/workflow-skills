@@ -174,8 +174,8 @@ button:disabled {
   justify-content: space-between;
   gap: 20px;
   align-items: flex-end;
-  padding: 18px 20px;
-  margin-bottom: 18px;
+  padding: 16px 18px;
+  margin-bottom: 14px;
   overflow: hidden;
 }
 
@@ -205,7 +205,7 @@ button:disabled {
 .topbar h1 {
   margin: 0;
   font-family: 'Oxanium', 'IBM Plex Sans SC', sans-serif;
-  font-size: clamp(24px, 2.4vw, 40px);
+  font-size: clamp(22px, 2.1vw, 32px);
   line-height: 1;
   letter-spacing: 0.02em;
   text-transform: uppercase;
@@ -215,8 +215,8 @@ button:disabled {
   margin: 10px 0 0;
   max-width: 72ch;
   color: var(--muted);
-  font-size: 14px;
-  line-height: 1.72;
+  font-size: 13px;
+  line-height: 1.64;
 }
 
 .topbar-ribbon {
@@ -261,6 +261,7 @@ button:disabled {
   background: linear-gradient(135deg, var(--cyan), var(--acid));
   border-color: transparent;
   font-weight: 700;
+  animation: neonPulse 2.8s ease-in-out infinite alternate;
 }
 
 .topbar-actions {
@@ -310,7 +311,7 @@ button:disabled {
 
 .workspace {
   display: grid;
-  gap: 18px;
+  gap: 14px;
 }
 
 .workspace--home {
@@ -330,10 +331,51 @@ button:disabled {
   overflow: hidden;
 }
 
+.hero-panel--compact {
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  gap: 16px;
+  padding: 14px 16px;
+}
+
+.hero-panel--compact .hero-panel__copy {
+  align-self: center;
+}
+
+.hero-panel--compact .hero-panel__copy::before {
+  margin-bottom: 10px;
+  width: 86px;
+}
+
+.hero-panel--compact .hero-panel__copy h2 {
+  font-size: clamp(24px, 2.3vw, 38px);
+}
+
+.hero-panel--compact .hero-panel__copy p {
+  margin-top: 8px;
+  font-size: 13px;
+  line-height: 1.58;
+}
+
+.hero-panel--compact .hero-panel__stats {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  align-self: center;
+  padding: 0;
+}
+
+.hero-panel--compact .metric-card {
+  min-height: 76px;
+  padding: 12px;
+}
+
+.hero-panel--compact .metric-card strong {
+  font-size: 16px;
+}
+
 .hero-panel__copy h2 {
   margin: 0;
   font-family: 'Oxanium', 'IBM Plex Sans SC', sans-serif;
-  font-size: clamp(28px, 3vw, 46px);
+  font-size: clamp(24px, 2.6vw, 36px);
   line-height: 1.02;
   letter-spacing: 0.02em;
   text-transform: uppercase;
@@ -343,8 +385,8 @@ button:disabled {
   margin: 12px 0 0;
   max-width: 66ch;
   color: var(--muted);
-  font-size: 14px;
-  line-height: 1.78;
+  font-size: 13px;
+  line-height: 1.66;
 }
 
 .hero-panel__copy::before {
@@ -479,7 +521,8 @@ button:disabled {
 }
 
 .board-panel {
-  padding-bottom: 20px;
+  padding-top: 16px;
+  padding-bottom: 18px;
 }
 
 .section-title {
@@ -488,18 +531,32 @@ button:disabled {
   align-items: flex-end;
   gap: 16px;
   margin-bottom: 16px;
+  position: relative;
+}
+
+.section-title::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 42%;
+  bottom: -10px;
+  height: 2px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--cyan), var(--violet), var(--acid));
+  box-shadow: 0 0 16px rgba(105, 231, 255, 0.2);
+  animation: ribbonSweep 8s linear infinite;
 }
 
 .section-title h3 {
   margin: 0;
-  font-size: 16px;
+  font-size: 15px;
   letter-spacing: 0.01em;
 }
 
 .section-title p {
   margin: 6px 0 0;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 11px;
   line-height: 1.6;
 }
 
@@ -538,7 +595,7 @@ button:disabled {
   transition: transform 180ms ease, border-color 180ms ease, background 180ms ease, box-shadow 180ms ease;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
   overflow: hidden;
-  animation: rise 560ms ease both;
+  animation: rise 560ms ease both, breathe 6s ease-in-out infinite alternate;
 }
 
 .project-tile::before {
@@ -604,6 +661,17 @@ button:disabled {
   align-items: center;
 }
 
+.project-tile__top::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -8px;
+  height: 1px;
+  background: linear-gradient(90deg, rgba(105, 231, 255, 0), rgba(105, 231, 255, 0.5), rgba(177, 140, 255, 0.45), rgba(214, 255, 108, 0));
+  opacity: 0.82;
+}
+
 .project-tile__alias,
 .risk-pill,
 .status-pill,
@@ -619,20 +687,20 @@ button:disabled {
 .project-tile__alias,
 .project-alias {
   min-width: 42px;
-  height: 26px;
+  height: 22px;
   padding: 0 10px;
   color: var(--cyan);
   background: rgba(105, 231, 255, 0.12);
-  font-size: 11px;
+  font-size: 9px;
   font-weight: 700;
   letter-spacing: 0.14em;
 }
 
 .risk-pill {
   min-width: 44px;
-  height: 26px;
+  height: 22px;
   padding: 0 10px;
-  font-size: 11px;
+  font-size: 9px;
   font-weight: 700;
 }
 
@@ -656,8 +724,8 @@ button:disabled {
   z-index: 1;
   margin: 18px 0 0;
   font-family: 'Oxanium', 'IBM Plex Sans SC', sans-serif;
-  font-size: 18px;
-  line-height: 1.2;
+  font-size: 16px;
+  line-height: 1.18;
   letter-spacing: 0.02em;
   text-transform: uppercase;
 }
@@ -667,8 +735,8 @@ button:disabled {
   z-index: 1;
   margin: 10px 0 0;
   color: var(--muted);
-  font-size: 13px;
-  line-height: 1.72;
+  font-size: 12px;
+  line-height: 1.68;
 }
 
 .project-tile__summary {
@@ -681,14 +749,14 @@ button:disabled {
 .project-tile__meta {
   margin-top: 16px;
   color: rgba(237, 244, 255, 0.76);
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .project-tile__foot {
   align-items: flex-end;
   margin-top: 14px;
   color: rgba(237, 244, 255, 0.72);
-  font-size: 11px;
+  font-size: 10px;
 }
 
 .project-tile__foot small {
@@ -724,6 +792,7 @@ button:disabled {
   position: relative;
   z-index: 1;
   font-size: 18px;
+  animation: neonPulse 2.8s ease-in-out infinite alternate;
 }
 
 .project-tile--new p {
@@ -755,10 +824,20 @@ button:disabled {
   pointer-events: none;
 }
 
+.project-identity::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(120deg, transparent 0%, rgba(105, 231, 255, 0.06) 48%, transparent 60%);
+  transform: translateX(-120%);
+  animation: chipSweep 10s ease-in-out infinite;
+  pointer-events: none;
+}
+
 .project-identity h2 {
   margin: 0;
   font-family: 'Oxanium', 'IBM Plex Sans SC', sans-serif;
-  font-size: 20px;
+  font-size: 18px;
   line-height: 1.12;
   text-transform: uppercase;
   letter-spacing: 0.02em;
@@ -767,8 +846,8 @@ button:disabled {
 .project-identity p {
   margin: 0;
   color: var(--muted);
-  font-size: 13px;
-  line-height: 1.72;
+  font-size: 12px;
+  line-height: 1.64;
 }
 
 .project-chips {
@@ -795,6 +874,7 @@ button:disabled {
   border: 1px solid rgba(159, 173, 196, 0.14);
   background: rgba(255, 255, 255, 0.03);
   transition: transform 220ms ease, border-color 220ms ease, box-shadow 220ms ease;
+  animation: rise 540ms ease both;
 }
 
 .stage-card:hover {
@@ -813,8 +893,12 @@ button:disabled {
   text-transform: uppercase;
 }
 
+.stage-card__head em {
+  animation: neonPulse 3.2s ease-in-out infinite alternate;
+}
+
 .stage-card strong {
-  font-size: 14px;
+  font-size: 13px;
   line-height: 1.35;
   font-family: 'Oxanium', 'IBM Plex Sans SC', sans-serif;
   letter-spacing: 0.02em;
@@ -858,6 +942,18 @@ button:disabled {
   pointer-events: none;
 }
 
+.focus-panel__main::before {
+  content: '';
+  display: block;
+  width: 110px;
+  height: 2px;
+  margin-bottom: 14px;
+  background: linear-gradient(90deg, var(--cyan), var(--violet), var(--acid));
+  border-radius: 999px;
+  box-shadow: 0 0 18px rgba(105, 231, 255, 0.22);
+  animation: ribbonSweep 8s linear infinite;
+}
+
 .focus-panel__headline {
   display: flex;
   align-items: center;
@@ -877,7 +973,7 @@ button:disabled {
   display: block;
   margin: 0;
   font-family: 'Oxanium', 'IBM Plex Sans SC', sans-serif;
-  font-size: clamp(24px, 2.1vw, 38px);
+  font-size: clamp(22px, 1.9vw, 30px);
   line-height: 1.08;
   letter-spacing: 0.02em;
   text-transform: uppercase;
@@ -886,8 +982,8 @@ button:disabled {
 .focus-panel__main p {
   margin: 12px 0 0;
   color: var(--muted);
-  font-size: 14px;
-  line-height: 1.72;
+  font-size: 12px;
+  line-height: 1.62;
 }
 
 .focus-panel__stats {
@@ -911,9 +1007,9 @@ button:disabled {
 .inspector-tab {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  height: 36px;
-  padding: 0 14px;
+  gap: 6px;
+  height: 30px;
+  padding: 0 9px;
   border-radius: 999px;
   border: 1px solid rgba(159, 173, 196, 0.16);
   background: rgba(255, 255, 255, 0.04);
@@ -949,11 +1045,12 @@ button:disabled {
   background: linear-gradient(135deg, rgba(105, 231, 255, 0.18), rgba(177, 140, 255, 0.12));
   border-color: rgba(105, 231, 255, 0.34);
   box-shadow: 0 0 18px rgba(105, 231, 255, 0.08);
+  animation: neonPulse 2.8s ease-in-out infinite alternate;
 }
 
 .filter-chip span {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 8px;
 }
 
 .task-list {
@@ -969,7 +1066,7 @@ button:disabled {
   border-radius: 20px;
   border: 1px solid rgba(159, 173, 196, 0.16);
   background: rgba(255, 255, 255, 0.03);
-  animation: rise 520ms ease both;
+  animation: rise 520ms ease both, breathe 6.6s ease-in-out infinite alternate;
   position: relative;
   overflow: hidden;
   transition: transform 220ms ease, border-color 220ms ease, box-shadow 220ms ease;
@@ -1000,14 +1097,25 @@ button:disabled {
   justify-content: space-between;
   gap: 14px;
   align-items: flex-start;
+  position: relative;
+}
+
+.task-card__top::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -8px;
+  height: 1px;
+  background: linear-gradient(90deg, rgba(105, 231, 255, 0), rgba(105, 231, 255, 0.45), rgba(177, 140, 255, 0.45), rgba(214, 255, 108, 0));
 }
 
 .task-id {
-  height: 24px;
+  height: 22px;
   padding: 0 10px;
   color: var(--cyan);
   background: rgba(105, 231, 255, 0.12);
-  font-size: 11px;
+  font-size: 9px;
   font-weight: 700;
   letter-spacing: 0.08em;
 }
@@ -1015,8 +1123,8 @@ button:disabled {
 .task-card h4 {
   margin: 10px 0 0;
   font-family: 'Oxanium', 'IBM Plex Sans SC', sans-serif;
-  font-size: 17px;
-  line-height: 1.24;
+  font-size: 15px;
+  line-height: 1.2;
   letter-spacing: 0.02em;
   text-transform: uppercase;
 }
@@ -1026,7 +1134,7 @@ button:disabled {
   flex-wrap: wrap;
   gap: 8px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .task-meta span {
@@ -1067,8 +1175,8 @@ button:disabled {
 
 .task-flow__item strong {
   color: var(--text);
-  font-size: 13px;
-  line-height: 1.6;
+  font-size: 12px;
+  line-height: 1.58;
   white-space: normal;
   word-break: break-word;
 }
@@ -1081,11 +1189,12 @@ button:disabled {
 }
 
 .status-pill {
-  padding: 0 10px;
-  min-width: 72px;
-  height: 26px;
-  font-size: 11px;
+  padding: 0 8px;
+  min-width: 62px;
+  height: 22px;
+  font-size: 9px;
   font-weight: 700;
+  letter-spacing: 0.04em;
 }
 
 .status-doing {
@@ -1145,7 +1254,7 @@ button:disabled {
 }
 
 .gate-box strong {
-  font-size: 16px;
+  font-size: 14px;
   line-height: 1.35;
 }
 
@@ -1169,6 +1278,7 @@ button:disabled {
   border: 1px solid rgba(159, 173, 196, 0.14);
   background: rgba(255, 255, 255, 0.03);
   transition: transform 220ms ease, border-color 220ms ease;
+  animation: rise 520ms ease both;
 }
 
 .mini-card:hover {
@@ -1184,15 +1294,15 @@ button:disabled {
 }
 
 .mini-card strong {
-  font-size: 18px;
+  font-size: 16px;
   line-height: 1.25;
 }
 
 .mini-card p {
   margin: 0;
   color: var(--muted);
-  font-size: 13px;
-  line-height: 1.68;
+  font-size: 12px;
+  line-height: 1.58;
 }
 
 .risk-list {
@@ -1246,12 +1356,12 @@ button:disabled {
 }
 
 .member-pill {
-  height: 32px;
-  padding: 0 12px;
+  height: 30px;
+  padding: 0 10px;
   border: 1px solid rgba(159, 173, 196, 0.14);
   background: rgba(255, 255, 255, 0.04);
   color: var(--text);
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .meta-chip {
@@ -1263,6 +1373,7 @@ button:disabled {
   border: 1px solid rgba(159, 173, 196, 0.14);
   background: rgba(255, 255, 255, 0.03);
   transition: transform 180ms ease, border-color 180ms ease;
+  animation: rise 480ms ease both;
 }
 
 .meta-chip:hover {
@@ -1276,13 +1387,13 @@ button:disabled {
 
 .meta-chip span {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 10px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
 .meta-chip strong {
-  font-size: 13px;
+  font-size: 12px;
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
@@ -1302,6 +1413,7 @@ button:disabled {
   border-radius: 18px;
   border: 1px solid rgba(159, 173, 196, 0.14);
   background: rgba(255, 255, 255, 0.03);
+  animation: rise 480ms ease both;
 }
 
 .metric-card span {
@@ -1312,7 +1424,7 @@ button:disabled {
 }
 
 .metric-card strong {
-  font-size: 18px;
+  font-size: 16px;
   line-height: 1.2;
   font-family: 'Oxanium', 'IBM Plex Sans SC', sans-serif;
   letter-spacing: 0.02em;
@@ -1356,7 +1468,7 @@ button:disabled {
 .composer-modal__head h2 {
   margin: 0;
   font-family: 'Oxanium', 'IBM Plex Sans SC', sans-serif;
-  font-size: 26px;
+  font-size: 22px;
   line-height: 1.1;
   text-transform: uppercase;
   letter-spacing: 0.02em;
@@ -1421,6 +1533,15 @@ button:disabled {
   line-height: 1.7;
   text-align: center;
   background: rgba(255, 255, 255, 0.02);
+}
+
+.project-tile,
+.task-card,
+.stage-card,
+.mini-card,
+.metric-card,
+.meta-chip {
+  will-change: transform;
 }
 
 .project-tile__summary,
@@ -1641,5 +1762,25 @@ button:disabled {
   to {
     opacity: 0.62;
     transform: translate3d(0, 8px, 0);
+  }
+}
+
+@keyframes neonPulse {
+  from {
+    filter: brightness(1);
+    box-shadow: 0 0 10px rgba(105, 231, 255, 0.08);
+  }
+  to {
+    filter: brightness(1.14);
+    box-shadow: 0 0 20px rgba(177, 140, 255, 0.18);
+  }
+}
+
+@keyframes breathe {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(-1px);
   }
 }

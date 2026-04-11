@@ -549,7 +549,7 @@ def main() -> int:
     parser.add_argument("--readme-section", default="### 执行文档")
     parser.add_argument("--design-prefix", default="技术设计")
     parser.add_argument("--breakdown-prefix", default="开发任务拆解")
-    parser.add_argument("--prd-rel", default="doc/PRD/待补PRD文档.md")
+    parser.add_argument("--prd-rel", default="docs/workflow/PRD/待补PRD文档.md")
     parser.add_argument("--req-id", help="Optional requirement id; auto-generated if omitted")
     parser.add_argument("--initial-task-id", help="Optional initial bootstrap task id; auto-generated if omitted")
     parser.add_argument("--req-status", default="planned")

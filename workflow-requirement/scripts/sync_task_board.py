@@ -148,7 +148,7 @@ def main() -> int:
     args = parser.parse_args()
 
     profile = load_profile_from_args(args)
-    task_default = profile.get("paths", {}).get("task_board", "doc/requirements/任务看板.md")
+    task_default = profile.get("paths", {}).get("task_board", "docs/workflow/requirements/任务看板.md")
     task_path = Path(args.task_file).resolve() if args.task_file else Path.cwd() / task_default
     return sync_task_board_entry(
         task_path=task_path,

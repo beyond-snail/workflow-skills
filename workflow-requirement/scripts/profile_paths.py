@@ -27,12 +27,13 @@ class ProjectPaths:
     def from_profile(cls, profile: dict[str, Any], workspace_root: Path | str) -> ProjectPaths:
         root = Path(workspace_root).resolve()
         paths_cfg = profile.get("paths", {})
-        docs_root = _resolve_existing_dir(root, paths_cfg.get("docs_root"), ("doc", "docs"))
+        docs_root = _resolve_existing_dir(root, paths_cfg.get("docs_root"), ("docs/workflow", "docs", "doc"))
         configured_requirements_pool = _resolve_configured_file(root, docs_root, paths_cfg.get("requirements_pool"))
         requirements_pool = configured_requirements_pool or _resolve_existing_file(
             root,
             None,
             (
+                "docs/workflow/requirements/需求池.md",
                 "doc/requirements/需求池.md",
                 "docs/requirements/需求池.md",
                 "requirements/需求池.md",
@@ -44,6 +45,7 @@ class ProjectPaths:
             root,
             None,
             (
+                "docs/workflow/requirements/任务看板.md",
                 "doc/requirements/任务看板.md",
                 "docs/requirements/任务看板.md",
                 "requirements/任务看板.md",
@@ -53,7 +55,7 @@ class ProjectPaths:
         prd_directory = _resolve_existing_dir(
             root,
             paths_cfg.get("prd_directory"),
-            ("doc/PRD", "docs/PRD", "doc/prd", "docs/prd", "PRD", "prd", "specs", "docs/specs"),
+            ("docs/workflow/PRD", "doc/PRD", "docs/PRD", "doc/prd", "docs/prd", "PRD", "prd", "specs", "docs/specs"),
             fallback_dir_name="PRD",
         )
         configured_readme_index = _resolve_configured_file(root, docs_root, paths_cfg.get("readme_index"))
@@ -82,7 +84,7 @@ class ProjectPaths:
             (".ai/memory/knowledge", "doc/knowledge", "docs/knowledge", "knowledge"),
             fallback_dir_name="knowledge",
         )
-        if docs_root == root / "doc" and not docs_root.exists():
+        if docs_root in {root / "doc", root / "docs", root / "docs/workflow"} and not docs_root.exists():
             if requirements_pool.exists():
                 docs_root = requirements_pool.parent.parent
             elif prd_directory.exists():

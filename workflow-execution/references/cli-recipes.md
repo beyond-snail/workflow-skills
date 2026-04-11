@@ -28,13 +28,13 @@ python3 <skill-dir>/scripts/run_execution_round.py \
 
 ```bash
 python3 <skill-dir>/scripts/select_next_task.py \
-  --task-file doc/requirements/任务看板.md \
+  --task-file docs/workflow/requirements/任务看板.md \
   --req-id REQ-xxxx
 ```
 
 ```bash
 python3 <skill-dir>/scripts/update_task_status.py \
-  --task-file doc/requirements/任务看板.md \
+  --task-file docs/workflow/requirements/任务看板.md \
   --task-id TASK-xxxx \
   --status doing \
   --expected-current todo
@@ -86,14 +86,14 @@ python3 <skill-dir>/scripts/promote_task_knowledge.py \
 
 ```bash
 python3 <skill-dir>/scripts/generate_commit_message.py \
-  --task-file doc/requirements/任务看板.md \
+  --task-file docs/workflow/requirements/任务看板.md \
   --task-id TASK-xxxx
 ```
 
 ```bash
 python3 <skill-dir>/scripts/run_release_gate.py \
   --project-root /path/to/repo \
-  --req-file doc/requirements/需求池.md \
+  --req-file docs/workflow/requirements/需求池.md \
   --req-id REQ-xxxx \
-  --doc-file doc/requirements/任务看板.md
+  --doc-file docs/workflow/requirements/任务看板.md
 ```

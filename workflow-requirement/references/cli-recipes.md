@@ -23,27 +23,27 @@ python3 <skill-dir>/scripts/run_requirement_round.py \
 
 ```bash
 python3 <skill-dir>/scripts/create_requirement_bundle.py \
-  --docs-root /path/to/repo/doc \
+  --docs-root /path/to/repo/docs/workflow \
   --date YYYY-MM-DD \
   --theme "主题"
 ```
 
 ```bash
 python3 <skill-dir>/scripts/populate_requirement_content.py \
-  --req-file doc/requirements/需求池.md \
-  --task-file doc/requirements/任务看板.md \
+  --req-file docs/workflow/requirements/需求池.md \
+  --task-file docs/workflow/requirements/任务看板.md \
   --req-id REQ-xxxx \
   --initial-task-id TASK-xxxx \
   --theme "主题" \
   --date YYYY-MM-DD \
-  --bundle-dir doc/requirements/YYYY-MM-DD-主题 \
-  --prd-file doc/PRD/xxx.md
+  --bundle-dir docs/workflow/requirements/YYYY-MM-DD-主题 \
+  --prd-file docs/workflow/PRD/xxx.md
 ```
 
 ```bash
 python3 <skill-dir>/scripts/check_handoff_readiness.py \
-  --req-file doc/requirements/需求池.md \
-  --task-file doc/requirements/任务看板.md \
+  --req-file docs/workflow/requirements/需求池.md \
+  --task-file docs/workflow/requirements/任务看板.md \
   --req-id REQ-xxxx \
   --docs-root .
 ```
@@ -68,7 +68,7 @@ python3 <skill-dir>/scripts/sync_task_index.py \
 
 ```bash
 python3 <skill-dir>/scripts/sync_prd_trace.py \
-  --file doc/requirements/.../design/YYYY-MM-DD-PRD追溯-主题.md \
+  --file docs/workflow/requirements/.../design/YYYY-MM-DD-PRD追溯-主题.md \
   --mode trace \
   --prd-section "7.2 / F001" \
   --prd-desc "需求描述" \
@@ -77,7 +77,7 @@ python3 <skill-dir>/scripts/sync_prd_trace.py \
 
 ```bash
 python3 <skill-dir>/scripts/record_test_result.py \
-  --file doc/requirements/.../testing/YYYY-MM-DD-测试结果-主题.md \
+  --file docs/workflow/requirements/.../testing/YYYY-MM-DD-测试结果-主题.md \
   --title "自动化补跑" \
   --status pass \
   --summary "本次补跑摘要"
@@ -85,7 +85,7 @@ python3 <skill-dir>/scripts/record_test_result.py \
 
 ```bash
 python3 <skill-dir>/scripts/record_acceptance_result.py \
-  --file doc/requirements/.../testing/YYYY-MM-DD-联调验收记录-主题.md \
+  --file docs/workflow/requirements/.../testing/YYYY-MM-DD-联调验收记录-主题.md \
   --title "联调补录" \
   --status pass \
   --summary "本次联调摘要"

@@ -55,8 +55,8 @@ def default_state(workspace_root: Path, profile: dict[str, Any]) -> dict[str, An
             "path": str(workspace_root),
             "language": project.get("language", ""),
             "buildTool": project.get("build_tool", ""),
-            "docsRoot": paths.get("docs_root", "doc"),
-            "prdDirectory": paths.get("prd_directory", "doc/PRD"),
+            "docsRoot": paths.get("docs_root", "docs/workflow"),
+            "prdDirectory": paths.get("prd_directory", "docs/workflow/PRD"),
         },
         "workflow": {
             "stage": "bootstrap",
@@ -267,8 +267,8 @@ def build_project_state(
         "path": str(workspace_root),
         "language": profile.get("project", {}).get("language", ""),
         "buildTool": profile.get("project", {}).get("build_tool", ""),
-        "docsRoot": profile.get("paths", {}).get("docs_root", "doc"),
-        "prdDirectory": profile.get("paths", {}).get("prd_directory", "doc/PRD"),
+        "docsRoot": profile.get("paths", {}).get("docs_root", "docs/workflow"),
+        "prdDirectory": profile.get("paths", {}).get("prd_directory", "docs/workflow/PRD"),
     }
     state["workflow"] = {
         "stage": stage,

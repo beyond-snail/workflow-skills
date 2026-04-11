@@ -159,7 +159,7 @@ function App() {
 
       <header className="topbar panel">
         <div className="topbar__copy">
-          <p className="eyebrow">Project Cockpit</p>
+          <p className="eyebrow">交付控制台</p>
           <h1>{view === 'home' ? workspace.name : getProjectDisplayName(activeProject)}</h1>
           <p className="topbar__subtitle">
             {view === 'home'
@@ -167,11 +167,11 @@ function App() {
               : activeProject?.summary || '当前项目正在同步本地状态。'}
           </p>
           <div className="topbar-ribbon" aria-hidden="true">
-            <span>LIVE</span>
+            <span>在线</span>
             {stageMeta.map((stage) => (
               <span key={stage.key}>{stage.label} · {stage.short}</span>
             ))}
-            <span>SYNC</span>
+            <span>同步</span>
           </div>
         </div>
 
@@ -192,40 +192,9 @@ function App() {
 
       {view === 'home' ? (
         <main className="workspace workspace--home">
-          <section className="panel hero-panel">
-            <div className="hero-panel__copy">
-              <p className="eyebrow">Neon Signal Layer</p>
-              <h2>用一屏看清多项目推进信号</h2>
-              <p>
-                首页只做选项目，不承担过多操作。每个霓虹卡片都保留摘要、阶段、门禁和更新时间，方便快速扫盘。
-              </p>
-              <div className="hero-wave" aria-hidden="true">
-                <span />
-                <span />
-                <span />
-              </div>
-            </div>
-
-            <div className="hero-panel__stats">
-              <div className="hero-orbit" aria-hidden="true">
-                <div className="hero-orbit__ring hero-orbit__ring--outer" />
-                <div className="hero-orbit__ring hero-orbit__ring--mid" />
-                <div className="hero-orbit__ring hero-orbit__ring--inner" />
-                <div className="hero-orbit__core">
-                  <span>CONTROL</span>
-                  <strong>{workspaceStats.total}</strong>
-                </div>
-              </div>
-              <MetricCard label="活跃项目" value={workspace.activeProjects} accent />
-              <MetricCard label="阻塞项目" value={workspace.blockedProjects} danger />
-              <MetricCard label="工作区状态" value={workspace.health} />
-            </div>
-          </section>
-
           <section className="panel board-panel">
             <SectionTitle
               title="项目墙"
-              caption="Signal Grid"
               action={
                 pageCount > 1 ? (
                   <div className="pager">
@@ -273,7 +242,6 @@ function App() {
           <aside className="panel sidebar-panel">
             <SectionTitle
               title="项目概览"
-              caption="Cyber Scope"
               action={
                 <button className="ghost-button" type="button" onClick={handleRefresh}>
                   {syncing ? '同步中' : '同步状态'}
@@ -316,7 +284,7 @@ function App() {
           <section className="panel focus-panel">
               <div className="focus-panel__main">
                 <div className="focus-panel__headline">
-                  <span className="focus-panel__label">Signal Focus</span>
+                  <span className="focus-panel__label">焦点</span>
                   <span className={`status-pill status-${projectStatus}`}>
                     {statusLabels[projectStatus] ?? activeProject?.gateStatus ?? '未同步'}
                   </span>
@@ -340,7 +308,6 @@ function App() {
             <section className="panel tasks-panel">
               <SectionTitle
                 title="任务执行"
-                caption="Signal Filter"
                 action={
                   <div className="filter-row">
                     {(['all', 'todo', 'doing', 'review', 'blocked', 'done']).map((status) => (
@@ -371,7 +338,7 @@ function App() {
           </section>
 
           <aside className="panel inspector-panel">
-            <SectionTitle title="项目洞察" caption="Evidence / Risk / Timeline / Team" />
+            <SectionTitle title="项目洞察" />
 
             <div className="inspector-tabs">
               {inspectorTabs.map(([key, label]) => (

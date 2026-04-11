@@ -19,7 +19,7 @@ from project_state import build_project_state, write_project_state
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 DEFAULT_REVIEW_COMMAND = "开干"
-PRD_DIR_KEYWORDS = {"prd", "spec", "specs", "requirements"}
+PRD_DIR_KEYWORDS = {"prd", "spec", "specs"}
 PRD_FILE_KEYWORDS = ("prd", "需求", "spec")
 
 

@@ -162,13 +162,13 @@ def main() -> int:
     parser.add_argument("--status", default="planned")
     parser.add_argument("--source", default="-")
     parser.add_argument("--design-doc", action="append", default=[], help="Repeatable design doc link")
-    parser.add_argument("--task-board", default="[doc/requirements/任务看板.md](doc/requirements/任务看板.md)")
+    parser.add_argument("--task-board", default="[docs/workflow/requirements/任务看板.md](docs/workflow/requirements/任务看板.md)")
     parser.add_argument("--sync-date", default=date.today().isoformat())
     add_dry_run_arg(parser)
     args = parser.parse_args()
 
     profile = load_profile_from_args(args)
-    req_default = profile.get("paths", {}).get("requirements_pool", "doc/requirements/需求池.md")
+    req_default = profile.get("paths", {}).get("requirements_pool", "docs/workflow/requirements/需求池.md")
     req_path = Path(args.req_file).resolve() if args.req_file else Path.cwd() / req_default
     return sync_requirement_pool_entry(
         req_path=req_path,

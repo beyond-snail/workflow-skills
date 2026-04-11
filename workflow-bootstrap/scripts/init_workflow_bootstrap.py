@@ -32,8 +32,8 @@ Mandatory rules:
 
 ## Source of Truth
 
-- `doc/开发协作约定.md`
-- `PROJECT_CONTEXT.md`
+- `docs/workflow/开发协作约定.md`
+- `docs/workflow/PROJECT_CONTEXT.md`
 - `.ai/governance/`
 - `.ai/memory/`
 
@@ -51,23 +51,23 @@ HOST_TEMPLATES = {
 
 ## 1. 作用
 - 本文件仅提供 Codex 宿主专属补充。
-- 共享项目事实统一读取根目录 `PROJECT_CONTEXT.md`。
+- 共享项目事实统一读取 `docs/workflow/PROJECT_CONTEXT.md`。
 - 仓库协作规则统一读取根目录 `AGENTS.md`。
 
 ## 2. Codex 宿主补充
 - 默认先查 `.ai/memory/tasks/index.md` 与 `.ai/memory/knowledge/`。
-- 正式治理主源固定为 `doc/requirements/`。
+- 正式治理主源固定为 `docs/workflow/requirements/`。
 """,
     "claude": """# Claude Host
 
 ## 1. 作用
 - 本文件仅提供 Claude 宿主专属补充。
-- 共享项目事实统一读取根目录 `PROJECT_CONTEXT.md`。
+- 共享项目事实统一读取 `docs/workflow/PROJECT_CONTEXT.md`。
 - 仓库协作规则统一读取根目录 `AGENTS.md`。
 
 ## 2. Claude 宿主补充
 - 默认先查 `.ai/memory/tasks/index.md` 与 `.ai/memory/knowledge/`。
-- 正式治理主源固定为 `doc/requirements/`。
+- 正式治理主源固定为 `docs/workflow/requirements/`。
 """,
 }
 
@@ -249,6 +249,7 @@ def detect_compile_test(build_tool: str, root: Path) -> tuple[str, str]:
 
 def detect_prd_directory(root: Path) -> str:
     candidates = [
+        "docs/workflow/PRD",
         "doc/PRD",
         "docs/PRD",
         "doc/prd",
@@ -261,15 +262,11 @@ def detect_prd_directory(root: Path) -> str:
     for candidate in candidates:
         if (root / candidate).exists():
             return candidate
-    return "doc/PRD"
+    return "docs/workflow/PRD"
 
 
 def detect_docs_root(root: Path) -> str:
-    if (root / "doc").exists():
-        return "doc"
-    if (root / "docs").exists():
-        return "docs"
-    return "doc"
+    return "docs/workflow"
 
 
 def detect_source_dirs(root: Path) -> list[str]:
@@ -393,13 +390,13 @@ def render_project_context(d: Detection) -> str:
 
 ## 4. 当前协作事实
 - 协作规则入口：`AGENTS.md`
-- 详细约定：`doc/开发协作约定.md`
+- 详细约定：`docs/workflow/开发协作约定.md`
 - 宿主补充目录：`.ai/governance/`
 - workflow runtime profile：`.ai/runtime/profile/project-profile.yml`
 - workflow 状态骨架：`.ai/runtime/project-state.json`
 
 ## 5. 默认约束
-- 正式治理材料长期保留在 `doc/requirements/`
+- 正式治理材料长期保留在 `docs/workflow/requirements/`
 - AI 记忆与运行态资产统一维护在 `.ai/`
 """
 
@@ -525,7 +522,7 @@ def render_governance(d: Detection) -> str:
 ### 4.2 先检索历史
 - 开始任务前必须优先检索以下内容：
 - `AGENTS.md`
-- `PROJECT_CONTEXT.md`
+- `docs/workflow/PROJECT_CONTEXT.md`
 - 本文档
 - `{d.docs_root}/requirements/需求池.md`
 - `{d.docs_root}/requirements/任务看板.md`
@@ -553,7 +550,7 @@ def render_governance(d: Detection) -> str:
 `检索历史 -> 分析 -> 改动 -> 验证 -> 沉淀 -> 提交`
 
 ## 6. 目录约定
-- 共享项目事实：`PROJECT_CONTEXT.md`
+- 共享项目事实：`docs/workflow/PROJECT_CONTEXT.md`
 - 宿主补充：`.ai/governance/`
 - 任务索引：`.ai/memory/tasks/index.md`
 - 任务模板：`.ai/memory/tasks/_template/`
@@ -670,8 +667,8 @@ def self_check(root: Path, d: Detection) -> tuple[list[str], list[str]]:
     infos: list[str] = []
     required = [
         root / "AGENTS.md",
-        root / "PROJECT_CONTEXT.md",
-        root / "doc/开发协作约定.md",
+        root / "docs/workflow/PROJECT_CONTEXT.md",
+        root / "docs/workflow/开发协作约定.md",
         root / ".ai/memory/tasks/index.md",
         root / ".ai/memory/knowledge/README.md",
         root / ".ai/runtime/profile/project-profile.yml",
@@ -722,14 +719,14 @@ def main() -> int:
     actions.append(("AGENTS.md", write_file(root / "AGENTS.md", ROOT_AGENTS, args.dry_run)))
     actions.append(
         (
-            "PROJECT_CONTEXT.md",
-            write_file(root / "PROJECT_CONTEXT.md", render_project_context(detection), args.dry_run, force=args.force_context),
+            "docs/workflow/PROJECT_CONTEXT.md",
+            write_file(root / "docs/workflow/PROJECT_CONTEXT.md", render_project_context(detection), args.dry_run, force=args.force_context),
         )
     )
     actions.append(
         (
-            "doc/开发协作约定.md",
-            write_file(root / "doc/开发协作约定.md", render_governance(detection), args.dry_run, force=args.force_governance),
+            "docs/workflow/开发协作约定.md",
+            write_file(root / "docs/workflow/开发协作约定.md", render_governance(detection), args.dry_run, force=args.force_governance),
         )
     )
 
@@ -767,6 +764,7 @@ def main() -> int:
     actions.append((".ai/runtime/cache/.gitkeep", ensure_gitkeep(root / ".ai/runtime/cache/.gitkeep", args.dry_run)))
     actions.append((".ai/runtime/state/.gitkeep", ensure_gitkeep(root / ".ai/runtime/state/.gitkeep", args.dry_run)))
     actions.append((".ai/memory/tasks/archived/.gitkeep", ensure_gitkeep(root / ".ai/memory/tasks/archived/.gitkeep", args.dry_run)))
+    actions.append((f"{detection.prd_directory}/.gitkeep", ensure_gitkeep(root / detection.prd_directory / ".gitkeep", args.dry_run)))
 
     warnings, infos = self_check(root, detection)
 

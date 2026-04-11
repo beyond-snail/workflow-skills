@@ -3,7 +3,7 @@ name: workflow-requirement
 description: 当需要在编码前把 PRD 沉淀为需求池、任务看板和可审计交接材料时使用。
 ---
 
-# Workflow Requirement Skill (v2.3.0)
+# Workflow Requirement Skill (v2.6.0)
 
 把正式 `PRD` 沉淀为可执行、可追溯、可审计的需求材料，并在人工审核门前收口；如仓库支持任务记忆目录，还负责初始化 `task memory` 入口。
 
@@ -141,7 +141,7 @@ python3 <skill-dir>/scripts/run_requirement_round.py \
 
 ## 维护说明
 
-1. 版本：`v2.3.0`
+1. 版本：`v2.6.0`
 2. 本 skill 与 `workflow-bootstrap`、`workflow-execution` 配套使用
 3. `references/shared-governance.md` 必须与 execution 中的同名文件保持一致
 4. 不再依赖 `_shared`；保持 skill 自包含
