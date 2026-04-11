@@ -166,6 +166,13 @@ function App() {
               ? workspace.subtitle
               : activeProject?.summary || '当前项目正在同步本地状态。'}
           </p>
+          <div className="topbar-ribbon" aria-hidden="true">
+            <span>LIVE</span>
+            {stageMeta.map((stage) => (
+              <span key={stage.key}>{stage.label} · {stage.short}</span>
+            ))}
+            <span>SYNC</span>
+          </div>
         </div>
 
         <div className="topbar-actions">
@@ -192,9 +199,23 @@ function App() {
               <p>
                 首页只做选项目，不承担过多操作。每个卡片都保留足够的摘要、阶段、门禁和更新时间，方便快速扫盘。
               </p>
+              <div className="hero-wave" aria-hidden="true">
+                <span />
+                <span />
+                <span />
+              </div>
             </div>
 
             <div className="hero-panel__stats">
+              <div className="hero-orbit" aria-hidden="true">
+                <div className="hero-orbit__ring hero-orbit__ring--outer" />
+                <div className="hero-orbit__ring hero-orbit__ring--mid" />
+                <div className="hero-orbit__ring hero-orbit__ring--inner" />
+                <div className="hero-orbit__core">
+                  <span>CONTROL</span>
+                  <strong>{workspaceStats.total}</strong>
+                </div>
+              </div>
               <MetricCard label="活跃项目" value={workspace.activeProjects} accent />
               <MetricCard label="阻塞项目" value={workspace.blockedProjects} danger />
               <MetricCard label="工作区状态" value={workspace.health} />
