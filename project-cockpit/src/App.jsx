@@ -194,10 +194,10 @@ function App() {
         <main className="workspace workspace--home">
           <section className="panel hero-panel">
             <div className="hero-panel__copy">
-              <p className="eyebrow">Workspace Overview</p>
-              <h2>用一屏看清多项目推进状态</h2>
+              <p className="eyebrow">Neon Signal Layer</p>
+              <h2>用一屏看清多项目推进信号</h2>
               <p>
-                首页只做选项目，不承担过多操作。每个卡片都保留足够的摘要、阶段、门禁和更新时间，方便快速扫盘。
+                首页只做选项目，不承担过多操作。每个霓虹卡片都保留摘要、阶段、门禁和更新时间，方便快速扫盘。
               </p>
               <div className="hero-wave" aria-hidden="true">
                 <span />
@@ -225,7 +225,7 @@ function App() {
           <section className="panel board-panel">
             <SectionTitle
               title="项目墙"
-              caption="九宫格首页"
+              caption="Signal Grid"
               action={
                 pageCount > 1 ? (
                   <div className="pager">
@@ -273,7 +273,7 @@ function App() {
           <aside className="panel sidebar-panel">
             <SectionTitle
               title="项目概览"
-              caption="当前工作项"
+              caption="Cyber Scope"
               action={
                 <button className="ghost-button" type="button" onClick={handleRefresh}>
                   {syncing ? '同步中' : '同步状态'}
@@ -313,10 +313,10 @@ function App() {
           </aside>
 
           <section className="project-main">
-            <section className="panel focus-panel">
+          <section className="panel focus-panel">
               <div className="focus-panel__main">
                 <div className="focus-panel__headline">
-                  <span className="focus-panel__label">当前焦点</span>
+                  <span className="focus-panel__label">Signal Focus</span>
                   <span className={`status-pill status-${projectStatus}`}>
                     {statusLabels[projectStatus] ?? activeProject?.gateStatus ?? '未同步'}
                   </span>
@@ -340,7 +340,7 @@ function App() {
             <section className="panel tasks-panel">
               <SectionTitle
                 title="任务执行"
-                caption="按状态过滤"
+                caption="Signal Filter"
                 action={
                   <div className="filter-row">
                     {(['all', 'todo', 'doing', 'review', 'blocked', 'done']).map((status) => (
@@ -371,7 +371,7 @@ function App() {
           </section>
 
           <aside className="panel inspector-panel">
-            <SectionTitle title="项目洞察" caption="证据 / 风险 / 时间线 / 团队" />
+            <SectionTitle title="项目洞察" caption="Evidence / Risk / Timeline / Team" />
 
             <div className="inspector-tabs">
               {inspectorTabs.map(([key, label]) => (
