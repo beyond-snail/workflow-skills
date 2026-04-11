@@ -308,7 +308,11 @@ function App() {
                 <MetricCard label="当前任务" value={activeProject?.currentTask ?? '未设置'} accent />
                 <MetricCard label="证据" value={`${activeProject?.evidenceTotal ?? activeProject?.evidence?.length ?? 0} 条`} />
                 <MetricCard label="任务总数" value={activeProject?.tasks?.length ?? 0} />
-                <MetricCard label="证据完整度" value={`${activeProject?.metrics?.evidenceCoverage ?? 0}%`} danger={activeProject?.metrics?.evidenceCoverage < 60} />
+                <MetricCard
+                  label="证据完整度"
+                  value={`${activeProject?.metrics?.evidenceCoverage ?? 0}%`}
+                  danger={(activeProject?.metrics?.evidenceCoverage ?? 0) < 60}
+                />
               </div>
             </section>
 
@@ -365,10 +369,10 @@ function App() {
               {inspectorTab === 'summary' ? (
                 <section className="inspector-block">
                   <div className="summary-grid">
-                    <MetricCard label="总任务" value={activeProject?.metrics.totalTasks ?? 0} />
-                    <MetricCard label="进行中" value={activeProject?.metrics.doing ?? 0} />
-                    <MetricCard label="待审核" value={activeProject?.metrics.review ?? 0} />
-                    <MetricCard label="阻塞" value={activeProject?.metrics.blocked ?? 0} danger />
+                    <MetricCard label="总任务" value={activeProject?.metrics?.totalTasks ?? 0} />
+                    <MetricCard label="进行中" value={activeProject?.metrics?.doing ?? 0} />
+                    <MetricCard label="待审核" value={activeProject?.metrics?.review ?? 0} />
+                    <MetricCard label="阻塞" value={activeProject?.metrics?.blocked ?? 0} danger />
                   </div>
 
                   <div className="gate-box">
