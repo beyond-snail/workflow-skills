@@ -672,7 +672,7 @@ fn show_main_window<R: tauri::Runtime>(
             Size::Logical(size) => (size.width as i32, size.height as i32),
         };
         let popup_x = tray_x + (tray_w / 2) - (size.width as i32 / 2);
-        let popup_y = tray_y + tray_h + 8;
+        let popup_y = tray_y + tray_h + 2;
         window
             .set_position(Position::Physical(PhysicalPosition {
                 x: popup_x.max(12),
@@ -680,7 +680,19 @@ fn show_main_window<R: tauri::Runtime>(
             }))
             .map_err(|err| err.to_string())?;
     } else {
-        window.center().map_err(|err| err.to_string())?;
+        let size = window.outer_size().map_err(|err| err.to_string())?;
+        if let Some(monitor) = window.current_monitor().map_err(|err| err.to_string())? {
+            let monitor_size = monitor.size();
+            let x = ((monitor_size.width as i32 - size.width as i32) / 2).max(12);
+            window
+                .set_position(Position::Physical(PhysicalPosition {
+                    x,
+                    y: 34,
+                }))
+                .map_err(|err| err.to_string())?;
+        } else {
+            window.center().map_err(|err| err.to_string())?;
+        }
     }
 
     window.show().map_err(|err| err.to_string())?;

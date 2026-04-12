@@ -63,7 +63,7 @@ button {
 
 .app-shell {
   height: 100vh;
-  padding: 10px;
+  padding: 6px;
   position: relative;
   overflow-y: auto;
   overflow-x: hidden;
@@ -73,7 +73,7 @@ button {
 }
 
 .app-shell--compact {
-  padding: 8px;
+  padding: 6px;
 }
 
 .app-shell::-webkit-scrollbar {
@@ -406,13 +406,20 @@ button {
 }
 
 .agent-card__subrow {
-  margin-top: 7px;
+  margin-top: 5px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
   color: var(--muted);
   font-size: 9px;
+}
+
+.agent-card__subrow span:last-child {
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .inline-link-button {
@@ -596,9 +603,7 @@ button {
 
 @media (max-width: 560px) {
   .card-heading,
-  .card-header,
-  .agent-card__row,
-  .agent-card__subrow {
+  .card-header {
     flex-direction: column;
     align-items: stretch;
   }
@@ -607,6 +612,7 @@ button {
     grid-template-columns: 1fr;
   }
 
+  .agent-card__row,
   .agent-card__meta {
     justify-content: space-between;
   }
