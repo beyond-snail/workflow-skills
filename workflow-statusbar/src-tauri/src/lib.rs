@@ -83,6 +83,7 @@ struct ProjectSnapshot {
     sync_source: String,
     is_blocked: bool,
     is_active_by_codex: bool,
+    is_open_in_ide: bool,
     progress_label: String,
     stage_label: String,
     codex_status: CodexStatus,
@@ -172,6 +173,7 @@ struct RuntimeCache {
     signature: Option<RuntimeSignature>,
     project_signatures: HashMap<String, ProjectRuntimeSignature>,
     last_auto_resume: Option<AutoResumeRecord>,
+    startup_resume_checked: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -790,6 +792,7 @@ fn read_project_snapshot(
         sync_source: payload.sync.source,
         is_blocked,
         is_active_by_codex: !active_project_path.is_empty() && path_matches(&project_path, active_project_path),
+        is_open_in_ide: false,
         progress_label,
         stage_label: stage_label(&stage),
         codex_status: thread_runtime
@@ -1304,6 +1307,12 @@ fn collect_runtime_state() -> RuntimeState {
     }
 
     let ide_signal = read_ide_signal(&projects);
+    for project in &mut projects {
+        project.is_open_in_ide = ide_signal
+            .open_project_paths
+            .iter()
+            .any(|path| path_matches(&project.path, path));
+    }
     let spotlight = find_spotlight(&projects, &ide_signal, &active_project_path);
     let groups = build_groups(&projects);
     let summary = build_summary(&projects);
@@ -1356,6 +1365,69 @@ fn signature_for(state: &RuntimeState) -> RuntimeSignature {
     }
 }
 
+fn maybe_resume_follow_up_on_startup<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    cache: &mut RuntimeCache,
+    alert_settings: &SharedAlertSettings,
+    current: &RuntimeState,
+) {
+    if cache.startup_resume_checked {
+        return;
+    }
+    cache.startup_resume_checked = true;
+
+    for project in &current.projects {
+        if !project.is_open_in_ide
+            || !project.follow_up_prompted
+            || !project.auto_resume_enabled
+            || project.codex_thread_id.is_empty()
+        {
+            continue;
+        }
+
+        let task_id = current_task_key(project);
+        let now = unix_now();
+        if should_skip_auto_resume(
+            cache.last_auto_resume.as_ref(),
+            &project.codex_thread_id,
+            &task_id,
+            now,
+        ) {
+            continue;
+        }
+
+        cache.last_auto_resume = Some(AutoResumeRecord {
+            thread_id: project.codex_thread_id.clone(),
+            task_id,
+            attempted_at: now,
+        });
+
+        let body = format!("{} 启动时检测到可继续推进的收尾语气", project.name);
+        match trigger_auto_resume(project, &project.codex_thread_id) {
+            Ok(()) => push_alert(
+                app,
+                alert_settings,
+                "task_interrupted",
+                "项目自动续跑",
+                &format!("{body}，已自动尝试续跑"),
+                true,
+                true,
+                Some(project),
+            ),
+            Err(err) => push_alert(
+                app,
+                alert_settings,
+                "auto_resume_failed",
+                "项目自动续跑失败",
+                &format!("{body}，自动续跑失败：{err}"),
+                true,
+                true,
+                Some(project),
+            ),
+        }
+    }
+}
+
 fn notify_changes<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
     cache: &mut RuntimeCache,
@@ -1363,6 +1435,8 @@ fn notify_changes<R: tauri::Runtime>(
     current: &RuntimeState,
 ) {
     let current_signature = signature_for(current);
+
+    maybe_resume_follow_up_on_startup(app, cache, alert_settings, current);
 
     if let Some(previous) = cache.signature.as_ref() {
         if previous.codex_status == CodexStatus::Running && current_signature.codex_status != CodexStatus::Running {
@@ -1470,6 +1544,10 @@ fn notify_changes<R: tauri::Runtime>(
             let follow_up_waiting = should_attempt_follow_up_resume(previous, &signature);
 
             if interrupted || follow_up_waiting {
+                if !project.is_open_in_ide {
+                    next_project_signatures.insert(project.path.clone(), signature);
+                    continue;
+                }
                 let stop_body = format!(
                     "{}{}",
                     project.name,
@@ -1914,6 +1992,7 @@ mod tests {
             sync_source: "test".into(),
             is_blocked: false,
             is_active_by_codex: true,
+            is_open_in_ide: true,
             progress_label: "任务 1 / 3".into(),
             stage_label: "执行".into(),
             codex_status: CodexStatus::Running,
