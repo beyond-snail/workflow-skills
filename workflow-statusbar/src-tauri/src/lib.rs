@@ -3,6 +3,7 @@ use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
+    env,
     fs,
     path::{Path, PathBuf},
     process::{Command, Stdio},
@@ -141,6 +142,29 @@ struct AutoResumeRecord {
     thread_id: String,
     task_id: String,
     attempted_at: i64,
+}
+
+#[derive(Clone)]
+struct AlertDispatchConfig {
+    provider: String,
+    endpoint: String,
+    token: String,
+}
+
+#[derive(Serialize)]
+struct RemoteAlertPayload {
+    event_type: String,
+    title: String,
+    body: String,
+    project_name: String,
+    project_path: String,
+    thread_id: String,
+    task_id: String,
+    task_title: String,
+    workflow_stage: String,
+    codex_status: String,
+    heartbeat_at: String,
+    occurred_at: i64,
 }
 
 #[derive(Deserialize, Default)]
@@ -788,6 +812,56 @@ fn codex_status_label(status: &CodexStatus) -> &'static str {
     }
 }
 
+fn codex_status_key(status: &CodexStatus) -> &'static str {
+    match status {
+        CodexStatus::Running => "running",
+        CodexStatus::WaitingInput => "waiting_input",
+        CodexStatus::Stalled => "stalled",
+        CodexStatus::Idle => "idle",
+        CodexStatus::Offline => "offline",
+    }
+}
+
+fn workflow_stage_key(stage: &WorkflowStage) -> &'static str {
+    match stage {
+        WorkflowStage::Bootstrap => "bootstrap",
+        WorkflowStage::Requirement => "requirement",
+        WorkflowStage::Execution => "execution",
+        WorkflowStage::Done => "done",
+        WorkflowStage::Unknown => "unknown",
+    }
+}
+
+fn alert_dispatch_config() -> Option<AlertDispatchConfig> {
+    let provider = env::var("WORKFLOW_ALERT_PROVIDER").ok()?.trim().to_string();
+    let endpoint = env::var("WORKFLOW_ALERT_ENDPOINT").ok()?.trim().to_string();
+    let token = env::var("WORKFLOW_ALERT_TOKEN").unwrap_or_default();
+
+    if provider.is_empty() || endpoint.is_empty() {
+        return None;
+    }
+
+    Some(AlertDispatchConfig {
+        provider,
+        endpoint,
+        token,
+    })
+}
+
+fn post_remote_alert(config: &AlertDispatchConfig, payload: &RemoteAlertPayload) -> Result<(), String> {
+    let mut request = ureq::post(&config.endpoint).set("Content-Type", "application/json");
+    if !config.token.trim().is_empty() {
+        request = request.set("Authorization", &format!("Bearer {}", config.token.trim()));
+    }
+    request
+        .send_json(serde_json::json!({
+            "provider": config.provider,
+            "payload": payload,
+        }))
+        .map(|_| ())
+        .map_err(|err| err.to_string())
+}
+
 fn find_auto_resume_project<'a>(projects: &'a [ProjectSnapshot], project_path: &str) -> Option<&'a ProjectSnapshot> {
     projects.iter().find(|project| {
         project.auto_resume_enabled
@@ -1037,12 +1111,14 @@ fn notify_changes<R: tauri::Runtime>(
         if previous.codex_status == CodexStatus::Running && current_signature.codex_status != CodexStatus::Running {
             push_alert(
                 app,
+                "codex_status_changed",
                 "Codex 状态变化",
                 &format!(
                     "全局 Codex 状态已切换为 {}",
                     codex_status_label(&current_signature.codex_status)
                 ),
                 false,
+                None,
             );
         }
 
@@ -1052,7 +1128,7 @@ fn notify_changes<R: tauri::Runtime>(
                 .as_ref()
                 .map(|project| format!("{} · {}", project.name, project.current_task_title))
                 .unwrap_or_else(|| "当前任务已切换".into());
-            push_alert(app, "任务已切换", &body, false);
+            push_alert(app, "task_switched", "任务已切换", &body, false, current.spotlight_project.as_ref());
         }
 
         if previous.focus_task_status != "blocked" && current_signature.focus_task_status == "blocked" {
@@ -1061,7 +1137,7 @@ fn notify_changes<R: tauri::Runtime>(
                 .as_ref()
                 .map(|project| format!("{} 已进入阻塞", project.name))
                 .unwrap_or_else(|| "当前项目已进入阻塞".into());
-            push_alert(app, "项目阻塞", &body, true);
+            push_alert(app, "project_blocked", "项目阻塞", &body, true, current.spotlight_project.as_ref());
         }
     }
 
@@ -1086,7 +1162,14 @@ fn notify_changes<R: tauri::Runtime>(
                 } else {
                     "当前任务已完成".into()
                 };
-                push_alert(app, "任务完成", &format!("{title} · {body}"), true);
+                push_alert(
+                    app,
+                    "task_completed",
+                    "任务完成",
+                    &format!("{title} · {body}"),
+                    true,
+                    Some(project),
+                );
             }
 
             if !matches!(previous.workflow_stage, WorkflowStage::Done)
@@ -1094,9 +1177,11 @@ fn notify_changes<R: tauri::Runtime>(
             {
                 push_alert(
                     app,
+                    "project_completed",
                     "项目完成",
                     &format!("{} 已进入完成阶段", project.name),
                     true,
+                    Some(project),
                 );
             }
 
@@ -1119,9 +1204,11 @@ fn notify_changes<R: tauri::Runtime>(
                     ) {
                         push_alert(
                             app,
+                            "task_interrupted",
                             "项目执行中断",
                             &format!("{stop_body}，冷却期内跳过自动续跑"),
                             true,
+                            Some(project),
                         );
                     } else {
                         cache.last_auto_resume = Some(AutoResumeRecord {
@@ -1134,17 +1221,21 @@ fn notify_changes<R: tauri::Runtime>(
                             Ok(()) => {
                                 push_alert(
                                     app,
+                                    "task_interrupted",
                                     "项目执行中断",
                                     &format!("{stop_body}，已自动尝试续跑"),
                                     true,
+                                    Some(project),
                                 );
                             }
                             Err(err) => {
                                 push_alert(
                                     app,
+                                    "auto_resume_failed",
                                     "项目执行中断",
                                     &format!("{stop_body}，自动续跑失败：{err}"),
                                     true,
+                                    Some(project),
                                 );
                             }
                         }
@@ -1152,9 +1243,11 @@ fn notify_changes<R: tauri::Runtime>(
                 } else {
                     push_alert(
                         app,
+                        "task_interrupted",
                         "项目执行中断",
                         &format!("{stop_body}，该项目未启用自动续跑"),
                         true,
+                        Some(project),
                     );
                 }
             }
@@ -1166,8 +1259,48 @@ fn notify_changes<R: tauri::Runtime>(
     cache.project_signatures = next_project_signatures;
 }
 
-fn push_alert<R: tauri::Runtime>(app: &tauri::AppHandle<R>, title: &str, body: &str, reveal_window: bool) {
+fn push_alert<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    event_type: &str,
+    title: &str,
+    body: &str,
+    reveal_window: bool,
+    project: Option<&ProjectSnapshot>,
+) {
     let _ = app.notification().builder().title(title).body(body).show();
+    if let Some(config) = alert_dispatch_config() {
+        let payload = RemoteAlertPayload {
+            event_type: event_type.into(),
+            title: title.into(),
+            body: body.into(),
+            project_name: project.map(|item| item.name.clone()).unwrap_or_default(),
+            project_path: project.map(|item| item.path.clone()).unwrap_or_default(),
+            thread_id: project
+                .map(|item| item.codex_thread_id.clone())
+                .unwrap_or_default(),
+            task_id: project.map(current_task_key).unwrap_or_default(),
+            task_title: project
+                .map(|item| {
+                    if !item.current_task_title.is_empty() {
+                        item.current_task_title.clone()
+                    } else {
+                        item.current_req_title.clone()
+                    }
+                })
+                .unwrap_or_default(),
+            workflow_stage: project
+                .map(|item| workflow_stage_key(&item.workflow_stage).to_string())
+                .unwrap_or_else(|| "unknown".into()),
+            codex_status: project
+                .map(|item| codex_status_key(&item.codex_status).to_string())
+                .unwrap_or_else(|| "unknown".into()),
+            heartbeat_at: project
+                .map(|item| item.codex_heartbeat_at.clone())
+                .unwrap_or_default(),
+            occurred_at: unix_now(),
+        };
+        let _ = post_remote_alert(&config, &payload);
+    }
     if reveal_window {
         let _ = show_main_window(app, None);
     }

@@ -228,6 +228,27 @@ codex exec resume <thread_id> "继续当前任务，请从中断处继续执行�
 
 后续再改为配置文件。
 
+### 当前版本落地时你需要准备的配置
+
+桌面端 `workflow-statusbar`：
+
+- `WORKFLOW_ALERT_PROVIDER=feishu`
+- `WORKFLOW_ALERT_ENDPOINT=<你的桥接服务告警地址>`
+- `WORKFLOW_ALERT_TOKEN=<桥接服务鉴权 token，可选但建议启用>`
+
+桥接服务：
+
+- 飞书 `app_id`
+- 飞书 `app_secret`
+- 默认接收人 `open_id` 或接收群 `chat_id`
+- 桥接服务对外可访问地址
+
+说明：
+
+- 当前桌面端已经会在关键事件发生时向 `WORKFLOW_ALERT_ENDPOINT` 发送 HTTP POST
+- 桥接服务收到后再转发给飞书，避免把飞书密钥直接放在本地桌面应用里
+- 现在已经能推送事件摘要，下一阶段再接飞书交互卡片和“手机回复继续任务”
+
 ## 安全建议
 
 - 不要把飞书应用密钥直接写进 `workflow-statusbar`
