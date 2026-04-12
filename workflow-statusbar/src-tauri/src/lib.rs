@@ -11,7 +11,6 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tauri::{
-    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Emitter, Manager,
 };
 use tauri_plugin_notification::NotificationExt;
@@ -712,22 +711,6 @@ pub fn run() {
             let _ = main_window.unminimize();
             let _ = main_window.show();
             let _ = main_window.set_focus();
-
-            let icon = app.default_window_icon().cloned();
-            let tray_handle = app.handle().clone();
-            TrayIconBuilder::new()
-                .icon(icon.expect("default icon missing"))
-                .on_tray_icon_event(move |_tray, event| {
-                    if let TrayIconEvent::Click {
-                        button: MouseButton::Left,
-                        button_state: MouseButtonState::Up,
-                        ..
-                    } = event
-                    {
-                        let _ = toggle_main_window(tray_handle.clone());
-                    }
-                })
-                .build(app)?;
 
             emit_runtime_state(app.handle(), &runtime_cache);
 
