@@ -5,6 +5,7 @@ use std::{
     collections::{HashMap, HashSet},
     env,
     fs,
+    io::{BufRead, BufReader},
     path::{Path, PathBuf},
     process::{Command, Stdio},
     sync::{Arc, Mutex},
@@ -89,6 +90,7 @@ struct ProjectSnapshot {
     codex_thread_id: String,
     codex_thread_name: String,
     auto_resume_enabled: bool,
+    follow_up_prompted: bool,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -161,6 +163,7 @@ struct ProjectRuntimeSignature {
     task_status: String,
     thread_id: String,
     auto_resume_enabled: bool,
+    follow_up_prompted: bool,
 }
 
 #[derive(Default)]
@@ -300,6 +303,7 @@ struct CodexThread {
     id: String,
     title: String,
     cwd: String,
+    rollout_path: String,
 }
 
 #[derive(Clone)]
@@ -307,6 +311,7 @@ struct ThreadRuntime {
     thread: CodexThread,
     last_log_ts: i64,
     status: CodexStatus,
+    follow_up_prompted: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -403,7 +408,7 @@ fn read_recent_threads(home: &Path) -> Vec<CodexThread> {
     };
 
     let mut statement = match connection.prepare(
-        "select id, title, cwd from threads order by updated_at desc limit ?1",
+        "select id, title, cwd, rollout_path from threads order by updated_at desc limit ?1",
     ) {
         Ok(statement) => statement,
         Err(_) => return Vec::new(),
@@ -414,6 +419,7 @@ fn read_recent_threads(home: &Path) -> Vec<CodexThread> {
             id: row.get(0)?,
             title: row.get(1)?,
             cwd: row.get(2)?,
+            rollout_path: row.get(3)?,
         })
     });
 
@@ -421,6 +427,44 @@ fn read_recent_threads(home: &Path) -> Vec<CodexThread> {
         Ok(rows) => rows.flatten().collect(),
         Err(_) => Vec::new(),
     }
+}
+
+fn detect_follow_up_prompt(rollout_path: &str) -> bool {
+    if rollout_path.trim().is_empty() {
+        return false;
+    }
+
+    let file = match fs::File::open(rollout_path) {
+        Ok(file) => file,
+        Err(_) => return false,
+    };
+
+    let markers = [
+        "下一步可以直接做",
+        "如果你要继续",
+        "如果要继续",
+        "继续的话",
+        "你发我一个主题",
+        "我直接继续",
+        "直接进入",
+    ];
+
+    let mut matched = false;
+    let reader = BufReader::new(file);
+    for line in reader.lines().map_while(Result::ok) {
+        if !line.contains("\"type\":\"event_msg\"")
+            && !line.contains("\"type\":\"response_item\"")
+            && !line.contains("\"last_agent_message\"")
+        {
+            continue;
+        }
+
+        if markers.iter().any(|marker| line.contains(marker)) {
+            matched = true;
+        }
+    }
+
+    matched
 }
 
 fn read_latest_log_ts(home: &Path) -> Option<i64> {
@@ -761,6 +805,9 @@ fn read_project_snapshot(
             .map(|runtime| runtime.thread.title.clone())
             .unwrap_or_default(),
         auto_resume_enabled: thread_runtime.is_some() && !is_blocked,
+        follow_up_prompted: thread_runtime
+            .map(|runtime| runtime.follow_up_prompted)
+            .unwrap_or(false),
     })
 }
 
@@ -854,6 +901,7 @@ fn project_signature(project: &ProjectSnapshot) -> ProjectRuntimeSignature {
         task_status: project.current_task_status.clone(),
         thread_id: project.codex_thread_id.clone(),
         auto_resume_enabled: project.auto_resume_enabled,
+        follow_up_prompted: project.follow_up_prompted,
     }
 }
 
@@ -1092,6 +1140,10 @@ fn should_attempt_auto_resume(previous: &CodexStatus, current: &CodexStatus) -> 
         )
 }
 
+fn should_attempt_follow_up_resume(previous: &ProjectRuntimeSignature, current: &ProjectRuntimeSignature) -> bool {
+    !previous.follow_up_prompted && current.follow_up_prompted
+}
+
 fn should_skip_auto_resume(
     record: Option<&AutoResumeRecord>,
     thread_id: &str,
@@ -1112,7 +1164,7 @@ fn trigger_auto_resume(project: &ProjectSnapshot, thread_id: &str) -> Result<(),
         return Err("missing active thread id".into());
     }
 
-    let prompt = "继续当前任务，请从中断处继续执行；如果没有新的用户输入要求，直接按既定计划推进。";
+    let prompt = "继续当前任务，请从中断处继续执行；如果最后一条回复是在询问下一步、提示“如果你要继续”、或给出可直接继续的选项，请不要等待用户确认，直接选择最符合当前任务目标的下一步继续推进。";
     Command::new("codex")
         .args([
             "exec",
@@ -1237,6 +1289,7 @@ fn collect_runtime_state() -> RuntimeState {
                 thread: thread.clone(),
                 last_log_ts,
                 status: codex_status_from_activity(process_running, last_log_ts, now),
+                follow_up_prompted: detect_follow_up_prompt(&thread.rollout_path),
             }
         });
     }
@@ -1323,6 +1376,7 @@ fn notify_changes<R: tauri::Runtime>(
                     codex_status_label(&current_signature.codex_status)
                 ),
                 false,
+                true,
                 None,
             );
         }
@@ -1340,6 +1394,7 @@ fn notify_changes<R: tauri::Runtime>(
                 "任务已切换",
                 &body,
                 false,
+                false,
                 current.spotlight_project.as_ref(),
             );
         }
@@ -1356,6 +1411,7 @@ fn notify_changes<R: tauri::Runtime>(
                 "project_blocked",
                 "项目阻塞",
                 &body,
+                true,
                 true,
                 current.spotlight_project.as_ref(),
             );
@@ -1390,6 +1446,7 @@ fn notify_changes<R: tauri::Runtime>(
                     "任务完成",
                     &format!("{title} · {body}"),
                     true,
+                    true,
                     Some(project),
                 );
             }
@@ -1404,15 +1461,23 @@ fn notify_changes<R: tauri::Runtime>(
                     "项目完成",
                     &format!("{} 已进入完成阶段", project.name),
                     true,
+                    true,
                     Some(project),
                 );
             }
 
-            if should_attempt_auto_resume(&previous.codex_status, &signature.codex_status) {
+            let interrupted = should_attempt_auto_resume(&previous.codex_status, &signature.codex_status);
+            let follow_up_waiting = should_attempt_follow_up_resume(previous, &signature);
+
+            if interrupted || follow_up_waiting {
                 let stop_body = format!(
-                    "{} 已从执行中切换为 {}",
+                    "{}{}",
                     project.name,
-                    codex_status_label(&signature.codex_status)
+                    if interrupted {
+                        format!(" 已从执行中切换为 {}", codex_status_label(&signature.codex_status))
+                    } else {
+                        " 最新回复停在可继续推进的收尾语气".into()
+                    }
                 );
 
                 if signature.auto_resume_enabled {
@@ -1432,6 +1497,7 @@ fn notify_changes<R: tauri::Runtime>(
                             "项目执行中断",
                             &format!("{stop_body}，冷却期内跳过自动续跑"),
                             true,
+                            true,
                             Some(project),
                         );
                     } else {
@@ -1450,6 +1516,7 @@ fn notify_changes<R: tauri::Runtime>(
                                     "项目执行中断",
                                     &format!("{stop_body}，已自动尝试续跑"),
                                     true,
+                                    true,
                                     Some(project),
                                 );
                             }
@@ -1460,6 +1527,7 @@ fn notify_changes<R: tauri::Runtime>(
                                     "auto_resume_failed",
                                     "项目执行中断",
                                     &format!("{stop_body}，自动续跑失败：{err}"),
+                                    true,
                                     true,
                                     Some(project),
                                 );
@@ -1473,6 +1541,7 @@ fn notify_changes<R: tauri::Runtime>(
                         "task_interrupted",
                         "项目执行中断",
                         &format!("{stop_body}，该项目未启用自动续跑"),
+                        true,
                         true,
                         Some(project),
                     );
@@ -1493,45 +1562,45 @@ fn push_alert<R: tauri::Runtime>(
     title: &str,
     body: &str,
     reveal_window: bool,
+    dispatch_remote: bool,
     project: Option<&ProjectSnapshot>,
 ) {
     let _ = app.notification().builder().title(title).body(body).show();
-    let settings = alert_settings
-        .lock()
-        .map(|guard| guard.clone())
-        .unwrap_or_default();
-    if let Some(config) = alert_dispatch_config(&settings) {
-        let payload = RemoteAlertPayload {
-            event_type: event_type.into(),
-            title: title.into(),
-            body: body.into(),
-            project_name: project.map(|item| item.name.clone()).unwrap_or_default(),
-            project_path: project.map(|item| item.path.clone()).unwrap_or_default(),
-            thread_id: project
-                .map(|item| item.codex_thread_id.clone())
-                .unwrap_or_default(),
-            task_id: project.map(current_task_key).unwrap_or_default(),
-            task_title: project
-                .map(|item| {
-                    if !item.current_task_title.is_empty() {
-                        item.current_task_title.clone()
-                    } else {
-                        item.current_req_title.clone()
-                    }
-                })
-                .unwrap_or_default(),
-            workflow_stage: project
-                .map(|item| workflow_stage_key(&item.workflow_stage).to_string())
-                .unwrap_or_else(|| "unknown".into()),
-            codex_status: project
-                .map(|item| codex_status_key(&item.codex_status).to_string())
-                .unwrap_or_else(|| "unknown".into()),
-            heartbeat_at: project
-                .map(|item| item.codex_heartbeat_at.clone())
-                .unwrap_or_default(),
-            occurred_at: unix_now(),
-        };
-        let _ = post_remote_alert(&config, &payload);
+    let settings = alert_settings.lock().map(|guard| guard.clone()).unwrap_or_default();
+    if dispatch_remote {
+        if let Some(config) = alert_dispatch_config(&settings) {
+            let payload = RemoteAlertPayload {
+                event_type: event_type.into(),
+                title: title.into(),
+                body: body.into(),
+                project_name: project.map(|item| item.name.clone()).unwrap_or_default(),
+                project_path: project.map(|item| item.path.clone()).unwrap_or_default(),
+                thread_id: project
+                    .map(|item| item.codex_thread_id.clone())
+                    .unwrap_or_default(),
+                task_id: project.map(current_task_key).unwrap_or_default(),
+                task_title: project
+                    .map(|item| {
+                        if !item.current_task_title.is_empty() {
+                            item.current_task_title.clone()
+                        } else {
+                            item.current_req_title.clone()
+                        }
+                    })
+                    .unwrap_or_default(),
+                workflow_stage: project
+                    .map(|item| workflow_stage_key(&item.workflow_stage).to_string())
+                    .unwrap_or_else(|| "unknown".into()),
+                codex_status: project
+                    .map(|item| codex_status_key(&item.codex_status).to_string())
+                    .unwrap_or_else(|| "unknown".into()),
+                heartbeat_at: project
+                    .map(|item| item.codex_heartbeat_at.clone())
+                    .unwrap_or_default(),
+                occurred_at: unix_now(),
+            };
+            let _ = post_remote_alert(&config, &payload);
+        }
     }
     if reveal_window {
         let _ = show_main_window(app, None);
@@ -1852,6 +1921,7 @@ mod tests {
             codex_thread_id: "thread-1".into(),
             codex_thread_name: "测试线程".into(),
             auto_resume_enabled: true,
+            follow_up_prompted: false,
         }
     }
 
@@ -1888,5 +1958,15 @@ mod tests {
             &previous.codex_status,
             &current.codex_status
         ));
+    }
+
+    #[test]
+    fn follow_up_prompt_transition_is_detected() {
+        let mut project = sample_project("/tmp/solo");
+        let previous = project_signature(&project);
+        project.follow_up_prompted = true;
+        let current = project_signature(&project);
+
+        assert!(should_attempt_follow_up_resume(&previous, &current));
     }
 }
