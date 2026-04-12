@@ -1,0 +1,32 @@
+{
+  "schemaVersion": "1.0",
+  "project": {
+    "name": "workflow-skills-copy",
+    "path": "/Users/wucongpeng/Documents/ai/skill/workflow-skills-copy",
+    "language": "TypeScript + Rust",
+    "buildTool": "npm + cargo",
+    "docsRoot": "docs/workflow",
+    "prdDirectory": "docs/workflow/PRD"
+  },
+  "workflow": {
+    "stage": "execution",
+    "gateStatus": "进行中",
+    "health": "良好",
+    "risk": "低",
+    "currentReqId": "REQ-2026-04-11-01",
+    "currentReqTitle": "Workflow 状态栏工具",
+    "currentTaskId": "TASK-2026-04-11-03",
+    "currentTaskTitle": "实现托盘与状态聚合 MVP",
+    "currentTaskStatus": "doing",
+    "currentMode": "desktop"
+  },
+  "metrics": {
+    "totalTasks": 12,
+    "done": 5
+  },
+  "sync": {
+    "source": "workflow-execution",
+    "status": "fresh",
+    "lastSyncAt": "2026-04-11 21:42"
+  }
+}

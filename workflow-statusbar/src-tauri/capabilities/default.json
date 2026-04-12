@@ -1,0 +1,11 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Capability for workflow statusbar windows",
+  "windows": ["main", "floating"],
+  "permissions": [
+    "core:default",
+    "opener:default",
+    "notification:default"
+  ]
+}

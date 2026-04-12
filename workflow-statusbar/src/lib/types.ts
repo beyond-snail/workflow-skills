@@ -1,0 +1,57 @@
+export type CodexStatus = "running" | "waiting_input" | "stalled" | "idle" | "offline";
+export type WorkflowStage = "bootstrap" | "requirement" | "execution" | "done" | "unknown";
+
+export type CodexState = {
+  status: CodexStatus;
+  heartbeat_at: string;
+  active_thread_id: string;
+  active_thread_name: string;
+  active_project_path: string;
+  source: string;
+  confidence: string;
+  process_running: boolean;
+};
+
+export type ProjectSnapshot = {
+  name: string;
+  path: string;
+  workflow_stage: WorkflowStage;
+  gate_status: string;
+  health: string;
+  risk: string;
+  current_req_id: string;
+  current_req_title: string;
+  current_task_id: string;
+  current_task_title: string;
+  current_task_status: string;
+  current_mode: string;
+  last_sync_at: string;
+  sync_source: string;
+  is_blocked: boolean;
+  is_active_by_codex: boolean;
+  progress_label: string;
+  stage_label: string;
+};
+
+export type ProjectGroup = {
+  key: string;
+  label: string;
+  items: ProjectSnapshot[];
+};
+
+export type Summary = {
+  bootstrap: number;
+  requirement: number;
+  execution: number;
+  blocked: number;
+  done: number;
+};
+
+export type RuntimeState = {
+  codex: CodexState;
+  projects: ProjectSnapshot[];
+  groups: ProjectGroup[];
+  summary: Summary;
+  spotlight_project: ProjectSnapshot | null;
+  updated_at: string;
+};

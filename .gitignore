@@ -1,5 +1,10 @@
 project-cockpit/node_modules/
 project-cockpit/dist/
+workflow-statusbar/node_modules/
+workflow-statusbar/dist/
+workflow-statusbar/src-tauri/target/
+workflow-statusbar/.vite/
+workflow-statusbar/.tauri/
 __pycache__/
 *.pyc
 .DS_Store
