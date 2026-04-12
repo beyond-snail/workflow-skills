@@ -12,6 +12,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tauri::{
+    menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     ActivationPolicy, Emitter, Manager, PhysicalPosition, Position, Rect, Size, WebviewWindow,
 };
@@ -22,6 +23,12 @@ const MAX_GROUP_ITEMS: usize = 5;
 const PROJECT_ROTATION_SECONDS: i64 = 8;
 const AUTO_RESUME_COOLDOWN_SECONDS: i64 = 90;
 const POLL_INTERVAL_SECONDS: u64 = 8;
+const TRAY_MENU_OPEN_DASHBOARD: &str = "open_dashboard";
+const TRAY_MENU_OPEN_ALERT_SETTINGS: &str = "open_alert_settings";
+const TRAY_MENU_QUIT: &str = "quit";
+
+type SharedRuntimeCache = Arc<Mutex<RuntimeCache>>;
+type SharedAlertSettings = Arc<Mutex<AlertSettings>>;
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -110,6 +117,33 @@ struct RuntimeState {
     updated_at: String,
 }
 
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+enum AlertProviderMode {
+    #[default]
+    Disabled,
+    Bridge,
+    Feishu,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug, Default)]
+struct AlertSettings {
+    #[serde(default)]
+    mode: AlertProviderMode,
+    #[serde(default)]
+    bridge_endpoint: String,
+    #[serde(default)]
+    bridge_token: String,
+    #[serde(default)]
+    feishu_app_id: String,
+    #[serde(default)]
+    feishu_app_secret: String,
+    #[serde(default)]
+    feishu_open_id: String,
+    #[serde(default)]
+    feishu_chat_id: String,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct RuntimeSignature {
     codex_status: CodexStatus,
@@ -145,10 +179,17 @@ struct AutoResumeRecord {
 }
 
 #[derive(Clone)]
-struct AlertDispatchConfig {
-    provider: String,
-    endpoint: String,
-    token: String,
+enum AlertDispatchConfig {
+    Bridge {
+        endpoint: String,
+        token: String,
+    },
+    Feishu {
+        app_id: String,
+        app_secret: String,
+        open_id: String,
+        chat_id: String,
+    },
 }
 
 #[derive(Serialize)]
@@ -165,6 +206,20 @@ struct RemoteAlertPayload {
     codex_status: String,
     heartbeat_at: String,
     occurred_at: i64,
+}
+
+#[derive(Deserialize)]
+struct FeishuTenantAccessTokenResponse {
+    code: i64,
+    msg: String,
+    #[serde(default)]
+    tenant_access_token: String,
+}
+
+#[derive(Deserialize)]
+struct FeishuApiResponse {
+    code: i64,
+    msg: String,
 }
 
 #[derive(Deserialize, Default)]
@@ -832,34 +887,182 @@ fn workflow_stage_key(stage: &WorkflowStage) -> &'static str {
     }
 }
 
-fn alert_dispatch_config() -> Option<AlertDispatchConfig> {
-    let provider = env::var("WORKFLOW_ALERT_PROVIDER").ok()?.trim().to_string();
-    let endpoint = env::var("WORKFLOW_ALERT_ENDPOINT").ok()?.trim().to_string();
-    let token = env::var("WORKFLOW_ALERT_TOKEN").unwrap_or_default();
-
-    if provider.is_empty() || endpoint.is_empty() {
-        return None;
-    }
-
-    Some(AlertDispatchConfig {
-        provider,
-        endpoint,
-        token,
-    })
+fn app_alert_settings_path<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<PathBuf, String> {
+    let dir = app
+        .path()
+        .app_config_dir()
+        .map_err(|err| err.to_string())?;
+    Ok(dir.join("alert-settings.json"))
 }
 
-fn post_remote_alert(config: &AlertDispatchConfig, payload: &RemoteAlertPayload) -> Result<(), String> {
-    let mut request = ureq::post(&config.endpoint).set("Content-Type", "application/json");
-    if !config.token.trim().is_empty() {
-        request = request.set("Authorization", &format!("Bearer {}", config.token.trim()));
+fn read_alert_settings<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> AlertSettings {
+    let path = match app_alert_settings_path(app) {
+        Ok(path) => path,
+        Err(_) => return read_env_alert_settings(),
+    };
+
+    match fs::read_to_string(path) {
+        Ok(content) => serde_json::from_str::<AlertSettings>(&content).unwrap_or_else(|_| read_env_alert_settings()),
+        Err(_) => read_env_alert_settings(),
+    }
+}
+
+fn read_env_alert_settings() -> AlertSettings {
+    let provider = env::var("WORKFLOW_ALERT_PROVIDER")
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+
+    if provider == "feishu" {
+        let endpoint = env::var("WORKFLOW_ALERT_ENDPOINT").unwrap_or_default();
+        if !endpoint.trim().is_empty() {
+            return AlertSettings {
+                mode: AlertProviderMode::Bridge,
+                bridge_endpoint: endpoint.trim().into(),
+                bridge_token: env::var("WORKFLOW_ALERT_TOKEN").unwrap_or_default(),
+                ..AlertSettings::default()
+            };
+        }
+    }
+
+    AlertSettings::default()
+}
+
+fn save_alert_settings<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    settings: &AlertSettings,
+) -> Result<(), String> {
+    let path = app_alert_settings_path(app)?;
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|err| err.to_string())?;
+    }
+
+    let content = serde_json::to_string_pretty(settings).map_err(|err| err.to_string())?;
+    fs::write(path, content).map_err(|err| err.to_string())
+}
+
+fn alert_dispatch_config(settings: &AlertSettings) -> Option<AlertDispatchConfig> {
+    match settings.mode {
+        AlertProviderMode::Disabled => None,
+        AlertProviderMode::Bridge => {
+            let endpoint = settings.bridge_endpoint.trim();
+            if endpoint.is_empty() {
+                return None;
+            }
+            Some(AlertDispatchConfig::Bridge {
+                endpoint: endpoint.into(),
+                token: settings.bridge_token.trim().into(),
+            })
+        }
+        AlertProviderMode::Feishu => {
+            let app_id = settings.feishu_app_id.trim();
+            let app_secret = settings.feishu_app_secret.trim();
+            let open_id = settings.feishu_open_id.trim();
+            let chat_id = settings.feishu_chat_id.trim();
+            if app_id.is_empty() || app_secret.is_empty() || (open_id.is_empty() && chat_id.is_empty()) {
+                return None;
+            }
+            Some(AlertDispatchConfig::Feishu {
+                app_id: app_id.into(),
+                app_secret: app_secret.into(),
+                open_id: open_id.into(),
+                chat_id: chat_id.into(),
+            })
+        }
+    }
+}
+
+fn post_bridge_alert(endpoint: &str, token: &str, payload: &RemoteAlertPayload) -> Result<(), String> {
+    let mut request = ureq::post(endpoint).set("Content-Type", "application/json");
+    if !token.trim().is_empty() {
+        request = request.set("Authorization", &format!("Bearer {}", token.trim()));
     }
     request
         .send_json(serde_json::json!({
-            "provider": config.provider,
+            "provider": "feishu",
             "payload": payload,
         }))
         .map(|_| ())
         .map_err(|err| err.to_string())
+}
+
+fn request_feishu_tenant_access_token(app_id: &str, app_secret: &str) -> Result<String, String> {
+    let response = ureq::post("https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal")
+        .set("Content-Type", "application/json")
+        .send_json(serde_json::json!({
+            "app_id": app_id,
+            "app_secret": app_secret,
+        }))
+        .map_err(|err| err.to_string())?;
+
+    let body: FeishuTenantAccessTokenResponse = response.into_json().map_err(|err| err.to_string())?;
+    if body.code != 0 || body.tenant_access_token.trim().is_empty() {
+        return Err(format!("feishu token error: {} ({})", body.msg, body.code));
+    }
+    Ok(body.tenant_access_token)
+}
+
+fn post_feishu_alert(
+    app_id: &str,
+    app_secret: &str,
+    open_id: &str,
+    chat_id: &str,
+    payload: &RemoteAlertPayload,
+) -> Result<(), String> {
+    let token = request_feishu_tenant_access_token(app_id, app_secret)?;
+    let receive_id_type = if !chat_id.trim().is_empty() {
+        "chat_id"
+    } else {
+        "open_id"
+    };
+    let receive_id = if !chat_id.trim().is_empty() {
+        chat_id.trim()
+    } else {
+        open_id.trim()
+    };
+
+    let content = serde_json::json!({
+        "text": format!(
+            "{}\n{}\n项目：{}\n任务：{}\n阶段：{}\nCodex：{}\n心跳：{}",
+            payload.title,
+            payload.body,
+            if payload.project_name.is_empty() { "未识别" } else { &payload.project_name },
+            if payload.task_id.is_empty() { "未识别" } else { &payload.task_id },
+            payload.workflow_stage,
+            payload.codex_status,
+            if payload.heartbeat_at.is_empty() { "未采集" } else { &payload.heartbeat_at }
+        )
+    });
+
+    let response = ureq::post(&format!(
+        "https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type={receive_id_type}"
+    ))
+    .set("Authorization", &format!("Bearer {token}"))
+    .set("Content-Type", "application/json")
+    .send_json(serde_json::json!({
+        "receive_id": receive_id,
+        "msg_type": "text",
+        "content": content.to_string(),
+    }))
+    .map_err(|err| err.to_string())?;
+
+    let body: FeishuApiResponse = response.into_json().map_err(|err| err.to_string())?;
+    if body.code != 0 {
+        return Err(format!("feishu send error: {} ({})", body.msg, body.code));
+    }
+    Ok(())
+}
+
+fn post_remote_alert(config: &AlertDispatchConfig, payload: &RemoteAlertPayload) -> Result<(), String> {
+    match config {
+        AlertDispatchConfig::Bridge { endpoint, token } => post_bridge_alert(endpoint, token, payload),
+        AlertDispatchConfig::Feishu {
+            app_id,
+            app_secret,
+            open_id,
+            chat_id,
+        } => post_feishu_alert(app_id, app_secret, open_id, chat_id, payload),
+    }
 }
 
 fn find_auto_resume_project<'a>(projects: &'a [ProjectSnapshot], project_path: &str) -> Option<&'a ProjectSnapshot> {
@@ -1103,6 +1306,7 @@ fn signature_for(state: &RuntimeState) -> RuntimeSignature {
 fn notify_changes<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
     cache: &mut RuntimeCache,
+    alert_settings: &SharedAlertSettings,
     current: &RuntimeState,
 ) {
     let current_signature = signature_for(current);
@@ -1111,6 +1315,7 @@ fn notify_changes<R: tauri::Runtime>(
         if previous.codex_status == CodexStatus::Running && current_signature.codex_status != CodexStatus::Running {
             push_alert(
                 app,
+                alert_settings,
                 "codex_status_changed",
                 "Codex 状态变化",
                 &format!(
@@ -1128,7 +1333,15 @@ fn notify_changes<R: tauri::Runtime>(
                 .as_ref()
                 .map(|project| format!("{} · {}", project.name, project.current_task_title))
                 .unwrap_or_else(|| "当前任务已切换".into());
-            push_alert(app, "task_switched", "任务已切换", &body, false, current.spotlight_project.as_ref());
+            push_alert(
+                app,
+                alert_settings,
+                "task_switched",
+                "任务已切换",
+                &body,
+                false,
+                current.spotlight_project.as_ref(),
+            );
         }
 
         if previous.focus_task_status != "blocked" && current_signature.focus_task_status == "blocked" {
@@ -1137,7 +1350,15 @@ fn notify_changes<R: tauri::Runtime>(
                 .as_ref()
                 .map(|project| format!("{} 已进入阻塞", project.name))
                 .unwrap_or_else(|| "当前项目已进入阻塞".into());
-            push_alert(app, "project_blocked", "项目阻塞", &body, true, current.spotlight_project.as_ref());
+            push_alert(
+                app,
+                alert_settings,
+                "project_blocked",
+                "项目阻塞",
+                &body,
+                true,
+                current.spotlight_project.as_ref(),
+            );
         }
     }
 
@@ -1164,6 +1385,7 @@ fn notify_changes<R: tauri::Runtime>(
                 };
                 push_alert(
                     app,
+                    alert_settings,
                     "task_completed",
                     "任务完成",
                     &format!("{title} · {body}"),
@@ -1177,6 +1399,7 @@ fn notify_changes<R: tauri::Runtime>(
             {
                 push_alert(
                     app,
+                    alert_settings,
                     "project_completed",
                     "项目完成",
                     &format!("{} 已进入完成阶段", project.name),
@@ -1204,6 +1427,7 @@ fn notify_changes<R: tauri::Runtime>(
                     ) {
                         push_alert(
                             app,
+                            alert_settings,
                             "task_interrupted",
                             "项目执行中断",
                             &format!("{stop_body}，冷却期内跳过自动续跑"),
@@ -1221,6 +1445,7 @@ fn notify_changes<R: tauri::Runtime>(
                             Ok(()) => {
                                 push_alert(
                                     app,
+                                    alert_settings,
                                     "task_interrupted",
                                     "项目执行中断",
                                     &format!("{stop_body}，已自动尝试续跑"),
@@ -1231,6 +1456,7 @@ fn notify_changes<R: tauri::Runtime>(
                             Err(err) => {
                                 push_alert(
                                     app,
+                                    alert_settings,
                                     "auto_resume_failed",
                                     "项目执行中断",
                                     &format!("{stop_body}，自动续跑失败：{err}"),
@@ -1243,6 +1469,7 @@ fn notify_changes<R: tauri::Runtime>(
                 } else {
                     push_alert(
                         app,
+                        alert_settings,
                         "task_interrupted",
                         "项目执行中断",
                         &format!("{stop_body}，该项目未启用自动续跑"),
@@ -1261,6 +1488,7 @@ fn notify_changes<R: tauri::Runtime>(
 
 fn push_alert<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
+    alert_settings: &SharedAlertSettings,
     event_type: &str,
     title: &str,
     body: &str,
@@ -1268,7 +1496,11 @@ fn push_alert<R: tauri::Runtime>(
     project: Option<&ProjectSnapshot>,
 ) {
     let _ = app.notification().builder().title(title).body(body).show();
-    if let Some(config) = alert_dispatch_config() {
+    let settings = alert_settings
+        .lock()
+        .map(|guard| guard.clone())
+        .unwrap_or_default();
+    if let Some(config) = alert_dispatch_config(&settings) {
         let payload = RemoteAlertPayload {
             event_type: event_type.into(),
             title: title.into(),
@@ -1306,12 +1538,16 @@ fn push_alert<R: tauri::Runtime>(
     }
 }
 
-fn emit_runtime_state<R: tauri::Runtime>(app: &tauri::AppHandle<R>, cache: &Arc<Mutex<RuntimeCache>>) {
+fn emit_runtime_state<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    cache: &SharedRuntimeCache,
+    alert_settings: &SharedAlertSettings,
+) {
     let state = collect_runtime_state();
 
     {
         let mut guard = cache.lock().expect("runtime cache poisoned");
-        notify_changes(app, &mut guard, &state);
+        notify_changes(app, &mut guard, alert_settings, &state);
         guard.signature = Some(signature_for(&state));
         guard.latest = Some(state.clone());
     }
@@ -1329,8 +1565,32 @@ fn get_runtime_state(state: tauri::State<'_, Arc<Mutex<RuntimeCache>>>) -> Runti
 }
 
 #[tauri::command]
+fn get_alert_settings(state: tauri::State<'_, SharedAlertSettings>) -> AlertSettings {
+    state.lock().map(|guard| guard.clone()).unwrap_or_default()
+}
+
+#[tauri::command]
+fn save_alert_settings_command<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    state: tauri::State<'_, SharedAlertSettings>,
+    settings: AlertSettings,
+) -> Result<AlertSettings, String> {
+    save_alert_settings(&app, &settings)?;
+    let mut guard = state.lock().map_err(|_| "alert settings lock poisoned".to_string())?;
+    *guard = settings.clone();
+    Ok(settings)
+}
+
+#[tauri::command]
 fn toggle_main_window<R: tauri::Runtime>(app: tauri::AppHandle<R>) -> Result<(), String> {
     show_main_window(&app, None)
+}
+
+#[tauri::command]
+fn open_alert_settings_window<R: tauri::Runtime>(app: tauri::AppHandle<R>) -> Result<(), String> {
+    show_main_window(&app, None)?;
+    let _ = app.emit("open-alert-settings", true);
+    Ok(())
 }
 
 fn position_top_center<R: tauri::Runtime>(window: &WebviewWindow<R>) -> Result<(), String> {
@@ -1412,13 +1672,26 @@ fn open_path(path: String) -> Result<(), String> {
         })
 }
 
+fn build_tray_menu<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<Menu<R>, String> {
+    let open_dashboard = MenuItem::with_id(app, TRAY_MENU_OPEN_DASHBOARD, "打开面板", true, None::<&str>)
+        .map_err(|err| err.to_string())?;
+    let open_alert_settings = MenuItem::with_id(app, TRAY_MENU_OPEN_ALERT_SETTINGS, "提醒配置", true, None::<&str>)
+        .map_err(|err| err.to_string())?;
+    let quit = MenuItem::with_id(app, TRAY_MENU_QUIT, "退出", true, None::<&str>)
+        .map_err(|err| err.to_string())?;
+
+    Menu::with_items(app, &[&open_dashboard, &open_alert_settings, &quit]).map_err(|err| err.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let runtime_cache: Arc<Mutex<RuntimeCache>> = Arc::new(Mutex::new(RuntimeCache::default()));
+    let runtime_cache: SharedRuntimeCache = Arc::new(Mutex::new(RuntimeCache::default()));
 
     tauri::Builder::default()
         .manage(runtime_cache.clone())
         .setup(move |app| {
+            let alert_settings: SharedAlertSettings = Arc::new(Mutex::new(read_alert_settings(app.handle())));
+            app.manage(alert_settings.clone());
             app.set_activation_policy(ActivationPolicy::Accessory);
 
             let main_window = app.get_webview_window("main").expect("main window should exist");
@@ -1444,8 +1717,23 @@ pub fn run() {
 
             let icon = app.default_window_icon().cloned();
             let tray_handle = app.handle().clone();
+            let tray_menu = build_tray_menu(app.handle()).map_err(|err| -> Box<dyn std::error::Error> { err.into() })?;
             TrayIconBuilder::new()
                 .icon(icon.expect("default icon missing"))
+                .menu(&tray_menu)
+                .show_menu_on_left_click(false)
+                .on_menu_event(move |app, event| match event.id.as_ref() {
+                    TRAY_MENU_OPEN_DASHBOARD => {
+                        let _ = show_main_window(app, None);
+                    }
+                    TRAY_MENU_OPEN_ALERT_SETTINGS => {
+                        let _ = open_alert_settings_window(app.clone());
+                    }
+                    TRAY_MENU_QUIT => {
+                        app.exit(0);
+                    }
+                    _ => {}
+                })
                 .on_tray_icon_event(move |_tray, event| {
                     if let TrayIconEvent::Click {
                         button: MouseButton::Left,
@@ -1466,12 +1754,13 @@ pub fn run() {
                 })
                 .build(app)?;
 
-            emit_runtime_state(app.handle(), &runtime_cache);
+            emit_runtime_state(app.handle(), &runtime_cache, &alert_settings);
 
             let poller_app = app.handle().clone();
             let poller_cache = runtime_cache.clone();
+            let poller_alert_settings = alert_settings.clone();
             thread::spawn(move || loop {
-                emit_runtime_state(&poller_app, &poller_cache);
+                emit_runtime_state(&poller_app, &poller_cache, &poller_alert_settings);
                 thread::sleep(Duration::from_secs(POLL_INTERVAL_SECONDS));
             });
 
@@ -1484,7 +1773,10 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             get_runtime_state,
+            get_alert_settings,
+            save_alert_settings_command,
             toggle_main_window,
+            open_alert_settings_window,
             set_floating_visibility,
             open_path
         ])

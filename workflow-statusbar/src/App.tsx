@@ -2,26 +2,32 @@ import { useEffect, useMemo, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { AlertSettingsPanel } from "./components/AlertSettingsPanel";
 import { AppShell } from "./components/AppShell";
 import { EmptyState } from "./components/EmptyState";
 import { FocusCard } from "./components/FocusCard";
 import { ProjectGroups } from "./components/ProjectGroups";
 import { StatusCard } from "./components/StatusCard";
-import type { RuntimeState } from "./lib/types";
+import type { AlertSettings, RuntimeState } from "./lib/types";
 
 const windowLabel = getCurrentWindow().label;
 
 function App() {
   const [state, setState] = useState<RuntimeState | null>(null);
+  const [alertSettings, setAlertSettings] = useState<AlertSettings | null>(null);
+  const [savingAlertSettings, setSavingAlertSettings] = useState(false);
+  const [panelMode, setPanelMode] = useState<"dashboard" | "alert-settings">("dashboard");
   const [error, setError] = useState("");
 
   useEffect(() => {
-    let unlisten: (() => void) | undefined;
+    const unlisteners: Array<() => void> = [];
 
     async function load() {
       try {
         const payload = await invoke<RuntimeState>("get_runtime_state");
+        const settings = await invoke<AlertSettings>("get_alert_settings");
         setState(payload);
+        setAlertSettings(settings);
         setError("");
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
@@ -34,11 +40,17 @@ function App() {
       setState(event.payload);
       setError("");
     }).then((fn) => {
-      unlisten = fn;
+      unlisteners.push(fn);
+    });
+
+    listen<boolean>("open-alert-settings", () => {
+      setPanelMode("alert-settings");
+    }).then((fn) => {
+      unlisteners.push(fn);
     });
 
     return () => {
-      unlisten?.();
+      unlisteners.forEach((fn) => fn());
     };
   }, []);
 
@@ -71,6 +83,31 @@ function App() {
 
   if (windowLabel === "floating") {
     return null;
+  }
+
+  async function handleSaveAlertSettings(nextSettings: AlertSettings) {
+    setSavingAlertSettings(true);
+    try {
+      const saved = await invoke<AlertSettings>("save_alert_settings_command", {
+        settings: nextSettings,
+      });
+      setAlertSettings(saved);
+    } finally {
+      setSavingAlertSettings(false);
+    }
+  }
+
+  if (panelMode === "alert-settings" && alertSettings) {
+    return (
+      <AppShell>
+        <AlertSettingsPanel
+          settings={alertSettings}
+          saving={savingAlertSettings}
+          onSave={handleSaveAlertSettings}
+          onBack={() => setPanelMode("dashboard")}
+        />
+      </AppShell>
+    );
   }
 
   return (

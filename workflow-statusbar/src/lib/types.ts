@@ -62,3 +62,15 @@ export type RuntimeState = {
   spotlight_project: ProjectSnapshot | null;
   updated_at: string;
 };
+
+export type AlertProviderMode = "disabled" | "bridge" | "feishu";
+
+export type AlertSettings = {
+  mode: AlertProviderMode;
+  bridge_endpoint: string;
+  bridge_token: string;
+  feishu_app_id: string;
+  feishu_app_secret: string;
+  feishu_open_id: string;
+  feishu_chat_id: string;
+};
