@@ -12,7 +12,7 @@ use std::{
 };
 use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    ActivationPolicy, Emitter, Manager, PhysicalPosition, Position, Rect, Size,
+    ActivationPolicy, Emitter, Manager, PhysicalPosition, Position, Rect, Size, WebviewWindow,
 };
 use tauri_plugin_notification::NotificationExt;
 
@@ -653,6 +653,20 @@ fn toggle_main_window<R: tauri::Runtime>(app: tauri::AppHandle<R>) -> Result<(),
     show_main_window(&app, None)
 }
 
+fn position_top_center<R: tauri::Runtime>(window: &WebviewWindow<R>) -> Result<(), String> {
+    let size = window.outer_size().map_err(|err| err.to_string())?;
+    if let Some(monitor) = window.current_monitor().map_err(|err| err.to_string())? {
+        let monitor_size = monitor.size();
+        let x = ((monitor_size.width as i32 - size.width as i32) / 2).max(12);
+        window
+            .set_position(Position::Physical(PhysicalPosition { x, y: 34 }))
+            .map_err(|err| err.to_string())?;
+    } else {
+        window.center().map_err(|err| err.to_string())?;
+    }
+    Ok(())
+}
+
 fn show_main_window<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
     tray_rect: Option<Rect>,
@@ -680,19 +694,7 @@ fn show_main_window<R: tauri::Runtime>(
             }))
             .map_err(|err| err.to_string())?;
     } else {
-        let size = window.outer_size().map_err(|err| err.to_string())?;
-        if let Some(monitor) = window.current_monitor().map_err(|err| err.to_string())? {
-            let monitor_size = monitor.size();
-            let x = ((monitor_size.width as i32 - size.width as i32) / 2).max(12);
-            window
-                .set_position(Position::Physical(PhysicalPosition {
-                    x,
-                    y: 34,
-                }))
-                .map_err(|err| err.to_string())?;
-        } else {
-            window.center().map_err(|err| err.to_string())?;
-        }
+        position_top_center(&window)?;
     }
 
     window.show().map_err(|err| err.to_string())?;
@@ -740,11 +742,13 @@ pub fn run() {
             app.set_activation_policy(ActivationPolicy::Accessory);
 
             let main_window = app.get_webview_window("main").expect("main window should exist");
+            let _ = position_top_center(&main_window);
             let _ = main_window.hide();
             let startup_hide_handle = app.handle().clone();
             thread::spawn(move || {
                 thread::sleep(Duration::from_millis(400));
                 if let Some(window) = startup_hide_handle.get_webview_window("main") {
+                    let _ = position_top_center(&window);
                     let _ = window.hide();
                 }
             });
