@@ -138,15 +138,25 @@ struct AlertSettings {
     #[serde(default = "default_true")]
     remote_notifications_enabled: bool,
     #[serde(default = "default_true")]
-    notify_task_completed: bool,
+    local_notify_task_completed: bool,
     #[serde(default = "default_true")]
-    notify_project_completed: bool,
+    remote_notify_task_completed: bool,
     #[serde(default = "default_true")]
-    notify_project_blocked: bool,
+    local_notify_project_completed: bool,
     #[serde(default = "default_true")]
-    notify_task_interrupted: bool,
+    remote_notify_project_completed: bool,
     #[serde(default = "default_true")]
-    notify_auto_resume_failed: bool,
+    local_notify_project_blocked: bool,
+    #[serde(default = "default_true")]
+    remote_notify_project_blocked: bool,
+    #[serde(default = "default_true")]
+    local_notify_task_interrupted: bool,
+    #[serde(default = "default_true")]
+    remote_notify_task_interrupted: bool,
+    #[serde(default = "default_true")]
+    local_notify_auto_resume_failed: bool,
+    #[serde(default = "default_true")]
+    remote_notify_auto_resume_failed: bool,
     #[serde(default)]
     bridge_endpoint: String,
     #[serde(default)]
@@ -167,11 +177,16 @@ impl Default for AlertSettings {
             mode: AlertProviderMode::default(),
             local_notifications_enabled: true,
             remote_notifications_enabled: true,
-            notify_task_completed: true,
-            notify_project_completed: true,
-            notify_project_blocked: true,
-            notify_task_interrupted: true,
-            notify_auto_resume_failed: true,
+            local_notify_task_completed: true,
+            remote_notify_task_completed: true,
+            local_notify_project_completed: true,
+            remote_notify_project_completed: true,
+            local_notify_project_blocked: true,
+            remote_notify_project_blocked: true,
+            local_notify_task_interrupted: true,
+            remote_notify_task_interrupted: true,
+            local_notify_auto_resume_failed: true,
+            remote_notify_auto_resume_failed: true,
             bridge_endpoint: String::new(),
             bridge_token: String::new(),
             feishu_app_id: String::new(),
@@ -992,9 +1007,65 @@ fn read_alert_settings<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> AlertSet
     };
 
     match fs::read_to_string(path) {
-        Ok(content) => serde_json::from_str::<AlertSettings>(&content).unwrap_or_else(|_| read_env_alert_settings()),
+        Ok(content) => parse_alert_settings(&content).unwrap_or_else(read_env_alert_settings),
         Err(_) => read_env_alert_settings(),
     }
+}
+
+fn sync_legacy_event_toggle(
+    payload: &mut serde_json::Map<String, serde_json::Value>,
+    legacy_key: &str,
+    local_key: &str,
+    remote_key: &str,
+) {
+    let Some(value) = payload.get(legacy_key).cloned() else {
+        return;
+    };
+
+    if !payload.contains_key(local_key) {
+        payload.insert(local_key.into(), value.clone());
+    }
+    if !payload.contains_key(remote_key) {
+        payload.insert(remote_key.into(), value);
+    }
+}
+
+fn parse_alert_settings(content: &str) -> Option<AlertSettings> {
+    let mut payload = serde_json::from_str::<serde_json::Value>(content).ok()?;
+    let object = payload.as_object_mut()?;
+
+    sync_legacy_event_toggle(
+        object,
+        "notify_task_completed",
+        "local_notify_task_completed",
+        "remote_notify_task_completed",
+    );
+    sync_legacy_event_toggle(
+        object,
+        "notify_project_completed",
+        "local_notify_project_completed",
+        "remote_notify_project_completed",
+    );
+    sync_legacy_event_toggle(
+        object,
+        "notify_project_blocked",
+        "local_notify_project_blocked",
+        "remote_notify_project_blocked",
+    );
+    sync_legacy_event_toggle(
+        object,
+        "notify_task_interrupted",
+        "local_notify_task_interrupted",
+        "remote_notify_task_interrupted",
+    );
+    sync_legacy_event_toggle(
+        object,
+        "notify_auto_resume_failed",
+        "local_notify_auto_resume_failed",
+        "remote_notify_auto_resume_failed",
+    );
+
+    serde_json::from_value(payload).ok()
 }
 
 fn read_env_alert_settings() -> AlertSettings {
@@ -1010,11 +1081,16 @@ fn read_env_alert_settings() -> AlertSettings {
                 mode: AlertProviderMode::Bridge,
                 local_notifications_enabled: true,
                 remote_notifications_enabled: true,
-                notify_task_completed: true,
-                notify_project_completed: true,
-                notify_project_blocked: true,
-                notify_task_interrupted: true,
-                notify_auto_resume_failed: true,
+                local_notify_task_completed: true,
+                remote_notify_task_completed: true,
+                local_notify_project_completed: true,
+                remote_notify_project_completed: true,
+                local_notify_project_blocked: true,
+                remote_notify_project_blocked: true,
+                local_notify_task_interrupted: true,
+                remote_notify_task_interrupted: true,
+                local_notify_auto_resume_failed: true,
+                remote_notify_auto_resume_failed: true,
                 bridge_endpoint: endpoint.trim().into(),
                 bridge_token: env::var("WORKFLOW_ALERT_TOKEN").unwrap_or_default(),
                 ..AlertSettings::default()
@@ -1080,11 +1156,41 @@ fn is_notification_enabled(settings: &AlertSettings, event_type: &str, dispatch_
     }
 
     match event_type {
-        "task_completed" => settings.notify_task_completed,
-        "project_completed" => settings.notify_project_completed,
-        "project_blocked" => settings.notify_project_blocked,
-        "task_interrupted" => settings.notify_task_interrupted,
-        "auto_resume_failed" => settings.notify_auto_resume_failed,
+        "task_completed" => {
+            if dispatch_remote {
+                settings.remote_notify_task_completed
+            } else {
+                settings.local_notify_task_completed
+            }
+        }
+        "project_completed" => {
+            if dispatch_remote {
+                settings.remote_notify_project_completed
+            } else {
+                settings.local_notify_project_completed
+            }
+        }
+        "project_blocked" => {
+            if dispatch_remote {
+                settings.remote_notify_project_blocked
+            } else {
+                settings.local_notify_project_blocked
+            }
+        }
+        "task_interrupted" => {
+            if dispatch_remote {
+                settings.remote_notify_task_interrupted
+            } else {
+                settings.local_notify_task_interrupted
+            }
+        }
+        "auto_resume_failed" => {
+            if dispatch_remote {
+                settings.remote_notify_auto_resume_failed
+            } else {
+                settings.local_notify_auto_resume_failed
+            }
+        }
         "manual_test" => true,
         _ => true,
     }

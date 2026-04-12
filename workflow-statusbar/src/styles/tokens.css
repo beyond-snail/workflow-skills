@@ -715,6 +715,62 @@ button {
   flex: 0 0 auto;
 }
 
+.settings-matrix {
+  display: grid;
+  gap: 6px;
+}
+
+.settings-matrix__head,
+.settings-matrix__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 48px 48px;
+  gap: 8px;
+  align-items: center;
+}
+
+.settings-matrix__head {
+  padding: 0 4px;
+  color: var(--muted);
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.settings-matrix__row {
+  padding: 9px 10px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--line);
+  background: rgba(247, 249, 252, 0.94);
+}
+
+.settings-matrix__copy {
+  display: grid;
+  gap: 2px;
+}
+
+.settings-matrix__copy strong {
+  font-size: 10px;
+  color: var(--text);
+}
+
+.settings-matrix__copy span {
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.35;
+}
+
+.settings-matrix__cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.settings-matrix__cell input {
+  width: 16px;
+  height: 16px;
+  accent-color: #58c472;
+}
+
 .settings-actions {
   display: flex;
   align-items: center;

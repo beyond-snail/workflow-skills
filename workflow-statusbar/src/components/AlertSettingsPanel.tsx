@@ -18,11 +18,44 @@ const modeOptions: Array<{ value: AlertProviderMode; label: string; detail: stri
 const notificationOptions: Array<{ key: keyof AlertSettings; label: string; detail: string }> = [
   { key: "local_notifications_enabled", label: "本机通知", detail: "macOS 通知中心提醒。" },
   { key: "remote_notifications_enabled", label: "远程通知", detail: "飞书或桥接服务提醒。" },
-  { key: "notify_task_completed", label: "任务完成", detail: "任务状态切到 done 时提醒。" },
-  { key: "notify_project_completed", label: "项目完成", detail: "项目进入完成阶段时提醒。" },
-  { key: "notify_project_blocked", label: "项目阻塞", detail: "项目进入 blocked 时提醒。" },
-  { key: "notify_task_interrupted", label: "项目中断/自动续跑", detail: "执行掉线或触发自动续跑时提醒。" },
-  { key: "notify_auto_resume_failed", label: "自动续跑失败", detail: "自动续跑失败时提醒。" },
+];
+
+const eventMatrixOptions: Array<{
+  label: string;
+  detail: string;
+  localKey: keyof AlertSettings;
+  remoteKey: keyof AlertSettings;
+}> = [
+  {
+    label: "任务完成",
+    detail: "任务状态切到 done 时提醒。",
+    localKey: "local_notify_task_completed",
+    remoteKey: "remote_notify_task_completed",
+  },
+  {
+    label: "项目完成",
+    detail: "项目进入完成阶段时提醒。",
+    localKey: "local_notify_project_completed",
+    remoteKey: "remote_notify_project_completed",
+  },
+  {
+    label: "项目阻塞",
+    detail: "项目进入 blocked 时提醒。",
+    localKey: "local_notify_project_blocked",
+    remoteKey: "remote_notify_project_blocked",
+  },
+  {
+    label: "项目中断 / 自动续跑",
+    detail: "执行掉线、触发自动续跑时提醒。",
+    localKey: "local_notify_task_interrupted",
+    remoteKey: "remote_notify_task_interrupted",
+  },
+  {
+    label: "自动续跑失败",
+    detail: "自动续跑失败时提醒。",
+    localKey: "local_notify_auto_resume_failed",
+    remoteKey: "remote_notify_auto_resume_failed",
+  },
 ];
 
 export function AlertSettingsPanel({
@@ -164,8 +197,8 @@ export function AlertSettingsPanel({
 
       <div className="settings-form">
         <div className="settings-section-head">
-          <strong>通知范围</strong>
-          <span>你可以决定哪些通知保留，哪些静默。</span>
+          <strong>通知总开关</strong>
+          <span>先控制通道，再决定每类事件发到哪里。</span>
         </div>
         <div className="settings-toggle-list">
           {notificationOptions.map((option) => (
@@ -180,6 +213,46 @@ export function AlertSettingsPanel({
                 onChange={(event) => patchForm({ [option.key]: event.target.checked } as Partial<AlertSettings>)}
               />
             </label>
+          ))}
+        </div>
+      </div>
+
+      <div className="settings-form">
+        <div className="settings-section-head">
+          <strong>事件通知矩阵</strong>
+          <span>每类事件都可以分别勾选本机提醒和飞书提醒。</span>
+        </div>
+        <div className="settings-matrix">
+          <div className="settings-matrix__head">
+            <span>事件</span>
+            <span>本机</span>
+            <span>远程</span>
+          </div>
+          {eventMatrixOptions.map((option) => (
+            <div className="settings-matrix__row" key={option.localKey}>
+              <div className="settings-matrix__copy">
+                <strong>{option.label}</strong>
+                <span>{option.detail}</span>
+              </div>
+              <label className="settings-matrix__cell" aria-label={`${option.label} 本机通知`}>
+                <input
+                  type="checkbox"
+                  checked={Boolean(form[option.localKey])}
+                  onChange={(event) =>
+                    patchForm({ [option.localKey]: event.target.checked } as Partial<AlertSettings>)
+                  }
+                />
+              </label>
+              <label className="settings-matrix__cell" aria-label={`${option.label} 远程通知`}>
+                <input
+                  type="checkbox"
+                  checked={Boolean(form[option.remoteKey])}
+                  onChange={(event) =>
+                    patchForm({ [option.remoteKey]: event.target.checked } as Partial<AlertSettings>)
+                  }
+                />
+              </label>
+            </div>
           ))}
         </div>
       </div>
