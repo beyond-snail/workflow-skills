@@ -1439,22 +1439,6 @@ fn notify_changes<R: tauri::Runtime>(
     maybe_resume_follow_up_on_startup(app, cache, alert_settings, current);
 
     if let Some(previous) = cache.signature.as_ref() {
-        if previous.codex_status == CodexStatus::Running && current_signature.codex_status != CodexStatus::Running {
-            push_alert(
-                app,
-                alert_settings,
-                "codex_status_changed",
-                "Codex 状态变化",
-                &format!(
-                    "全局 Codex 状态已切换为 {}",
-                    codex_status_label(&current_signature.codex_status)
-                ),
-                false,
-                false,
-                None,
-            );
-        }
-
         if previous.focus_task_id != current_signature.focus_task_id && !current_signature.focus_task_id.is_empty() {
             let body = current
                 .spotlight_project
