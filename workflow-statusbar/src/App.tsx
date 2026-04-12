@@ -6,7 +6,6 @@ import { AlertSettingsPanel } from "./components/AlertSettingsPanel";
 import { AppShell } from "./components/AppShell";
 import { EmptyState } from "./components/EmptyState";
 import { FocusCard } from "./components/FocusCard";
-import { ProjectGroups } from "./components/ProjectGroups";
 import { StatusCard } from "./components/StatusCard";
 import type { AlertSettings, RuntimeState } from "./lib/types";
 
@@ -129,7 +128,6 @@ function App() {
           project={displayProject}
         />
       ) : null}
-      <ProjectGroups groups={state.groups} spotlightPath={displayProject?.path ?? null} />
     </AppShell>
   );
 }
