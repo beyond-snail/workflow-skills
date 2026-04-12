@@ -18,6 +18,7 @@ use tauri_plugin_notification::NotificationExt;
 
 const LOOKUP_LIMIT: usize = 12;
 const MAX_GROUP_ITEMS: usize = 5;
+const PROJECT_ROTATION_SECONDS: i64 = 8;
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -193,6 +194,17 @@ struct CodexThread {
     cwd: String,
 }
 
+#[derive(Clone, Debug)]
+struct IdeProcess {
+    pid: i32,
+}
+
+#[derive(Default)]
+struct IdeSignal {
+    frontmost_project_paths: Vec<String>,
+    open_project_paths: Vec<String>,
+}
+
 fn unix_now() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -221,6 +233,19 @@ fn format_sync_text(input: &str) -> String {
     } else {
         input.into()
     }
+}
+
+fn path_matches(project_path: &str, candidate_path: &str) -> bool {
+    let project = project_path.trim_end_matches('/');
+    let candidate = candidate_path.trim_end_matches('/');
+
+    if project.is_empty() || candidate.is_empty() {
+        return false;
+    }
+
+    candidate == project
+        || candidate.starts_with(&(project.to_string() + "/"))
+        || project.starts_with(&(candidate.to_string() + "/"))
 }
 
 fn stage_from_str(input: &str) -> WorkflowStage {
@@ -300,6 +325,113 @@ fn codex_process_running() -> bool {
         .unwrap_or(false)
 }
 
+fn read_frontmost_pid() -> Option<i32> {
+    let front = Command::new("lsappinfo").arg("front").output().ok()?;
+    if !front.status.success() {
+        return None;
+    }
+    let front_stdout = String::from_utf8_lossy(&front.stdout).to_string();
+    let asn = front_stdout
+        .trim()
+        .strip_prefix("ASN:")?
+        .trim();
+    if asn.is_empty() {
+        return None;
+    }
+
+    let info = Command::new("lsappinfo")
+        .args(["info", "-only", "pid", asn])
+        .output()
+        .ok()?;
+    if !info.status.success() {
+        return None;
+    }
+
+    String::from_utf8_lossy(&info.stdout)
+        .lines()
+        .find_map(|line| line.split_once('='))
+        .and_then(|(_, value)| value.trim().parse::<i32>().ok())
+}
+
+fn read_ide_processes() -> Vec<IdeProcess> {
+    ["Cursor", "Code", "Windsurf", "Trae", "Xcode"]
+        .iter()
+        .flat_map(|name| {
+            Command::new("pgrep")
+                .args(["-x", name])
+                .output()
+                .ok()
+                .filter(|output| output.status.success())
+                .map(|output| {
+                    String::from_utf8_lossy(&output.stdout)
+                        .lines()
+                        .filter_map(|line| line.trim().parse::<i32>().ok())
+                        .map(|pid| IdeProcess { pid })
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default()
+        })
+        .collect()
+}
+
+fn project_paths_for_pid(pid: i32, projects: &[ProjectSnapshot]) -> Vec<String> {
+    let output = match Command::new("lsof")
+        .args(["-Fn", "-p", &pid.to_string()])
+        .output()
+    {
+        Ok(output) if output.status.success() => output,
+        _ => return Vec::new(),
+    };
+
+    let mut matched = Vec::new();
+    let mut seen = HashSet::new();
+    for line in String::from_utf8_lossy(&output.stdout).lines() {
+        let Some(path) = line.strip_prefix('n') else {
+            continue;
+        };
+        for project in projects {
+            if path_matches(&project.path, path) && seen.insert(project.path.clone()) {
+                matched.push(project.path.clone());
+            }
+        }
+    }
+
+    matched
+}
+
+fn read_ide_signal(projects: &[ProjectSnapshot]) -> IdeSignal {
+    if projects.is_empty() {
+        return IdeSignal::default();
+    }
+
+    let frontmost_pid = read_frontmost_pid();
+    let mut frontmost_project_paths = Vec::new();
+    let mut open_project_paths = Vec::new();
+    let mut seen = HashSet::new();
+
+    for process in read_ide_processes() {
+        let project_paths = project_paths_for_pid(process.pid, projects);
+        if project_paths.is_empty() {
+            continue;
+        }
+
+        let is_frontmost = frontmost_pid == Some(process.pid);
+        for project_path in project_paths {
+            if seen.insert(project_path.clone()) {
+                open_project_paths.push(project_path.clone());
+            }
+            if is_frontmost {
+                frontmost_project_paths.push(project_path);
+            }
+        }
+    }
+
+    IdeSignal {
+        frontmost_project_paths,
+        open_project_paths,
+    }
+}
+
 fn read_project_snapshot(state_path: &Path, active_project_path: &str) -> Option<ProjectSnapshot> {
     let content = fs::read_to_string(state_path).ok()?;
     let payload: ProjectFile = serde_json::from_str(&content).ok()?;
@@ -369,7 +501,7 @@ fn read_project_snapshot(state_path: &Path, active_project_path: &str) -> Option
         last_sync_at: format_sync_text(&payload.sync.last_sync_at),
         sync_source: payload.sync.source,
         is_blocked,
-        is_active_by_codex: !active_project_path.is_empty() && active_project_path == project_path,
+        is_active_by_codex: !active_project_path.is_empty() && path_matches(&project_path, active_project_path),
         progress_label,
         stage_label: stage_label(&stage),
     })
@@ -456,17 +588,43 @@ fn build_summary(projects: &[ProjectSnapshot]) -> Summary {
     summary
 }
 
-fn find_spotlight(projects: &[ProjectSnapshot], active_project_path: &str) -> Option<ProjectSnapshot> {
+fn find_project_by_path(projects: &[ProjectSnapshot], path: &str) -> Option<ProjectSnapshot> {
     projects
         .iter()
-        .find(|item| !active_project_path.is_empty() && item.path == active_project_path)
+        .find(|item| path_matches(&item.path, path))
         .cloned()
-        .or_else(|| {
-            projects
-                .iter()
-                .find(|item| matches!(item.workflow_stage, WorkflowStage::Execution))
-                .cloned()
-        })
+}
+
+fn rotate_project_paths(paths: &[String]) -> Option<&str> {
+    if paths.is_empty() {
+        return None;
+    }
+
+    let tick = (unix_now() / PROJECT_ROTATION_SECONDS) as usize;
+    paths.get(tick % paths.len()).map(|value| value.as_str())
+}
+
+fn find_spotlight(
+    projects: &[ProjectSnapshot],
+    ide_signal: &IdeSignal,
+    active_project_path: &str,
+) -> Option<ProjectSnapshot> {
+    if let Some(project_path) = rotate_project_paths(&ide_signal.frontmost_project_paths) {
+        return find_project_by_path(projects, project_path);
+    }
+
+    if let Some(project) = find_project_by_path(projects, active_project_path) {
+        return Some(project);
+    }
+
+    if let Some(project_path) = rotate_project_paths(&ide_signal.open_project_paths) {
+        return find_project_by_path(projects, project_path);
+    }
+
+    projects
+        .iter()
+        .find(|item| matches!(item.workflow_stage, WorkflowStage::Execution))
+        .cloned()
         .or_else(|| projects.first().cloned())
 }
 
@@ -544,7 +702,8 @@ fn collect_runtime_state() -> RuntimeState {
         }
     }
 
-    let spotlight = find_spotlight(&projects, &active_project_path);
+    let ide_signal = read_ide_signal(&projects);
+    let spotlight = find_spotlight(&projects, &ide_signal, &active_project_path);
     let groups = build_groups(&projects);
     let summary = build_summary(&projects);
 
