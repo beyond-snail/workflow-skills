@@ -353,25 +353,95 @@ fn read_frontmost_pid() -> Option<i32> {
         .and_then(|(_, value)| value.trim().parse::<i32>().ok())
 }
 
+fn read_frontmost_app_name() -> Option<String> {
+    let front = Command::new("lsappinfo").arg("front").output().ok()?;
+    if !front.status.success() {
+        return None;
+    }
+    let front_stdout = String::from_utf8_lossy(&front.stdout).to_string();
+    let asn = front_stdout
+        .trim()
+        .strip_prefix("ASN:")?
+        .trim();
+    if asn.is_empty() {
+        return None;
+    }
+
+    let info = Command::new("lsappinfo")
+        .args(["info", "-only", "name", asn])
+        .output()
+        .ok()?;
+    if !info.status.success() {
+        return None;
+    }
+
+    String::from_utf8_lossy(&info.stdout)
+        .lines()
+        .find_map(|line| line.split_once('='))
+        .map(|(_, value)| value.trim().trim_matches('"').to_string())
+}
+
 fn read_ide_processes() -> Vec<IdeProcess> {
-    ["Cursor", "Code", "Windsurf", "Trae", "Xcode"]
-        .iter()
-        .flat_map(|name| {
-            Command::new("pgrep")
-                .args(["-x", name])
-                .output()
-                .ok()
-                .filter(|output| output.status.success())
-                .map(|output| {
-                    String::from_utf8_lossy(&output.stdout)
-                        .lines()
-                        .filter_map(|line| line.trim().parse::<i32>().ok())
-                        .map(|pid| IdeProcess { pid })
-                        .collect::<Vec<_>>()
-                })
-                .unwrap_or_default()
+    let output = match Command::new("ps").args(["-axo", "pid=,args="]).output() {
+        Ok(output) if output.status.success() => output,
+        _ => return Vec::new(),
+    };
+
+    let markers = [
+        "/Visual Studio Code.app/",
+        "/Cursor.app/",
+        "/Windsurf.app/",
+        "/Trae.app/",
+        "/Xcode.app/",
+    ];
+
+    let mut seen = HashSet::new();
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(|line| {
+            let trimmed = line.trim();
+            let (pid_raw, args_raw) = trimmed.split_once(' ')?;
+            let pid = pid_raw.trim().parse::<i32>().ok()?;
+            let args = args_raw.trim();
+            if markers.iter().any(|marker| args.contains(marker)) && seen.insert(pid) {
+                Some(IdeProcess { pid })
+            } else {
+                None
+            }
         })
         .collect()
+}
+
+fn read_window_titles(process_name: &str) -> Vec<String> {
+    let script = format!(
+        "tell application \"System Events\" to tell process \"{process_name}\" to get name of every window"
+    );
+    let output = match Command::new("osascript").args(["-e", &script]).output() {
+        Ok(output) if output.status.success() => output,
+        _ => return Vec::new(),
+    };
+
+    String::from_utf8_lossy(&output.stdout)
+        .split(',')
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .collect()
+}
+
+fn project_paths_from_titles(projects: &[ProjectSnapshot], titles: &[String]) -> Vec<String> {
+    let mut matched = Vec::new();
+    let mut seen = HashSet::new();
+
+    for title in titles {
+        let lower_title = title.to_lowercase();
+        for project in projects {
+            if lower_title.contains(&project.name.to_lowercase()) && seen.insert(project.path.clone()) {
+                matched.push(project.path.clone());
+            }
+        }
+    }
+
+    matched
 }
 
 fn project_paths_for_pid(pid: i32, projects: &[ProjectSnapshot]) -> Vec<String> {
@@ -405,9 +475,18 @@ fn read_ide_signal(projects: &[ProjectSnapshot]) -> IdeSignal {
     }
 
     let frontmost_pid = read_frontmost_pid();
+    let frontmost_app_name = read_frontmost_app_name();
     let mut frontmost_project_paths = Vec::new();
     let mut open_project_paths = Vec::new();
     let mut seen = HashSet::new();
+
+    let code_titles = read_window_titles("Code");
+    let code_title_paths = project_paths_from_titles(projects, &code_titles);
+    for path in &code_title_paths {
+        if seen.insert(path.clone()) {
+            open_project_paths.push(path.clone());
+        }
+    }
 
     for process in read_ide_processes() {
         let project_paths = project_paths_for_pid(process.pid, projects);
@@ -424,6 +503,10 @@ fn read_ide_signal(projects: &[ProjectSnapshot]) -> IdeSignal {
                 frontmost_project_paths.push(project_path);
             }
         }
+    }
+
+    if frontmost_project_paths.is_empty() && matches!(frontmost_app_name.as_deref(), Some("Code")) {
+        frontmost_project_paths = code_title_paths.clone();
     }
 
     IdeSignal {
