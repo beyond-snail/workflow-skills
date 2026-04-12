@@ -120,6 +120,7 @@ struct RuntimeSignature {
 struct ProjectRuntimeSignature {
     path: String,
     codex_status: CodexStatus,
+    workflow_stage: WorkflowStage,
     task_id: String,
     task_status: String,
     thread_id: String,
@@ -768,6 +769,7 @@ fn project_signature(project: &ProjectSnapshot) -> ProjectRuntimeSignature {
     ProjectRuntimeSignature {
         path: project.path.clone(),
         codex_status: project.codex_status.clone(),
+        workflow_stage: project.workflow_stage.clone(),
         task_id: current_task_key(project),
         task_status: project.current_task_status.clone(),
         thread_id: project.codex_thread_id.clone(),
@@ -1070,6 +1072,38 @@ fn notify_changes<R: tauri::Runtime>(
         let previous = previous_project_signatures.get(&project.path);
 
         if let Some(previous) = previous {
+            if previous.task_status != "done" && signature.task_status == "done" {
+                let title = if !project.current_task_id.is_empty() {
+                    format!("{} · {}", project.name, project.current_task_id)
+                } else {
+                    project.name.clone()
+                };
+                let body = if !project.current_task_title.is_empty() {
+                    project.current_task_title.clone()
+                } else if !project.current_req_title.is_empty() {
+                    project.current_req_title.clone()
+                } else {
+                    "当前任务已完成".into()
+                };
+                let _ = app
+                    .notification()
+                    .builder()
+                    .title("任务完成")
+                    .body(format!("{title} · {body}"))
+                    .show();
+            }
+
+            if !matches!(previous.workflow_stage, WorkflowStage::Done)
+                && matches!(project.workflow_stage, WorkflowStage::Done)
+            {
+                let _ = app
+                    .notification()
+                    .builder()
+                    .title("项目完成")
+                    .body(format!("{} 已进入完成阶段", project.name))
+                    .show();
+            }
+
             if should_attempt_auto_resume(&previous.codex_status, &signature.codex_status) {
                 let stop_body = format!(
                     "{} 已从执行中切换为 {}",
