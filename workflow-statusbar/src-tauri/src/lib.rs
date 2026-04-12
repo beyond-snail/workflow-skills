@@ -11,7 +11,8 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tauri::{
-    Emitter, Manager,
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    ActivationPolicy, Emitter, Manager, PhysicalPosition, Position, Rect, Size,
 };
 use tauri_plugin_notification::NotificationExt;
 
@@ -649,13 +650,41 @@ fn get_runtime_state(state: tauri::State<'_, Arc<Mutex<RuntimeCache>>>) -> Runti
 
 #[tauri::command]
 fn toggle_main_window<R: tauri::Runtime>(app: tauri::AppHandle<R>) -> Result<(), String> {
+    show_main_window(&app, None)
+}
+
+fn show_main_window<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    tray_rect: Option<Rect>,
+) -> Result<(), String> {
     let Some(window) = app.get_webview_window("main") else {
         return Err("main window missing".into());
     };
 
-    window.unminimize().map_err(|err| err.to_string())?;
-    window.center().map_err(|err| err.to_string())?;
+    if let Some(rect) = tray_rect {
+        let size = window.outer_size().map_err(|err| err.to_string())?;
+        let (tray_x, tray_y) = match rect.position {
+            Position::Physical(position) => (position.x, position.y),
+            Position::Logical(position) => (position.x as i32, position.y as i32),
+        };
+        let (tray_w, tray_h) = match rect.size {
+            Size::Physical(size) => (size.width as i32, size.height as i32),
+            Size::Logical(size) => (size.width as i32, size.height as i32),
+        };
+        let popup_x = tray_x + (tray_w / 2) - (size.width as i32 / 2);
+        let popup_y = tray_y + tray_h + 8;
+        window
+            .set_position(Position::Physical(PhysicalPosition {
+                x: popup_x.max(12),
+                y: popup_y.max(12),
+            }))
+            .map_err(|err| err.to_string())?;
+    } else {
+        window.center().map_err(|err| err.to_string())?;
+    }
+
     window.show().map_err(|err| err.to_string())?;
+    window.unminimize().map_err(|err| err.to_string())?;
     window.set_focus().map_err(|err| err.to_string())?;
     Ok(())
 }
@@ -695,22 +724,44 @@ pub fn run() {
 
     tauri::Builder::default()
         .manage(runtime_cache.clone())
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.center();
-                let _ = window.show();
-                let _ = window.unminimize();
-                let _ = window.set_focus();
-            }
-        }))
-        .plugin(tauri_plugin_notification::init())
-        .plugin(tauri_plugin_opener::init())
         .setup(move |app| {
+            app.set_activation_policy(ActivationPolicy::Accessory);
+
             let main_window = app.get_webview_window("main").expect("main window should exist");
-            let _ = main_window.center();
-            let _ = main_window.unminimize();
-            let _ = main_window.show();
-            let _ = main_window.set_focus();
+            let _ = main_window.hide();
+
+            let app_handle = app.handle().clone();
+            main_window.on_window_event(move |event| {
+                if let tauri::WindowEvent::Focused(false) = event {
+                    if let Some(window) = app_handle.get_webview_window("main") {
+                        let _ = window.hide();
+                    }
+                }
+            });
+
+            let icon = app.default_window_icon().cloned();
+            let tray_handle = app.handle().clone();
+            TrayIconBuilder::new()
+                .icon(icon.expect("default icon missing"))
+                .on_tray_icon_event(move |_tray, event| {
+                    if let TrayIconEvent::Click {
+                        button: MouseButton::Left,
+                        button_state: MouseButtonState::Up,
+                        rect,
+                        ..
+                    } = event
+                    {
+                        if let Some(window) = tray_handle.get_webview_window("main") {
+                            let is_visible = window.is_visible().unwrap_or(false);
+                            if is_visible {
+                                let _ = window.hide();
+                            } else {
+                                let _ = show_main_window(&tray_handle, Some(rect));
+                            }
+                        }
+                    }
+                })
+                .build(app)?;
 
             emit_runtime_state(app.handle(), &runtime_cache);
 
@@ -723,6 +774,11 @@ pub fn run() {
 
             Ok(())
         })
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            let _ = show_main_window(&app, None);
+        }))
+        .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             get_runtime_state,
             toggle_main_window,

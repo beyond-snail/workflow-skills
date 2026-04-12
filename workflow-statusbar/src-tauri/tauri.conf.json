@@ -20,12 +20,12 @@
         "minWidth": 360,
         "minHeight": 380,
         "resizable": true,
-        "visible": true,
-        "decorations": true,
+        "visible": false,
+        "decorations": false,
         "transparent": false,
-        "alwaysOnTop": false,
+        "alwaysOnTop": true,
         "shadow": true,
-        "skipTaskbar": false
+        "skipTaskbar": true
       }
     ],
     "security": {
