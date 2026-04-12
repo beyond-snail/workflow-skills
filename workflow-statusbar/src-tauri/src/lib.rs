@@ -2,10 +2,10 @@ use dirs::home_dir;
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     fs,
     path::{Path, PathBuf},
-    process::Command,
+    process::{Command, Stdio},
     sync::{Arc, Mutex},
     thread,
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -19,6 +19,7 @@ use tauri_plugin_notification::NotificationExt;
 const LOOKUP_LIMIT: usize = 12;
 const MAX_GROUP_ITEMS: usize = 5;
 const PROJECT_ROTATION_SECONDS: i64 = 8;
+const AUTO_RESUME_COOLDOWN_SECONDS: i64 = 90;
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -50,6 +51,8 @@ struct CodexState {
     source: String,
     confidence: String,
     process_running: bool,
+    auto_resume_enabled: bool,
+    monitored_project_name: String,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -72,6 +75,11 @@ struct ProjectSnapshot {
     is_active_by_codex: bool,
     progress_label: String,
     stage_label: String,
+    codex_status: CodexStatus,
+    codex_heartbeat_at: String,
+    codex_thread_id: String,
+    codex_thread_name: String,
+    auto_resume_enabled: bool,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -108,10 +116,29 @@ struct RuntimeSignature {
     focus_task_status: String,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ProjectRuntimeSignature {
+    path: String,
+    codex_status: CodexStatus,
+    task_id: String,
+    task_status: String,
+    thread_id: String,
+    auto_resume_enabled: bool,
+}
+
 #[derive(Default)]
 struct RuntimeCache {
     latest: Option<RuntimeState>,
     signature: Option<RuntimeSignature>,
+    project_signatures: HashMap<String, ProjectRuntimeSignature>,
+    last_auto_resume: Option<AutoResumeRecord>,
+}
+
+#[derive(Clone, Debug)]
+struct AutoResumeRecord {
+    thread_id: String,
+    task_id: String,
+    attempted_at: i64,
 }
 
 #[derive(Deserialize, Default)]
@@ -192,6 +219,13 @@ struct CodexThread {
     id: String,
     title: String,
     cwd: String,
+}
+
+#[derive(Clone)]
+struct ThreadRuntime {
+    thread: CodexThread,
+    last_log_ts: i64,
+    status: CodexStatus,
 }
 
 #[derive(Clone, Debug)]
@@ -315,6 +349,48 @@ fn read_latest_log_ts(home: &Path) -> Option<i64> {
         .query_row("select max(ts) from logs", [], |row| row.get::<_, Option<i64>>(0))
         .ok()
         .flatten()
+}
+
+fn read_thread_log_ts(home: &Path) -> HashMap<String, i64> {
+    let db_path = home.join(".codex/logs_2.sqlite");
+    let connection = match Connection::open(db_path) {
+        Ok(connection) => connection,
+        Err(_) => return HashMap::new(),
+    };
+
+    let mut statement = match connection.prepare(
+        "select thread_id, max(ts) from logs where thread_id is not null and thread_id != '' group by thread_id",
+    ) {
+        Ok(statement) => statement,
+        Err(_) => return HashMap::new(),
+    };
+
+    let rows = statement.query_map([], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+    });
+
+    match rows {
+        Ok(rows) => rows.flatten().collect(),
+        Err(_) => HashMap::new(),
+    }
+}
+
+fn codex_status_from_activity(process_running: bool, last_log_ts: i64, now: i64) -> CodexStatus {
+    let log_age = if last_log_ts > 0 {
+        now.saturating_sub(last_log_ts)
+    } else {
+        i64::MAX
+    };
+
+    if process_running && log_age <= 20 {
+        CodexStatus::Running
+    } else if process_running && log_age <= 90 {
+        CodexStatus::WaitingInput
+    } else if process_running {
+        CodexStatus::Stalled
+    } else {
+        CodexStatus::Idle
+    }
 }
 
 fn codex_process_running() -> bool {
@@ -515,7 +591,11 @@ fn read_ide_signal(projects: &[ProjectSnapshot]) -> IdeSignal {
     }
 }
 
-fn read_project_snapshot(state_path: &Path, active_project_path: &str) -> Option<ProjectSnapshot> {
+fn read_project_snapshot(
+    state_path: &Path,
+    active_project_path: &str,
+    thread_runtime: Option<&ThreadRuntime>,
+) -> Option<ProjectSnapshot> {
     let content = fs::read_to_string(state_path).ok()?;
     let payload: ProjectFile = serde_json::from_str(&content).ok()?;
     let stage = stage_from_str(&payload.workflow.stage);
@@ -587,6 +667,19 @@ fn read_project_snapshot(state_path: &Path, active_project_path: &str) -> Option
         is_active_by_codex: !active_project_path.is_empty() && path_matches(&project_path, active_project_path),
         progress_label,
         stage_label: stage_label(&stage),
+        codex_status: thread_runtime
+            .map(|runtime| runtime.status.clone())
+            .unwrap_or(CodexStatus::Idle),
+        codex_heartbeat_at: thread_runtime
+            .map(|runtime| fmt_relative_age(runtime.last_log_ts))
+            .unwrap_or_else(|| "未采集".into()),
+        codex_thread_id: thread_runtime
+            .map(|runtime| runtime.thread.id.clone())
+            .unwrap_or_default(),
+        codex_thread_name: thread_runtime
+            .map(|runtime| runtime.thread.title.clone())
+            .unwrap_or_default(),
+        auto_resume_enabled: thread_runtime.is_some() && !is_blocked,
     })
 }
 
@@ -671,6 +764,95 @@ fn build_summary(projects: &[ProjectSnapshot]) -> Summary {
     summary
 }
 
+fn project_signature(project: &ProjectSnapshot) -> ProjectRuntimeSignature {
+    ProjectRuntimeSignature {
+        path: project.path.clone(),
+        codex_status: project.codex_status.clone(),
+        task_id: current_task_key(project),
+        task_status: project.current_task_status.clone(),
+        thread_id: project.codex_thread_id.clone(),
+        auto_resume_enabled: project.auto_resume_enabled,
+    }
+}
+
+fn codex_status_label(status: &CodexStatus) -> &'static str {
+    match status {
+        CodexStatus::Running => "执行中",
+        CodexStatus::WaitingInput => "等待中",
+        CodexStatus::Stalled => "可能卡住",
+        CodexStatus::Idle => "空闲",
+        CodexStatus::Offline => "离线",
+    }
+}
+
+fn find_auto_resume_project<'a>(projects: &'a [ProjectSnapshot], project_path: &str) -> Option<&'a ProjectSnapshot> {
+    projects.iter().find(|project| {
+        project.auto_resume_enabled
+            && !project.is_blocked
+            && !project.codex_thread_id.is_empty()
+            && path_matches(&project.path, project_path)
+    })
+}
+
+fn current_task_key(project: &ProjectSnapshot) -> String {
+    if !project.current_task_id.is_empty() {
+        project.current_task_id.clone()
+    } else if !project.current_req_id.is_empty() {
+        project.current_req_id.clone()
+    } else {
+        project.path.clone()
+    }
+}
+
+fn should_attempt_auto_resume(previous: &CodexStatus, current: &CodexStatus) -> bool {
+    matches!(previous, CodexStatus::Running)
+        && matches!(
+            current,
+            CodexStatus::WaitingInput | CodexStatus::Stalled | CodexStatus::Idle
+        )
+}
+
+fn should_skip_auto_resume(
+    record: Option<&AutoResumeRecord>,
+    thread_id: &str,
+    task_id: &str,
+    now: i64,
+) -> bool {
+    let Some(record) = record else {
+        return false;
+    };
+
+    record.thread_id == thread_id
+        && record.task_id == task_id
+        && now.saturating_sub(record.attempted_at) < AUTO_RESUME_COOLDOWN_SECONDS
+}
+
+fn trigger_auto_resume(project: &ProjectSnapshot, thread_id: &str) -> Result<(), String> {
+    if thread_id.trim().is_empty() {
+        return Err("missing active thread id".into());
+    }
+
+    let prompt = "继续当前任务，请从中断处继续执行；如果没有新的用户输入要求，直接按既定计划推进。";
+    Command::new("codex")
+        .args([
+            "exec",
+            "--full-auto",
+            "--skip-git-repo-check",
+            "-C",
+            &project.path,
+            "resume",
+            thread_id,
+            prompt,
+        ])
+        .current_dir(&project.path)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map(|_| ())
+        .map_err(|err| err.to_string())
+}
+
 fn find_project_by_path(projects: &[ProjectSnapshot], path: &str) -> Option<ProjectSnapshot> {
     projects
         .iter()
@@ -725,6 +907,8 @@ fn collect_runtime_state() -> RuntimeState {
                     source: "none".into(),
                     confidence: "low".into(),
                     process_running: false,
+                    auto_resume_enabled: false,
+                    monitored_project_name: String::new(),
                 },
                 projects: Vec::new(),
                 groups: Vec::new(),
@@ -744,24 +928,13 @@ fn collect_runtime_state() -> RuntimeState {
     let threads = read_recent_threads(&home);
     let latest_thread = threads.first().cloned();
     let latest_log_ts = read_latest_log_ts(&home).unwrap_or_default();
+    let thread_log_ts = read_thread_log_ts(&home);
     let process_running = codex_process_running();
     let now = unix_now();
-    let log_age = if latest_log_ts > 0 {
-        now.saturating_sub(latest_log_ts)
-    } else {
-        i64::MAX
-    };
-
     let codex_status = if !home.join(".codex").exists() {
         CodexStatus::Offline
-    } else if process_running && log_age <= 20 {
-        CodexStatus::Running
-    } else if process_running && log_age <= 90 {
-        CodexStatus::WaitingInput
-    } else if process_running {
-        CodexStatus::Stalled
     } else {
-        CodexStatus::Idle
+        codex_status_from_activity(process_running, latest_log_ts, now)
     };
 
     let active_project_path = latest_thread
@@ -771,16 +944,28 @@ fn collect_runtime_state() -> RuntimeState {
 
     let mut seen = HashSet::new();
     let mut projects = Vec::new();
+    let mut project_threads: HashMap<PathBuf, ThreadRuntime> = HashMap::new();
 
     for thread in &threads {
         let cwd = PathBuf::from(&thread.cwd);
         let Some(state_file) = lookup_state_file(&cwd) else {
             continue;
         };
+        project_threads.entry(state_file.clone()).or_insert_with(|| {
+            let last_log_ts = thread_log_ts.get(&thread.id).copied().unwrap_or_default();
+            ThreadRuntime {
+                thread: thread.clone(),
+                last_log_ts,
+                status: codex_status_from_activity(process_running, last_log_ts, now),
+            }
+        });
+    }
+
+    for (state_file, thread_runtime) in project_threads {
         if !seen.insert(state_file.clone()) {
             continue;
         }
-        if let Some(snapshot) = read_project_snapshot(&state_file, &active_project_path) {
+        if let Some(snapshot) = read_project_snapshot(&state_file, &active_project_path, Some(&thread_runtime)) {
             projects.push(snapshot);
         }
     }
@@ -789,6 +974,9 @@ fn collect_runtime_state() -> RuntimeState {
     let spotlight = find_spotlight(&projects, &ide_signal, &active_project_path);
     let groups = build_groups(&projects);
     let summary = build_summary(&projects);
+    let auto_resume_project = spotlight
+        .as_ref()
+        .and_then(|project| find_auto_resume_project(&projects, &project.path));
 
     RuntimeState {
         codex: CodexState {
@@ -806,6 +994,10 @@ fn collect_runtime_state() -> RuntimeState {
             source: "state_5.sqlite + logs_2.sqlite".into(),
             confidence: if process_running { "high".into() } else { "medium".into() },
             process_running,
+            auto_resume_enabled: auto_resume_project.is_some(),
+            monitored_project_name: auto_resume_project
+                .map(|project| project.name.clone())
+                .unwrap_or_default(),
         },
         projects,
         groups,
@@ -833,18 +1025,21 @@ fn signature_for(state: &RuntimeState) -> RuntimeSignature {
 
 fn notify_changes<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
-    previous: Option<&RuntimeSignature>,
+    cache: &mut RuntimeCache,
     current: &RuntimeState,
 ) {
     let current_signature = signature_for(current);
 
-    if let Some(previous) = previous {
+    if let Some(previous) = cache.signature.as_ref() {
         if previous.codex_status == CodexStatus::Running && current_signature.codex_status != CodexStatus::Running {
             let _ = app
                 .notification()
                 .builder()
                 .title("Codex 状态变化")
-                .body("Codex 已离开持续执行状态")
+                .body(format!(
+                    "全局 Codex 状态已切换为 {}",
+                    codex_status_label(&current_signature.codex_status)
+                ))
                 .show();
         }
 
@@ -866,6 +1061,79 @@ fn notify_changes<R: tauri::Runtime>(
             let _ = app.notification().builder().title("项目阻塞").body(body).show();
         }
     }
+
+    let previous_project_signatures = cache.project_signatures.clone();
+    let mut next_project_signatures = HashMap::new();
+
+    for project in &current.projects {
+        let signature = project_signature(project);
+        let previous = previous_project_signatures.get(&project.path);
+
+        if let Some(previous) = previous {
+            if should_attempt_auto_resume(&previous.codex_status, &signature.codex_status) {
+                let stop_body = format!(
+                    "{} 已从执行中切换为 {}",
+                    project.name,
+                    codex_status_label(&signature.codex_status)
+                );
+
+                if signature.auto_resume_enabled {
+                    let task_id = signature.task_id.clone();
+                    let now = unix_now();
+
+                    if should_skip_auto_resume(
+                        cache.last_auto_resume.as_ref(),
+                        &signature.thread_id,
+                        &task_id,
+                        now,
+                    ) {
+                        let _ = app
+                            .notification()
+                            .builder()
+                            .title("项目执行中断")
+                            .body(format!("{stop_body}，冷却期内跳过自动续跑"))
+                            .show();
+                    } else {
+                        cache.last_auto_resume = Some(AutoResumeRecord {
+                            thread_id: signature.thread_id.clone(),
+                            task_id,
+                            attempted_at: now,
+                        });
+
+                        match trigger_auto_resume(project, &signature.thread_id) {
+                            Ok(()) => {
+                                let _ = app
+                                    .notification()
+                                    .builder()
+                                    .title("项目执行中断")
+                                    .body(format!("{stop_body}，已自动尝试续跑"))
+                                    .show();
+                            }
+                            Err(err) => {
+                                let _ = app
+                                    .notification()
+                                    .builder()
+                                    .title("项目执行中断")
+                                    .body(format!("{stop_body}，自动续跑失败：{err}"))
+                                    .show();
+                            }
+                        }
+                    }
+                } else {
+                    let _ = app
+                        .notification()
+                        .builder()
+                        .title("项目执行中断")
+                        .body(format!("{stop_body}，该项目未启用自动续跑"))
+                        .show();
+                }
+            }
+        }
+
+        next_project_signatures.insert(project.path.clone(), signature);
+    }
+
+    cache.project_signatures = next_project_signatures;
 }
 
 fn emit_runtime_state<R: tauri::Runtime>(app: &tauri::AppHandle<R>, cache: &Arc<Mutex<RuntimeCache>>) {
@@ -873,7 +1141,7 @@ fn emit_runtime_state<R: tauri::Runtime>(app: &tauri::AppHandle<R>, cache: &Arc<
 
     {
         let mut guard = cache.lock().expect("runtime cache poisoned");
-        notify_changes(app, guard.signature.as_ref(), &state);
+        notify_changes(app, &mut guard, &state);
         guard.signature = Some(signature_for(&state));
         guard.latest = Some(state.clone());
     }

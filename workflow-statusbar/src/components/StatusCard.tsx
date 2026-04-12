@@ -1,4 +1,5 @@
 import type { ProjectSnapshot, RuntimeState } from "../lib/types";
+import { codexStatusLabels } from "../lib/codex-labels";
 
 type StatusCardProps = {
   state: RuntimeState;
@@ -6,16 +7,11 @@ type StatusCardProps = {
   project: ProjectSnapshot | null;
 };
 
-const codexLabels: Record<RuntimeState["codex"]["status"], string> = {
-  running: "执行中",
-  waiting_input: "等待中",
-  stalled: "可能卡住",
-  idle: "空闲",
-  offline: "离线",
-};
-
 export function StatusCard({ state, summary, project }: StatusCardProps) {
   const activeCount = summary.reduce((total, item) => total + item.value, 0);
+  const autoResumeCopy = state.codex.auto_resume_enabled
+    ? `自动续跑已开启${state.codex.monitored_project_name ? ` · ${state.codex.monitored_project_name}` : ""}`
+    : "自动续跑未开启";
   const progressRatio =
     state.codex.status === "running"
       ? 78
@@ -34,12 +30,12 @@ export function StatusCard({ state, summary, project }: StatusCardProps) {
           <div className="agent-avatar">X</div>
           <div className="agent-title">
             <h1>Codex</h1>
-            <p>{project ? project.name : "Workflow Statusbar"}</p>
+            <p>{project ? `监控中 · ${project.name}` : "多项目执行监控"}</p>
           </div>
         </div>
         <div className="agent-card__status">
           <span className={`status-dot status-dot--${state.codex.status}`} />
-          <strong>{codexLabels[state.codex.status]}</strong>
+          <strong>{codexStatusLabels[state.codex.status]}</strong>
         </div>
       </div>
 
@@ -48,17 +44,17 @@ export function StatusCard({ state, summary, project }: StatusCardProps) {
       <div className="agent-card__row">
         <div className="agent-card__signal">
           <span className="status-dot status-dot--running" />
-          <strong>当前会话</strong>
+          <strong>活跃线程</strong>
         </div>
         <div className="agent-card__meta">
           <span>{state.codex.active_thread_name || "等待活跃线程"}</span>
-          <strong>{activeCount}</strong>
+          <strong>{activeCount} 项</strong>
         </div>
       </div>
 
       <div className="agent-card__subrow">
         <span>最近心跳 {state.codex.heartbeat_at}</span>
-        <span>{state.codex.source}</span>
+        <span>{autoResumeCopy}</span>
       </div>
 
       <div className="progress-track">

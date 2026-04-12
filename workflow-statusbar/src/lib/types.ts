@@ -10,6 +10,8 @@ export type CodexState = {
   source: string;
   confidence: string;
   process_running: boolean;
+  auto_resume_enabled: boolean;
+  monitored_project_name: string;
 };
 
 export type ProjectSnapshot = {
@@ -31,6 +33,11 @@ export type ProjectSnapshot = {
   is_active_by_codex: boolean;
   progress_label: string;
   stage_label: string;
+  codex_status: CodexStatus;
+  codex_heartbeat_at: string;
+  codex_thread_id: string;
+  codex_thread_name: string;
+  auto_resume_enabled: boolean;
 };
 
 export type ProjectGroup = {

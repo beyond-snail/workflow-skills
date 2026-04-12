@@ -2,24 +2,34 @@ import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { LogicalSize, getCurrentWindow } from "@tauri-apps/api/window";
 import type { ProjectGroup } from "../lib/types";
+import { codexStatusLabels } from "../lib/codex-labels";
 
 type ProjectGroupsProps = {
   groups: ProjectGroup[];
+  spotlightPath: string | null;
 };
 
-export function ProjectGroups({ groups }: ProjectGroupsProps) {
+export function ProjectGroups({ groups, spotlightPath }: ProjectGroupsProps) {
   const [expanded, setExpanded] = useState(false);
   const visibleGroups = groups.filter((group) => group.items.length > 0);
-  const visibleProjects = visibleGroups.flatMap((group) => group.items);
+  const visibleProjects = visibleGroups
+    .flatMap((group) => group.items)
+    .filter((project, index, projects) => {
+      if (spotlightPath && project.path === spotlightPath) {
+        return false;
+      }
+      return projects.findIndex((candidate) => candidate.path === project.path) === index;
+    });
 
   useEffect(() => {
     const window = getCurrentWindow();
-    window.setSize(new LogicalSize(392, expanded ? 760 : 430)).catch(() => {
+    const hasProjectCards = visibleProjects.length > 0;
+    window.setSize(new LogicalSize(392, expanded && hasProjectCards ? 760 : 430)).catch(() => {
       // Ignore resize failures outside the Tauri runtime.
     });
-  }, [expanded]);
+  }, [expanded, visibleProjects.length]);
 
-  if (!visibleGroups.length) {
+  if (!visibleGroups.length || !visibleProjects.length) {
     return null;
   }
 
@@ -76,8 +86,8 @@ export function ProjectGroups({ groups }: ProjectGroupsProps) {
                 </div>
 
                 <div className="agent-card__subrow">
-                  <span>最近同步 {project.last_sync_at}</span>
-                  <span>{project.current_task_status || project.health || "待同步"}</span>
+                  <span>Codex {codexStatusLabels[project.codex_status]} · {project.codex_heartbeat_at}</span>
+                  <span>{project.auto_resume_enabled ? "自动续跑已开启" : project.current_task_status || project.health || "待同步"}</span>
                 </div>
 
                 <div className="progress-track">

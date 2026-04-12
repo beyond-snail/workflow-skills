@@ -85,10 +85,9 @@ function App() {
         <FocusCard
           key={`focus-${displayProject.path}`}
           project={displayProject}
-          codex={state.codex}
         />
       ) : null}
-      <ProjectGroups groups={state.groups} />
+      <ProjectGroups groups={state.groups} spotlightPath={displayProject?.path ?? null} />
     </AppShell>
   );
 }

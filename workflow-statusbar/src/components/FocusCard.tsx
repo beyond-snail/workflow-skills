@@ -1,12 +1,14 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { CodexState, ProjectSnapshot } from "../lib/types";
+import type { ProjectSnapshot } from "../lib/types";
+import { codexStatusLabels } from "../lib/codex-labels";
 
 type FocusCardProps = {
   project: ProjectSnapshot;
-  codex: CodexState;
 };
 
-export function FocusCard({ project, codex }: FocusCardProps) {
+export function FocusCard({ project }: FocusCardProps) {
+  const autoResumeCopy = project.auto_resume_enabled ? "自动续跑已开启" : "自动续跑未开启";
+
   return (
     <section className="card card--focus">
       <div className="agent-card__head">
@@ -39,7 +41,7 @@ export function FocusCard({ project, codex }: FocusCardProps) {
       </div>
 
       <div className="agent-card__subrow">
-        <span>最近心跳 {codex.heartbeat_at}</span>
+        <span>Codex {codexStatusLabels[project.codex_status]} · {project.codex_heartbeat_at} · {autoResumeCopy}</span>
         <button className="inline-link-button" type="button" onClick={() => invoke("open_path", { path: project.path })}>
           打开目录
         </button>

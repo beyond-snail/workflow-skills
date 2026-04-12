@@ -1,20 +1,14 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { RuntimeState } from "../lib/types";
+import { codexStatusLabels } from "../lib/codex-labels";
 
 type FloatingCardProps = {
   state: RuntimeState;
 };
 
-const codexLabels: Record<RuntimeState["codex"]["status"], string> = {
-  running: "执行中",
-  waiting_input: "等待中",
-  stalled: "可能卡住",
-  idle: "空闲",
-  offline: "离线",
-};
-
 export function FloatingCard({ state }: FloatingCardProps) {
   const project = state.spotlight_project;
+  const autoResumeCopy = project?.auto_resume_enabled ? "自动续跑开启" : "自动续跑关闭";
 
   return (
     <section className="card card--floating">
@@ -28,7 +22,7 @@ export function FloatingCard({ state }: FloatingCardProps) {
         </div>
         <div className="agent-card__status">
           <span className={`status-dot status-dot--${state.codex.status}`} />
-          <strong>{codexLabels[state.codex.status]}</strong>
+          <strong>{codexStatusLabels[state.codex.status]}</strong>
         </div>
       </header>
 
@@ -41,12 +35,12 @@ export function FloatingCard({ state }: FloatingCardProps) {
         </div>
         <div className="agent-card__meta">
           <span>{project ? project.current_task_id || project.current_req_id || "待同步" : state.codex.active_thread_name}</span>
-          <strong>{project ? "进行中" : "--"}</strong>
+          <strong>{project ? codexStatusLabels[project.codex_status] : "--"}</strong>
         </div>
       </div>
 
       <div className="agent-card__subrow">
-        <span>最近心跳 {state.codex.heartbeat_at}</span>
+        <span>最近心跳 {project?.codex_heartbeat_at ?? state.codex.heartbeat_at} · {autoResumeCopy}</span>
         <button className="inline-link-button" type="button" onClick={() => invoke("set_floating_visibility", { visible: false })}>
           隐藏
         </button>
