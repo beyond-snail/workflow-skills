@@ -20,6 +20,7 @@ const LOOKUP_LIMIT: usize = 12;
 const MAX_GROUP_ITEMS: usize = 5;
 const PROJECT_ROTATION_SECONDS: i64 = 8;
 const AUTO_RESUME_COOLDOWN_SECONDS: i64 = 90;
+const POLL_INTERVAL_SECONDS: u64 = 8;
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -1034,15 +1035,15 @@ fn notify_changes<R: tauri::Runtime>(
 
     if let Some(previous) = cache.signature.as_ref() {
         if previous.codex_status == CodexStatus::Running && current_signature.codex_status != CodexStatus::Running {
-            let _ = app
-                .notification()
-                .builder()
-                .title("Codex 状态变化")
-                .body(format!(
+            push_alert(
+                app,
+                "Codex 状态变化",
+                &format!(
                     "全局 Codex 状态已切换为 {}",
                     codex_status_label(&current_signature.codex_status)
-                ))
-                .show();
+                ),
+                false,
+            );
         }
 
         if previous.focus_task_id != current_signature.focus_task_id && !current_signature.focus_task_id.is_empty() {
@@ -1051,7 +1052,7 @@ fn notify_changes<R: tauri::Runtime>(
                 .as_ref()
                 .map(|project| format!("{} · {}", project.name, project.current_task_title))
                 .unwrap_or_else(|| "当前任务已切换".into());
-            let _ = app.notification().builder().title("任务已切换").body(body).show();
+            push_alert(app, "任务已切换", &body, false);
         }
 
         if previous.focus_task_status != "blocked" && current_signature.focus_task_status == "blocked" {
@@ -1060,7 +1061,7 @@ fn notify_changes<R: tauri::Runtime>(
                 .as_ref()
                 .map(|project| format!("{} 已进入阻塞", project.name))
                 .unwrap_or_else(|| "当前项目已进入阻塞".into());
-            let _ = app.notification().builder().title("项目阻塞").body(body).show();
+            push_alert(app, "项目阻塞", &body, true);
         }
     }
 
@@ -1085,23 +1086,18 @@ fn notify_changes<R: tauri::Runtime>(
                 } else {
                     "当前任务已完成".into()
                 };
-                let _ = app
-                    .notification()
-                    .builder()
-                    .title("任务完成")
-                    .body(format!("{title} · {body}"))
-                    .show();
+                push_alert(app, "任务完成", &format!("{title} · {body}"), true);
             }
 
             if !matches!(previous.workflow_stage, WorkflowStage::Done)
                 && matches!(project.workflow_stage, WorkflowStage::Done)
             {
-                let _ = app
-                    .notification()
-                    .builder()
-                    .title("项目完成")
-                    .body(format!("{} 已进入完成阶段", project.name))
-                    .show();
+                push_alert(
+                    app,
+                    "项目完成",
+                    &format!("{} 已进入完成阶段", project.name),
+                    true,
+                );
             }
 
             if should_attempt_auto_resume(&previous.codex_status, &signature.codex_status) {
@@ -1121,12 +1117,12 @@ fn notify_changes<R: tauri::Runtime>(
                         &task_id,
                         now,
                     ) {
-                        let _ = app
-                            .notification()
-                            .builder()
-                            .title("项目执行中断")
-                            .body(format!("{stop_body}，冷却期内跳过自动续跑"))
-                            .show();
+                        push_alert(
+                            app,
+                            "项目执行中断",
+                            &format!("{stop_body}，冷却期内跳过自动续跑"),
+                            true,
+                        );
                     } else {
                         cache.last_auto_resume = Some(AutoResumeRecord {
                             thread_id: signature.thread_id.clone(),
@@ -1136,30 +1132,30 @@ fn notify_changes<R: tauri::Runtime>(
 
                         match trigger_auto_resume(project, &signature.thread_id) {
                             Ok(()) => {
-                                let _ = app
-                                    .notification()
-                                    .builder()
-                                    .title("项目执行中断")
-                                    .body(format!("{stop_body}，已自动尝试续跑"))
-                                    .show();
+                                push_alert(
+                                    app,
+                                    "项目执行中断",
+                                    &format!("{stop_body}，已自动尝试续跑"),
+                                    true,
+                                );
                             }
                             Err(err) => {
-                                let _ = app
-                                    .notification()
-                                    .builder()
-                                    .title("项目执行中断")
-                                    .body(format!("{stop_body}，自动续跑失败：{err}"))
-                                    .show();
+                                push_alert(
+                                    app,
+                                    "项目执行中断",
+                                    &format!("{stop_body}，自动续跑失败：{err}"),
+                                    true,
+                                );
                             }
                         }
                     }
                 } else {
-                    let _ = app
-                        .notification()
-                        .builder()
-                        .title("项目执行中断")
-                        .body(format!("{stop_body}，该项目未启用自动续跑"))
-                        .show();
+                    push_alert(
+                        app,
+                        "项目执行中断",
+                        &format!("{stop_body}，该项目未启用自动续跑"),
+                        true,
+                    );
                 }
             }
         }
@@ -1168,6 +1164,13 @@ fn notify_changes<R: tauri::Runtime>(
     }
 
     cache.project_signatures = next_project_signatures;
+}
+
+fn push_alert<R: tauri::Runtime>(app: &tauri::AppHandle<R>, title: &str, body: &str, reveal_window: bool) {
+    let _ = app.notification().builder().title(title).body(body).show();
+    if reveal_window {
+        let _ = show_main_window(app, None);
+    }
 }
 
 fn emit_runtime_state<R: tauri::Runtime>(app: &tauri::AppHandle<R>, cache: &Arc<Mutex<RuntimeCache>>) {
@@ -1336,7 +1339,7 @@ pub fn run() {
             let poller_cache = runtime_cache.clone();
             thread::spawn(move || loop {
                 emit_runtime_state(&poller_app, &poller_cache);
-                thread::sleep(Duration::from_secs(5));
+                thread::sleep(Duration::from_secs(POLL_INTERVAL_SECONDS));
             });
 
             Ok(())
@@ -1354,4 +1357,72 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_project(path: &str) -> ProjectSnapshot {
+        ProjectSnapshot {
+            name: "erp-finance".into(),
+            path: path.into(),
+            workflow_stage: WorkflowStage::Execution,
+            gate_status: "待验证".into(),
+            health: "正常".into(),
+            risk: "低".into(),
+            current_req_id: "REQ-1".into(),
+            current_req_title: "需求".into(),
+            current_task_id: "TASK-1".into(),
+            current_task_title: "修复问题".into(),
+            current_task_status: "doing".into(),
+            current_mode: "execute".into(),
+            last_sync_at: "5 秒前".into(),
+            sync_source: "test".into(),
+            is_blocked: false,
+            is_active_by_codex: true,
+            progress_label: "任务 1 / 3".into(),
+            stage_label: "执行".into(),
+            codex_status: CodexStatus::Running,
+            codex_heartbeat_at: "3 秒前".into(),
+            codex_thread_id: "thread-1".into(),
+            codex_thread_name: "测试线程".into(),
+            auto_resume_enabled: true,
+        }
+    }
+
+    #[test]
+    fn task_done_transition_is_detected() {
+        let mut project = sample_project("/tmp/erp-finance");
+        let previous = project_signature(&project);
+        project.current_task_status = "done".into();
+        let current = project_signature(&project);
+
+        assert_ne!(previous.task_status, current.task_status);
+        assert_eq!(current.task_status, "done");
+    }
+
+    #[test]
+    fn project_done_stage_transition_is_detected() {
+        let mut project = sample_project("/tmp/erp-finance");
+        let previous = project_signature(&project);
+        project.workflow_stage = WorkflowStage::Done;
+        let current = project_signature(&project);
+
+        assert!(!matches!(previous.workflow_stage, WorkflowStage::Done));
+        assert!(matches!(current.workflow_stage, WorkflowStage::Done));
+    }
+
+    #[test]
+    fn task_interrupt_transition_is_detected() {
+        let mut project = sample_project("/tmp/erp-finance");
+        let previous = project_signature(&project);
+        project.codex_status = CodexStatus::Stalled;
+        let current = project_signature(&project);
+
+        assert!(should_attempt_auto_resume(
+            &previous.codex_status,
+            &current.codex_status
+        ));
+    }
 }
