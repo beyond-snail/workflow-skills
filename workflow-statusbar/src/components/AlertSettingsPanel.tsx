@@ -15,6 +15,16 @@ const modeOptions: Array<{ value: AlertProviderMode; label: string; detail: stri
   { value: "feishu", label: "直连飞书", detail: "直接在桌面端使用飞书应用凭证发消息。" },
 ];
 
+const notificationOptions: Array<{ key: keyof AlertSettings; label: string; detail: string }> = [
+  { key: "local_notifications_enabled", label: "本机通知", detail: "macOS 通知中心提醒。" },
+  { key: "remote_notifications_enabled", label: "远程通知", detail: "飞书或桥接服务提醒。" },
+  { key: "notify_task_completed", label: "任务完成", detail: "任务状态切到 done 时提醒。" },
+  { key: "notify_project_completed", label: "项目完成", detail: "项目进入完成阶段时提醒。" },
+  { key: "notify_project_blocked", label: "项目阻塞", detail: "项目进入 blocked 时提醒。" },
+  { key: "notify_task_interrupted", label: "项目中断/自动续跑", detail: "执行掉线或触发自动续跑时提醒。" },
+  { key: "notify_auto_resume_failed", label: "自动续跑失败", detail: "自动续跑失败时提醒。" },
+];
+
 export function AlertSettingsPanel({
   settings,
   saving,
@@ -151,6 +161,28 @@ export function AlertSettingsPanel({
           </p>
         </div>
       ) : null}
+
+      <div className="settings-form">
+        <div className="settings-section-head">
+          <strong>通知范围</strong>
+          <span>你可以决定哪些通知保留，哪些静默。</span>
+        </div>
+        <div className="settings-toggle-list">
+          {notificationOptions.map((option) => (
+            <label className="settings-toggle" key={option.key}>
+              <div className="settings-toggle__copy">
+                <strong>{option.label}</strong>
+                <span>{option.detail}</span>
+              </div>
+              <input
+                type="checkbox"
+                checked={Boolean(form[option.key])}
+                onChange={(event) => patchForm({ [option.key]: event.target.checked } as Partial<AlertSettings>)}
+              />
+            </label>
+          ))}
+        </div>
+      </div>
 
       <div className="settings-actions">
         <button className="ghost-button" type="button" onClick={onBack}>

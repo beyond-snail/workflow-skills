@@ -67,6 +67,13 @@ export type AlertProviderMode = "disabled" | "bridge" | "feishu";
 
 export type AlertSettings = {
   mode: AlertProviderMode;
+  local_notifications_enabled: boolean;
+  remote_notifications_enabled: boolean;
+  notify_task_completed: boolean;
+  notify_project_completed: boolean;
+  notify_project_blocked: boolean;
+  notify_task_interrupted: boolean;
+  notify_auto_resume_failed: boolean;
   bridge_endpoint: string;
   bridge_token: string;
   feishu_app_id: string;

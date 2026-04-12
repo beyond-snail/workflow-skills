@@ -661,6 +661,60 @@ button {
   line-height: 1.45;
 }
 
+.settings-section-head {
+  display: grid;
+  gap: 2px;
+}
+
+.settings-section-head strong {
+  font-size: 11px;
+  color: var(--text);
+}
+
+.settings-section-head span {
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.settings-toggle-list {
+  display: grid;
+  gap: 6px;
+}
+
+.settings-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 10px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--line);
+  background: rgba(247, 249, 252, 0.94);
+}
+
+.settings-toggle__copy {
+  display: grid;
+  gap: 2px;
+}
+
+.settings-toggle__copy strong {
+  font-size: 10px;
+  color: var(--text);
+}
+
+.settings-toggle__copy span {
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.35;
+}
+
+.settings-toggle input {
+  width: 16px;
+  height: 16px;
+  accent-color: #58c472;
+  flex: 0 0 auto;
+}
+
 .settings-actions {
   display: flex;
   align-items: center;

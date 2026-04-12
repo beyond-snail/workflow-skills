@@ -129,10 +129,24 @@ enum AlertProviderMode {
     Feishu,
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug, Default)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 struct AlertSettings {
     #[serde(default)]
     mode: AlertProviderMode,
+    #[serde(default = "default_true")]
+    local_notifications_enabled: bool,
+    #[serde(default = "default_true")]
+    remote_notifications_enabled: bool,
+    #[serde(default = "default_true")]
+    notify_task_completed: bool,
+    #[serde(default = "default_true")]
+    notify_project_completed: bool,
+    #[serde(default = "default_true")]
+    notify_project_blocked: bool,
+    #[serde(default = "default_true")]
+    notify_task_interrupted: bool,
+    #[serde(default = "default_true")]
+    notify_auto_resume_failed: bool,
     #[serde(default)]
     bridge_endpoint: String,
     #[serde(default)]
@@ -145,6 +159,27 @@ struct AlertSettings {
     feishu_open_id: String,
     #[serde(default)]
     feishu_chat_id: String,
+}
+
+impl Default for AlertSettings {
+    fn default() -> Self {
+        Self {
+            mode: AlertProviderMode::default(),
+            local_notifications_enabled: true,
+            remote_notifications_enabled: true,
+            notify_task_completed: true,
+            notify_project_completed: true,
+            notify_project_blocked: true,
+            notify_task_interrupted: true,
+            notify_auto_resume_failed: true,
+            bridge_endpoint: String::new(),
+            bridge_token: String::new(),
+            feishu_app_id: String::new(),
+            feishu_app_secret: String::new(),
+            feishu_open_id: String::new(),
+            feishu_chat_id: String::new(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -225,6 +260,10 @@ struct FeishuTenantAccessTokenResponse {
 struct FeishuApiResponse {
     code: i64,
     msg: String,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Deserialize, Default)]
@@ -969,6 +1008,13 @@ fn read_env_alert_settings() -> AlertSettings {
         if !endpoint.trim().is_empty() {
             return AlertSettings {
                 mode: AlertProviderMode::Bridge,
+                local_notifications_enabled: true,
+                remote_notifications_enabled: true,
+                notify_task_completed: true,
+                notify_project_completed: true,
+                notify_project_blocked: true,
+                notify_task_interrupted: true,
+                notify_auto_resume_failed: true,
                 bridge_endpoint: endpoint.trim().into(),
                 bridge_token: env::var("WORKFLOW_ALERT_TOKEN").unwrap_or_default(),
                 ..AlertSettings::default()
@@ -1020,6 +1066,27 @@ fn alert_dispatch_config(settings: &AlertSettings) -> Option<AlertDispatchConfig
                 chat_id: chat_id.into(),
             })
         }
+    }
+}
+
+fn is_notification_enabled(settings: &AlertSettings, event_type: &str, dispatch_remote: bool) -> bool {
+    let channel_enabled = if dispatch_remote {
+        settings.remote_notifications_enabled
+    } else {
+        settings.local_notifications_enabled
+    };
+    if !channel_enabled {
+        return false;
+    }
+
+    match event_type {
+        "task_completed" => settings.notify_task_completed,
+        "project_completed" => settings.notify_project_completed,
+        "project_blocked" => settings.notify_project_blocked,
+        "task_interrupted" => settings.notify_task_interrupted,
+        "auto_resume_failed" => settings.notify_auto_resume_failed,
+        "manual_test" => true,
+        _ => true,
     }
 }
 
@@ -1627,9 +1694,11 @@ fn push_alert<R: tauri::Runtime>(
     dispatch_remote: bool,
     project: Option<&ProjectSnapshot>,
 ) {
-    let _ = app.notification().builder().title(title).body(body).show();
     let settings = alert_settings.lock().map(|guard| guard.clone()).unwrap_or_default();
-    if dispatch_remote {
+    if is_notification_enabled(&settings, event_type, false) {
+        let _ = app.notification().builder().title(title).body(body).show();
+    }
+    if dispatch_remote && is_notification_enabled(&settings, event_type, true) {
         if let Some(config) = alert_dispatch_config(&settings) {
             let payload = RemoteAlertPayload {
                 event_type: event_type.into(),
@@ -1740,14 +1809,20 @@ fn send_test_alert_command<R: tauri::Runtime>(
         occurred_at: unix_now(),
     };
 
-    let _ = app
-        .notification()
-        .builder()
-        .title(&payload.title)
-        .body(&payload.body)
-        .show();
+    if is_notification_enabled(&settings, &payload.event_type, false) {
+        let _ = app
+            .notification()
+            .builder()
+            .title(&payload.title)
+            .body(&payload.body)
+            .show();
+    }
 
-    post_remote_alert(&config, &payload)
+    if is_notification_enabled(&settings, &payload.event_type, true) {
+        post_remote_alert(&config, &payload)
+    } else {
+        Ok(())
+    }
 }
 
 #[tauri::command]
