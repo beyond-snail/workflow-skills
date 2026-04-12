@@ -1376,7 +1376,7 @@ fn notify_changes<R: tauri::Runtime>(
                     codex_status_label(&current_signature.codex_status)
                 ),
                 false,
-                true,
+                false,
                 None,
             );
         }
