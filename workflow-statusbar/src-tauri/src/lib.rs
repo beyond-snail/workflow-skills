@@ -729,6 +729,13 @@ pub fn run() {
 
             let main_window = app.get_webview_window("main").expect("main window should exist");
             let _ = main_window.hide();
+            let startup_hide_handle = app.handle().clone();
+            thread::spawn(move || {
+                thread::sleep(Duration::from_millis(400));
+                if let Some(window) = startup_hide_handle.get_webview_window("main") {
+                    let _ = window.hide();
+                }
+            });
 
             let app_handle = app.handle().clone();
             main_window.on_window_event(move |event| {
