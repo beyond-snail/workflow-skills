@@ -97,6 +97,10 @@ function App() {
     }
   }
 
+  async function handleSendTestAlert() {
+    await invoke("send_test_alert_command");
+  }
+
   if (panelMode === "alert-settings" && alertSettings) {
     return (
       <AppShell>
@@ -104,6 +108,7 @@ function App() {
           settings={alertSettings}
           saving={savingAlertSettings}
           onSave={handleSaveAlertSettings}
+          onSendTest={handleSendTestAlert}
           onBack={() => setPanelMode("dashboard")}
         />
       </AppShell>

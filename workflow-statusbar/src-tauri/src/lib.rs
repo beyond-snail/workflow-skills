@@ -1582,6 +1582,44 @@ fn save_alert_settings_command<R: tauri::Runtime>(
 }
 
 #[tauri::command]
+fn send_test_alert_command<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    state: tauri::State<'_, SharedAlertSettings>,
+) -> Result<(), String> {
+    let settings = state
+        .lock()
+        .map(|guard| guard.clone())
+        .map_err(|_| "alert settings lock poisoned".to_string())?;
+    let Some(config) = alert_dispatch_config(&settings) else {
+        return Err("提醒配置未启用，或缺少必要字段".into());
+    };
+
+    let payload = RemoteAlertPayload {
+        event_type: "manual_test".into(),
+        title: "workflow-statusbar 测试提醒".into(),
+        body: "这是一条手动触发的测试消息，用来确认飞书提醒链路已经打通。".into(),
+        project_name: "workflow-statusbar".into(),
+        project_path: "/Users/wucongpeng/Documents/ai/skill/workflow-skills-copy/workflow-statusbar".into(),
+        thread_id: "test-thread".into(),
+        task_id: "TEST-ALERT".into(),
+        task_title: "验证飞书提醒".into(),
+        workflow_stage: "execution".into(),
+        codex_status: "running".into(),
+        heartbeat_at: "刚刚".into(),
+        occurred_at: unix_now(),
+    };
+
+    let _ = app
+        .notification()
+        .builder()
+        .title(&payload.title)
+        .body(&payload.body)
+        .show();
+
+    post_remote_alert(&config, &payload)
+}
+
+#[tauri::command]
 fn toggle_main_window<R: tauri::Runtime>(app: tauri::AppHandle<R>) -> Result<(), String> {
     show_main_window(&app, None)
 }
@@ -1775,6 +1813,7 @@ pub fn run() {
             get_runtime_state,
             get_alert_settings,
             save_alert_settings_command,
+            send_test_alert_command,
             toggle_main_window,
             open_alert_settings_window,
             set_floating_visibility,

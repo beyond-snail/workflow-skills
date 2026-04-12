@@ -5,6 +5,7 @@ type AlertSettingsPanelProps = {
   settings: AlertSettings;
   saving: boolean;
   onSave: (settings: AlertSettings) => Promise<void>;
+  onSendTest: () => Promise<void>;
   onBack: () => void;
 };
 
@@ -18,11 +19,13 @@ export function AlertSettingsPanel({
   settings,
   saving,
   onSave,
+  onSendTest,
   onBack,
 }: AlertSettingsPanelProps) {
   const [form, setForm] = useState<AlertSettings>(settings);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [sendingTest, setSendingTest] = useState(false);
 
   function patchForm(patch: Partial<AlertSettings>) {
     setForm((current) => ({ ...current, ...patch }));
@@ -36,6 +39,21 @@ export function AlertSettingsPanel({
       setMessage("提醒配置已保存，后续新告警会按这份配置发送。");
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function handleSendTest() {
+    setError("");
+    setMessage("");
+    setSendingTest(true);
+    try {
+      await onSave(form);
+      await onSendTest();
+      setMessage("测试消息已触发，请去飞书看是否收到。");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSendingTest(false);
     }
   }
 
@@ -137,6 +155,9 @@ export function AlertSettingsPanel({
       <div className="settings-actions">
         <button className="ghost-button" type="button" onClick={onBack}>
           稍后再配
+        </button>
+        <button className="ghost-button" type="button" onClick={handleSendTest} disabled={saving || sendingTest}>
+          {sendingTest ? "发送中..." : "发送测试消息"}
         </button>
         <button className="settings-save" type="button" onClick={handleSave} disabled={saving}>
           {saving ? "保存中..." : "保存并启用"}
