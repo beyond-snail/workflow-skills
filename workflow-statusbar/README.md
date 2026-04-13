@@ -27,8 +27,28 @@ npm run tauri dev
 ```bash
 cd workflow-statusbar
 source "$HOME/.cargo/env"
-npm run tauri build
+npm run package:current
 ```
+
+常用打包命令：
+
+```bash
+# 当前平台
+npm run package:current
+
+# macOS
+npm run package:mac
+
+# Windows
+npm run package:win
+```
+
+说明：
+
+- `package:current`：按当前机器平台打包
+- `package:mac`：生成 `app` 和 `dmg`
+- `package:win`：生成 `nsis` 和 `msi`
+- `Windows` 包通常建议在 `Windows` 机器或 CI 环境中打包；如果当前是 `macOS`，没有额外交叉编译环境时，优先先打 `mac` 包
 
 ## 目录
 
