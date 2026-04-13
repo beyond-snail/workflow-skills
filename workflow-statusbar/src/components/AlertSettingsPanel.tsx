@@ -101,176 +101,182 @@ export function AlertSettingsPanel({
   }
 
   return (
-    <section className="card card--settings">
-      <div className="group-toolbar">
-        <button className="inline-link-button inline-link-button--strong" type="button" onClick={onBack}>
-          返回监控
-        </button>
-        <span className="eyebrow">提醒配置</span>
-      </div>
-
-      <div className="settings-hero">
-        <div className="card-copy">
-          <p className="card-copy__eyebrow">Remote Alerts</p>
-          <h2 className="card-copy__title">把任务状态推到飞书</h2>
-          <p className="card-copy__detail">
-            右键托盘图标即可重新打开这里。支持桥接服务和直连飞书两种模式。
-          </p>
-        </div>
-      </div>
-
-      <div className="settings-mode-grid">
-        {modeOptions.map((option) => (
-          <button
-            key={option.value}
-            type="button"
-            className={form.mode === option.value ? "settings-mode settings-mode--active" : "settings-mode"}
-            onClick={() => patchForm({ mode: option.value })}
-          >
-            <strong>{option.label}</strong>
-            <span>{option.detail}</span>
+    <section className="card card--settings settings-layout">
+      <div className="settings-layout__head">
+        <div className="group-toolbar">
+          <button className="inline-link-button inline-link-button--strong" type="button" onClick={onBack}>
+            返回监控
           </button>
-        ))}
+          <span className="eyebrow">提醒配置</span>
+        </div>
       </div>
 
-      {form.mode === "bridge" ? (
-        <div className="settings-form">
-          <label className="settings-field">
-            <span>桥接服务地址</span>
-            <input
-              value={form.bridge_endpoint}
-              onChange={(event) => patchForm({ bridge_endpoint: event.target.value })}
-              placeholder="https://your-alert-bridge.example.com/alert"
-            />
-          </label>
-          <label className="settings-field">
-            <span>鉴权 Token</span>
-            <input
-              value={form.bridge_token}
-              onChange={(event) => patchForm({ bridge_token: event.target.value })}
-              placeholder="可留空，但建议启用"
-            />
-          </label>
+      <div className="settings-layout__body">
+        <div className="settings-hero">
+          <div className="card-copy">
+            <p className="card-copy__eyebrow">Remote Alerts</p>
+            <h2 className="card-copy__title">把任务状态推到飞书</h2>
+            <p className="card-copy__detail">
+              右键托盘图标即可重新打开这里。支持桥接服务和直连飞书两种模式。
+            </p>
+          </div>
         </div>
-      ) : null}
 
-      {form.mode === "feishu" ? (
-        <div className="settings-form">
-          <label className="settings-field">
-            <span>App ID</span>
-            <input
-              value={form.feishu_app_id}
-              onChange={(event) => patchForm({ feishu_app_id: event.target.value })}
-              placeholder="cli_xxx"
-            />
-          </label>
-          <label className="settings-field">
-            <span>App Secret</span>
-            <input
-              type="password"
-              value={form.feishu_app_secret}
-              onChange={(event) => patchForm({ feishu_app_secret: event.target.value })}
-              placeholder="重新生成后的 app secret"
-            />
-          </label>
-          <label className="settings-field">
-            <span>Open ID</span>
-            <input
-              value={form.feishu_open_id}
-              onChange={(event) => patchForm({ feishu_open_id: event.target.value })}
-              placeholder="发给个人时填写"
-            />
-          </label>
-          <label className="settings-field">
-            <span>Chat ID</span>
-            <input
-              value={form.feishu_chat_id}
-              onChange={(event) => patchForm({ feishu_chat_id: event.target.value })}
-              placeholder="发给群时填写，填了它会优先使用"
-            />
-          </label>
-          <p className="settings-hint">
-            `app_secret` 会保存在本机应用配置目录中，不会提交到仓库。建议你重置刚才发出来的旧密钥后再填这里。
-          </p>
+        <div className="settings-mode-grid">
+          {modeOptions.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              className={form.mode === option.value ? "settings-mode settings-mode--active" : "settings-mode"}
+              onClick={() => patchForm({ mode: option.value })}
+            >
+              <strong>{option.label}</strong>
+              <span>{option.detail}</span>
+            </button>
+          ))}
         </div>
-      ) : null}
 
-      <div className="settings-form">
-        <div className="settings-section-head">
-          <strong>通知总开关</strong>
-          <span>先控制通道，再决定每类事件发到哪里。</span>
-        </div>
-        <div className="settings-toggle-list">
-          {notificationOptions.map((option) => (
-            <label className="settings-toggle" key={option.key}>
-              <div className="settings-toggle__copy">
-                <strong>{option.label}</strong>
-                <span>{option.detail}</span>
-              </div>
+        {form.mode === "bridge" ? (
+          <div className="settings-form">
+            <label className="settings-field">
+              <span>桥接服务地址</span>
               <input
-                type="checkbox"
-                checked={Boolean(form[option.key])}
-                onChange={(event) => patchForm({ [option.key]: event.target.checked } as Partial<AlertSettings>)}
+                value={form.bridge_endpoint}
+                onChange={(event) => patchForm({ bridge_endpoint: event.target.value })}
+                placeholder="https://your-alert-bridge.example.com/alert"
               />
             </label>
-          ))}
-        </div>
-      </div>
-
-      <div className="settings-form">
-        <div className="settings-section-head">
-          <strong>事件通知矩阵</strong>
-          <span>每类事件都可以分别勾选本机提醒和飞书提醒。</span>
-        </div>
-        <div className="settings-matrix">
-          <div className="settings-matrix__head">
-            <span>事件</span>
-            <span>本机</span>
-            <span>远程</span>
+            <label className="settings-field">
+              <span>鉴权 Token</span>
+              <input
+                value={form.bridge_token}
+                onChange={(event) => patchForm({ bridge_token: event.target.value })}
+                placeholder="可留空，但建议启用"
+              />
+            </label>
           </div>
-          {eventMatrixOptions.map((option) => (
-            <div className="settings-matrix__row" key={option.localKey}>
-              <div className="settings-matrix__copy">
-                <strong>{option.label}</strong>
-                <span>{option.detail}</span>
-              </div>
-              <label className="settings-matrix__cell" aria-label={`${option.label} 本机通知`}>
+        ) : null}
+
+        {form.mode === "feishu" ? (
+          <div className="settings-form">
+            <label className="settings-field">
+              <span>App ID</span>
+              <input
+                value={form.feishu_app_id}
+                onChange={(event) => patchForm({ feishu_app_id: event.target.value })}
+                placeholder="cli_xxx"
+              />
+            </label>
+            <label className="settings-field">
+              <span>App Secret</span>
+              <input
+                type="password"
+                value={form.feishu_app_secret}
+                onChange={(event) => patchForm({ feishu_app_secret: event.target.value })}
+                placeholder="重新生成后的 app secret"
+              />
+            </label>
+            <label className="settings-field">
+              <span>Open ID</span>
+              <input
+                value={form.feishu_open_id}
+                onChange={(event) => patchForm({ feishu_open_id: event.target.value })}
+                placeholder="发给个人时填写"
+              />
+            </label>
+            <label className="settings-field">
+              <span>Chat ID</span>
+              <input
+                value={form.feishu_chat_id}
+                onChange={(event) => patchForm({ feishu_chat_id: event.target.value })}
+                placeholder="发给群时填写，填了它会优先使用"
+              />
+            </label>
+            <p className="settings-hint">
+              `app_secret` 会保存在本机应用配置目录中，不会提交到仓库。建议你重置刚才发出来的旧密钥后再填这里。
+            </p>
+          </div>
+        ) : null}
+
+        <div className="settings-form">
+          <div className="settings-section-head">
+            <strong>通知总开关</strong>
+            <span>先控制通道，再决定每类事件发到哪里。</span>
+          </div>
+          <div className="settings-toggle-list">
+            {notificationOptions.map((option) => (
+              <label className="settings-toggle" key={option.key}>
+                <div className="settings-toggle__copy">
+                  <strong>{option.label}</strong>
+                  <span>{option.detail}</span>
+                </div>
                 <input
                   type="checkbox"
-                  checked={Boolean(form[option.localKey])}
-                  onChange={(event) =>
-                    patchForm({ [option.localKey]: event.target.checked } as Partial<AlertSettings>)
-                  }
+                  checked={Boolean(form[option.key])}
+                  onChange={(event) => patchForm({ [option.key]: event.target.checked } as Partial<AlertSettings>)}
                 />
               </label>
-              <label className="settings-matrix__cell" aria-label={`${option.label} 远程通知`}>
-                <input
-                  type="checkbox"
-                  checked={Boolean(form[option.remoteKey])}
-                  onChange={(event) =>
-                    patchForm({ [option.remoteKey]: event.target.checked } as Partial<AlertSettings>)
-                  }
-                />
-              </label>
+            ))}
+          </div>
+        </div>
+
+        <div className="settings-form">
+          <div className="settings-section-head">
+            <strong>事件通知矩阵</strong>
+            <span>每类事件都可以分别勾选本机提醒和飞书提醒。</span>
+          </div>
+          <div className="settings-matrix">
+            <div className="settings-matrix__head">
+              <span>事件</span>
+              <span>本机</span>
+              <span>远程</span>
             </div>
-          ))}
+            {eventMatrixOptions.map((option) => (
+              <div className="settings-matrix__row" key={option.localKey}>
+                <div className="settings-matrix__copy">
+                  <strong>{option.label}</strong>
+                  <span>{option.detail}</span>
+                </div>
+                <label className="settings-matrix__cell" aria-label={`${option.label} 本机通知`}>
+                  <input
+                    type="checkbox"
+                    checked={Boolean(form[option.localKey])}
+                    onChange={(event) =>
+                      patchForm({ [option.localKey]: event.target.checked } as Partial<AlertSettings>)
+                    }
+                  />
+                </label>
+                <label className="settings-matrix__cell" aria-label={`${option.label} 远程通知`}>
+                  <input
+                    type="checkbox"
+                    checked={Boolean(form[option.remoteKey])}
+                    onChange={(event) =>
+                      patchForm({ [option.remoteKey]: event.target.checked } as Partial<AlertSettings>)
+                    }
+                  />
+                </label>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
 
-      <div className="settings-actions">
-        <button className="ghost-button" type="button" onClick={onBack}>
-          稍后再配
-        </button>
-        <button className="ghost-button" type="button" onClick={handleSendTest} disabled={saving || sendingTest}>
-          {sendingTest ? "发送中..." : "发送测试消息"}
-        </button>
-        <button className="settings-save" type="button" onClick={handleSave} disabled={saving}>
-          {saving ? "保存中..." : "保存并启用"}
-        </button>
-      </div>
+      <div className="settings-layout__footer">
+        {message ? <p className="settings-feedback settings-feedback--success">{message}</p> : null}
+        {error ? <p className="settings-feedback settings-feedback--error">{error}</p> : null}
 
-      {message ? <p className="settings-feedback settings-feedback--success">{message}</p> : null}
-      {error ? <p className="settings-feedback settings-feedback--error">{error}</p> : null}
+        <div className="settings-actions">
+          <button className="ghost-button" type="button" onClick={onBack}>
+            稍后再配
+          </button>
+          <button className="ghost-button" type="button" onClick={handleSendTest} disabled={saving || sendingTest}>
+            {sendingTest ? "发送中..." : "发送测试消息"}
+          </button>
+          <button className="settings-save" type="button" onClick={handleSave} disabled={saving}>
+            {saving ? "保存中..." : "保存并启用"}
+          </button>
+        </div>
+      </div>
     </section>
   );
 }

@@ -1943,6 +1943,37 @@ fn open_alert_settings_window<R: tauri::Runtime>(app: tauri::AppHandle<R>) -> Re
     Ok(())
 }
 
+#[tauri::command]
+fn sync_main_window_size<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    content_height: f64,
+) -> Result<(), String> {
+    let Some(window) = app.get_webview_window("main") else {
+        return Err("main window missing".into());
+    };
+
+    let content_height = content_height.max(180.0);
+    let monitor_height = window
+        .current_monitor()
+        .map_err(|err| err.to_string())?
+        .map(|monitor| monitor.size().height as f64)
+        .unwrap_or(900.0);
+    let next_height = (content_height + 12.0).ceil().min((monitor_height - 96.0).max(260.0));
+
+    window
+        .set_size(Size::Logical(tauri::LogicalSize {
+            width: 392.0,
+            height: next_height,
+        }))
+        .map_err(|err| err.to_string())?;
+
+    if window.is_visible().map_err(|err| err.to_string())? {
+        position_top_center(&window)?;
+    }
+
+    Ok(())
+}
+
 fn position_top_center<R: tauri::Runtime>(window: &WebviewWindow<R>) -> Result<(), String> {
     let size = window.outer_size().map_err(|err| err.to_string())?;
     if let Some(monitor) = window.current_monitor().map_err(|err| err.to_string())? {
@@ -2128,6 +2159,7 @@ pub fn run() {
             send_test_alert_command,
             toggle_main_window,
             open_alert_settings_window,
+            sync_main_window_size,
             set_floating_visibility,
             open_path
         ])
