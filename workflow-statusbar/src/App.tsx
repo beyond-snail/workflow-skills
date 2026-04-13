@@ -231,7 +231,7 @@ function App() {
     ];
   }, [state]);
 
-  const displayProject = state?.spotlight_project ?? state?.projects[0] ?? null;
+  const displayProject = state?.spotlight_project ?? null;
 
   if (!state) {
     return (

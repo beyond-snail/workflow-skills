@@ -419,9 +419,7 @@ fn path_matches(project_path: &str, candidate_path: &str) -> bool {
         return false;
     }
 
-    candidate == project
-        || candidate.starts_with(&(project.to_string() + "/"))
-        || project.starts_with(&(candidate.to_string() + "/"))
+    candidate == project || candidate.starts_with(&(project.to_string() + "/"))
 }
 
 fn stage_from_str(input: &str) -> WorkflowStage {
@@ -1387,7 +1385,9 @@ fn find_spotlight(
     }
 
     if let Some(project) = find_project_by_path(projects, active_project_path) {
-        return Some(project);
+        if project.is_open_in_ide {
+            return Some(project);
+        }
     }
 
     if let Some(project_path) = rotate_project_paths(&ide_signal.open_project_paths) {
@@ -1396,9 +1396,10 @@ fn find_spotlight(
 
     projects
         .iter()
+        .filter(|item| item.is_open_in_ide)
         .find(|item| matches!(item.workflow_stage, WorkflowStage::Execution))
         .cloned()
-        .or_else(|| projects.first().cloned())
+        .or_else(|| projects.iter().find(|item| item.is_open_in_ide).cloned())
 }
 
 fn collect_runtime_state() -> RuntimeState {
@@ -1612,24 +1613,6 @@ fn notify_changes<R: tauri::Runtime>(
     maybe_resume_follow_up_on_startup(app, cache, alert_settings, current);
 
     if let Some(previous) = cache.signature.as_ref() {
-        if previous.focus_task_id != current_signature.focus_task_id && !current_signature.focus_task_id.is_empty() {
-            let body = current
-                .spotlight_project
-                .as_ref()
-                .map(|project| format!("{} · {}", project.name, project.current_task_title))
-                .unwrap_or_else(|| "当前任务已切换".into());
-            push_alert(
-                app,
-                alert_settings,
-                "task_switched",
-                "任务已切换",
-                &body,
-                false,
-                false,
-                current.spotlight_project.as_ref(),
-            );
-        }
-
         if previous.focus_task_status != "blocked" && current_signature.focus_task_status == "blocked" {
             let body = current
                 .spotlight_project
@@ -1796,7 +1779,7 @@ fn push_alert<R: tauri::Runtime>(
     event_type: &str,
     title: &str,
     body: &str,
-    reveal_window: bool,
+    _reveal_window: bool,
     dispatch_remote: bool,
     project: Option<&ProjectSnapshot>,
 ) {
@@ -1838,9 +1821,6 @@ fn push_alert<R: tauri::Runtime>(
             };
             let _ = post_remote_alert(&config, &payload);
         }
-    }
-    if reveal_window {
-        let _ = show_main_window(app, None);
     }
 }
 
@@ -2244,5 +2224,13 @@ mod tests {
         let current = project_signature(&project);
 
         assert!(should_attempt_follow_up_resume(&previous, &current));
+    }
+
+    #[test]
+    fn path_matches_requires_candidate_to_be_inside_project() {
+        assert!(path_matches("/tmp/solo", "/tmp/solo"));
+        assert!(path_matches("/tmp/solo", "/tmp/solo/.ai/runtime/project-state.json"));
+        assert!(!path_matches("/tmp/solo", "/tmp"));
+        assert!(!path_matches("/tmp/solo", "/tmp/solo-backup"));
     }
 }
