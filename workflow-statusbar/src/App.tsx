@@ -37,6 +37,7 @@ const mockProject = {
   sync_source: "mock",
   is_blocked: false,
   is_active_by_codex: true,
+  is_open_in_ide: true,
   progress_label: "任务 1 / 1",
   stage_label: "执行",
   codex_status: "stalled",
@@ -220,6 +221,8 @@ function App() {
   }, [panelMode, state, alertSettings]);
 
   const displayProject = state?.spotlight_project ?? null;
+  const openProjects = state?.projects.filter((project) => project.is_open_in_ide) ?? [];
+  const secondaryOpenProjects = openProjects.filter((project) => project.path !== displayProject?.path);
 
   if (!state) {
     return (
@@ -289,6 +292,14 @@ function App() {
           state={state}
           project={displayProject}
         />
+        {secondaryOpenProjects.map((project) => (
+          <StatusCard
+            key={`status-secondary-${project.path}`}
+            compact
+            state={state}
+            project={project}
+          />
+        ))}
       </div>
     </AppShell>
   );

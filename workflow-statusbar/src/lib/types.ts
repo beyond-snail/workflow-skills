@@ -34,6 +34,7 @@ export type ProjectSnapshot = {
   sync_source: string;
   is_blocked: boolean;
   is_active_by_codex: boolean;
+  is_open_in_ide: boolean;
   progress_label: string;
   stage_label: string;
   codex_status: CodexStatus;

@@ -881,6 +881,57 @@ fn infer_project_name_from_titles(titles: &[String]) -> String {
         .unwrap_or_default()
 }
 
+fn infer_projects_from_titles(titles: &[String]) -> Vec<(String, String)> {
+    let mut items = Vec::new();
+    let mut seen = HashSet::new();
+
+    for title in titles {
+        let parts: Vec<&str> = title.split(" — ").collect();
+        if let Some(project_name_raw) = parts.last() {
+            let project_name = project_name_raw.trim();
+            if project_name.is_empty() || project_name == "Code" || !seen.insert(project_name.to_string()) {
+                continue;
+            }
+
+            let display_name = project_name.to_string();
+            let pseudo_path = format!("ide://{display_name}");
+            items.push((display_name, pseudo_path));
+        }
+    }
+
+    items
+}
+
+fn placeholder_project_snapshot(name: &str, path: &str, active_project_path: &str) -> ProjectSnapshot {
+    ProjectSnapshot {
+        name: name.into(),
+        path: path.into(),
+        workflow_stage: WorkflowStage::Unknown,
+        gate_status: "未接入 workflow".into(),
+        health: "待接入".into(),
+        risk: "未知".into(),
+        current_req_id: String::new(),
+        current_req_title: String::new(),
+        current_task_id: String::new(),
+        current_task_title: String::new(),
+        current_task_status: String::new(),
+        current_mode: String::new(),
+        last_sync_at: "未同步".into(),
+        sync_source: "ide".into(),
+        is_blocked: false,
+        is_active_by_codex: !active_project_path.is_empty() && path_matches(path, active_project_path),
+        is_open_in_ide: true,
+        progress_label: "未接入 workflow".into(),
+        stage_label: "未同步".into(),
+        codex_status: CodexStatus::Idle,
+        codex_heartbeat_at: "未采集".into(),
+        codex_thread_id: String::new(),
+        codex_thread_name: name.into(),
+        auto_resume_enabled: false,
+        follow_up_prompted: false,
+    }
+}
+
 fn read_project_snapshot(
     state_path: &Path,
     active_project_path: &str,
@@ -1599,12 +1650,21 @@ fn collect_runtime_state() -> RuntimeState {
     }
 
     let ide_signal = read_ide_signal(&projects);
+    let code_titles = read_window_titles("Code");
     for project in &mut projects {
         project.is_open_in_ide = ide_signal
             .open_project_paths
             .iter()
             .any(|path| path_matches(&project.path, path));
     }
+
+    for (name, pseudo_path) in infer_projects_from_titles(&code_titles) {
+        if projects.iter().any(|project| project.name == name || project.path == pseudo_path) {
+            continue;
+        }
+        projects.push(placeholder_project_snapshot(&name, &pseudo_path, &active_project_path));
+    }
+
     let spotlight = find_spotlight(&projects, &ide_signal, &active_project_path);
     let groups = build_groups(&projects);
     let summary = build_summary(&projects);

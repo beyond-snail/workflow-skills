@@ -161,7 +161,7 @@ button {
 .panel-content {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
   min-height: 0;
   overflow: hidden;
 }
