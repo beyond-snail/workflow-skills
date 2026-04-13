@@ -1407,7 +1407,7 @@ fn placeholder_project_snapshot(
         token_reasoning: project_runtime
             .map(|runtime| runtime.token_usage.today_reasoning)
             .unwrap_or_default(),
-        auto_resume_enabled: project_runtime.is_some(),
+        auto_resume_enabled: false,
         follow_up_prompted: project_runtime
             .map(|runtime| runtime.primary_thread.follow_up_prompted)
             .unwrap_or(false),
@@ -3041,6 +3041,14 @@ mod tests {
 
         assert!(result.is_err());
         assert_eq!(result.unwrap_err(), "workflow stage unknown");
+    }
+
+    #[test]
+    fn placeholder_project_does_not_enable_auto_resume() {
+        let project = placeholder_project_snapshot("skill", "ide://skill", "", None);
+
+        assert!(matches!(project.workflow_stage, WorkflowStage::Unknown));
+        assert!(!project.auto_resume_enabled);
     }
 
     #[test]
