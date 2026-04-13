@@ -58,10 +58,15 @@ export function StatusCard({ state, project, compact = false }: StatusCardProps)
       ? project.codex_thread_name || activeThreadName
       : activeThreadName
     : "等待打开 IDE 项目";
-  const displayLastMessage = compact
-    ? project?.health || project?.gate_status || "未接入 workflow"
-    : lastMessageText;
-  const displayLastMessageRole = compact ? "最近状态" : lastMessageRole;
+  const compactFallbackMessage = project?.health || project?.gate_status || "未接入 workflow";
+  const displayLastMessage =
+    compact && !effectiveLastMessageText
+      ? compactFallbackMessage
+      : lastMessageText;
+  const displayLastMessageRole =
+    compact && !effectiveLastMessageText
+      ? "最近状态"
+      : lastMessageRole;
   const tokenLine = project && project.token_total > 0
     ? `Token ${formatToken(project.token_total)} · 输入 ${formatToken(project.token_input)} · 输出 ${formatToken(project.token_output)} · 推理 ${formatToken(project.token_reasoning)}`
     : hasProject

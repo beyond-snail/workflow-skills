@@ -6,7 +6,7 @@ use std::{
     collections::{HashMap, HashSet},
     env,
     fs,
-    io::{BufRead, BufReader},
+    io::{Read, Seek, SeekFrom},
     path::{Path, PathBuf},
     process::{Command, Stdio},
     sync::{Arc, Mutex},
@@ -272,6 +272,25 @@ struct RemoteAlertPayload {
     occurred_at: i64,
 }
 
+#[derive(Serialize)]
+struct DebugProjectEntry<'a> {
+    name: &'a str,
+    path: &'a str,
+    is_open_in_ide: bool,
+    thread_name: &'a str,
+    workflow_stage: &'a WorkflowStage,
+}
+
+#[derive(Serialize)]
+struct RuntimeDebugSnapshot<'a> {
+    updated_at: String,
+    code_titles: &'a [String],
+    known_paths: &'a [String],
+    frontmost_project_paths: &'a [String],
+    open_project_paths: &'a [String],
+    projects: Vec<DebugProjectEntry<'a>>,
+}
+
 #[derive(Deserialize)]
 struct FeishuTenantAccessTokenResponse {
     code: i64,
@@ -379,7 +398,6 @@ struct ThreadRuntime {
     last_log_ts: i64,
     status: CodexStatus,
     follow_up_prompted: bool,
-    token_usage: TokenUsage,
 }
 
 #[derive(Clone, Default)]
@@ -404,7 +422,6 @@ struct ThreadLastMessage {
 
 #[derive(Clone, Default)]
 struct TokenUsage {
-    total: i64,
     input: i64,
     output: i64,
     reasoning: i64,
@@ -421,6 +438,20 @@ struct IdeSignal {
     open_project_paths: Vec<String>,
     frontmost_project_name: String,
 }
+
+const IDE_PROCESS_NAMES: &[&str] = &[
+    "Code",
+    "Cursor",
+    "Windsurf",
+    "Trae",
+    "Xcode",
+    "idea",
+    "IntelliJ IDEA",
+    "WebStorm",
+    "PyCharm",
+    "GoLand",
+    "Android Studio",
+];
 
 fn unix_now() -> i64 {
     SystemTime::now()
@@ -461,6 +492,48 @@ fn path_matches(project_path: &str, candidate_path: &str) -> bool {
     }
 
     candidate == project || candidate.starts_with(&(project.to_string() + "/"))
+}
+
+fn debug_log_path() -> Option<PathBuf> {
+    let home = home_dir()?;
+    Some(home.join("Library/Logs/workflow-statusbar/runtime-debug.log"))
+}
+
+fn write_runtime_debug_snapshot(
+    code_titles: &[String],
+    known_paths: &[String],
+    ide_signal: &IdeSignal,
+    projects: &[ProjectSnapshot],
+) {
+    let Some(path) = debug_log_path() else {
+        return;
+    };
+
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+
+    let snapshot = RuntimeDebugSnapshot {
+        updated_at: Local::now().to_rfc3339(),
+        code_titles,
+        known_paths,
+        frontmost_project_paths: &ide_signal.frontmost_project_paths,
+        open_project_paths: &ide_signal.open_project_paths,
+        projects: projects
+            .iter()
+            .map(|project| DebugProjectEntry {
+                name: &project.name,
+                path: &project.path,
+                is_open_in_ide: project.is_open_in_ide,
+                thread_name: &project.codex_thread_name,
+                workflow_stage: &project.workflow_stage,
+            })
+            .collect(),
+    };
+
+    if let Ok(content) = serde_json::to_string_pretty(&snapshot) {
+        let _ = fs::write(path, content);
+    }
 }
 
 fn project_name_key(input: &str) -> String {
@@ -542,10 +615,15 @@ fn detect_follow_up_prompt(rollout_path: &str) -> bool {
         return false;
     }
 
-    let file = match fs::File::open(rollout_path) {
+    let mut file = match fs::File::open(rollout_path) {
         Ok(file) => file,
         Err(_) => return false,
     };
+    let file_len = file.metadata().map(|metadata| metadata.len()).unwrap_or_default();
+    let start = file_len.saturating_sub(256 * 1024);
+    if file.seek(SeekFrom::Start(start)).is_err() {
+        return false;
+    }
 
     let markers = [
         "下一步可以直接做",
@@ -557,9 +635,13 @@ fn detect_follow_up_prompt(rollout_path: &str) -> bool {
         "直接进入",
     ];
 
-    let mut matched = false;
-    let reader = BufReader::new(file);
-    for line in reader.lines().map_while(Result::ok) {
+    let mut bytes = Vec::new();
+    if file.read_to_end(&mut bytes).is_err() {
+        return false;
+    }
+
+    let tail = String::from_utf8_lossy(&bytes);
+    for line in tail.lines() {
         if !line.contains("\"type\":\"event_msg\"")
             && !line.contains("\"type\":\"response_item\"")
             && !line.contains("\"last_agent_message\"")
@@ -568,11 +650,11 @@ fn detect_follow_up_prompt(rollout_path: &str) -> bool {
         }
 
         if markers.iter().any(|marker| line.contains(marker)) {
-            matched = true;
+            return true;
         }
     }
 
-    matched
+    false
 }
 
 fn read_last_thread_message(rollout_path: &str) -> ThreadLastMessage {
@@ -580,10 +662,21 @@ fn read_last_thread_message(rollout_path: &str) -> ThreadLastMessage {
         return ThreadLastMessage::default();
     }
 
-    let content = match fs::read_to_string(rollout_path) {
-        Ok(content) => content,
+    let mut file = match fs::File::open(rollout_path) {
+        Ok(file) => file,
         Err(_) => return ThreadLastMessage::default(),
     };
+    let file_len = file.metadata().map(|metadata| metadata.len()).unwrap_or_default();
+    let start = file_len.saturating_sub(512 * 1024);
+    if file.seek(SeekFrom::Start(start)).is_err() {
+        return ThreadLastMessage::default();
+    }
+
+    let mut bytes = Vec::new();
+    if file.read_to_end(&mut bytes).is_err() {
+        return ThreadLastMessage::default();
+    }
+    let content = String::from_utf8_lossy(&bytes);
 
     let mut last_role = String::new();
     let mut last_text = String::new();
@@ -662,37 +755,19 @@ fn sanitize_inline_text(input: &str) -> String {
         .to_string()
 }
 
-fn read_latest_token_usage(rollout_path: &str) -> TokenUsage {
-    if rollout_path.trim().is_empty() {
-        return TokenUsage::default();
+fn read_file_tail(path: &str, max_bytes: u64) -> Option<String> {
+    if path.trim().is_empty() {
+        return None;
     }
 
-    let file = match fs::File::open(rollout_path) {
-        Ok(file) => file,
-        Err(_) => return TokenUsage::default(),
-    };
+    let mut file = fs::File::open(path).ok()?;
+    let file_len = file.metadata().ok()?.len();
+    let start = file_len.saturating_sub(max_bytes);
+    file.seek(SeekFrom::Start(start)).ok()?;
 
-    let mut usage = TokenUsage::default();
-    let reader = BufReader::new(file);
-    for line in reader.lines().map_while(Result::ok) {
-        if !line.contains("\"token_count\"") || !line.contains("\"total_token_usage\"") {
-            continue;
-        }
-
-        let total = extract_json_number_after(&line, "\"total_token_usage\"", "\"total_tokens\"");
-        if total <= 0 {
-            continue;
-        }
-
-        usage = TokenUsage {
-            total,
-            input: extract_json_number_after(&line, "\"total_token_usage\"", "\"input_tokens\""),
-            output: extract_json_number_after(&line, "\"total_token_usage\"", "\"output_tokens\""),
-            reasoning: extract_json_number_after(&line, "\"total_token_usage\"", "\"reasoning_output_tokens\""),
-        };
-    }
-
-    usage
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes).ok()?;
+    Some(String::from_utf8_lossy(&bytes).into_owned())
 }
 
 fn local_today() -> (i32, u32, u32) {
@@ -708,6 +783,13 @@ fn parse_line_day(line: &str) -> Option<(i32, u32, u32)> {
     let month = rest.get(5..7)?.parse::<u32>().ok()?;
     let day = rest.get(8..10)?.parse::<u32>().ok()?;
     Some((year, month, day))
+}
+
+fn unix_day(ts: i64) -> Option<(i32, u32, u32)> {
+    chrono::DateTime::from_timestamp(ts, 0).map(|dt| {
+        let local = dt.with_timezone(&Local);
+        (local.year(), local.month(), local.day())
+    })
 }
 
 fn extract_json_number_after(line: &str, scope_marker: &str, marker: &str) -> i64 {
@@ -769,31 +851,44 @@ fn build_thread_runtime(
     thread_log_ts: &HashMap<String, i64>,
     process_running: bool,
     now: i64,
+    active_thread_id: &str,
 ) -> ThreadRuntime {
     let last_log_ts = thread_log_ts.get(&thread.id).copied().unwrap_or_default();
+    let is_active_thread = !active_thread_id.is_empty() && thread.id == active_thread_id;
     ThreadRuntime {
         thread: thread.clone(),
         last_log_ts,
-        status: codex_status_from_activity(process_running, last_log_ts, now),
-        follow_up_prompted: detect_follow_up_prompt(&thread.rollout_path),
-        token_usage: read_latest_token_usage(&thread.rollout_path),
+        status: if is_active_thread {
+            codex_status_from_activity(process_running, last_log_ts, now)
+        } else if last_log_ts > 0 && now.saturating_sub(last_log_ts) <= 90 {
+            CodexStatus::WaitingInput
+        } else {
+            CodexStatus::Idle
+        },
+        follow_up_prompted: false,
     }
+}
+
+fn enrich_primary_thread_runtime(runtime: &mut ThreadRuntime) {
+    runtime.follow_up_prompted = detect_follow_up_prompt(&runtime.thread.rollout_path);
 }
 
 fn build_project_token_usage(runtimes: &[ThreadRuntime], today: (i32, u32, u32)) -> ProjectTokenUsage {
     let mut usage = ProjectTokenUsage::default();
 
     for runtime in runtimes {
-        usage.total += runtime.thread.tokens_used.max(runtime.token_usage.total);
-        let file = match fs::File::open(&runtime.thread.rollout_path) {
-            Ok(file) => file,
-            Err(_) => continue,
+        usage.total += runtime.thread.tokens_used.max(0);
+        if unix_day(runtime.thread.updated_at) != Some(today) {
+            continue;
+        }
+
+        let Some(content) = read_file_tail(&runtime.thread.rollout_path, 1024 * 1024) else {
+            continue;
         };
-        let reader = BufReader::new(file);
         let mut first_today: Option<TokenUsage> = None;
         let mut latest_today: Option<TokenUsage> = None;
 
-        for line in reader.lines().map_while(Result::ok) {
+        for line in content.lines() {
             if !line.contains("\"token_count\"") || !line.contains("\"total_token_usage\"") {
                 continue;
             }
@@ -807,7 +902,6 @@ fn build_project_token_usage(runtimes: &[ThreadRuntime], today: (i32, u32, u32))
             }
 
             let current = TokenUsage {
-                total,
                 input: extract_json_number_after(&line, "\"total_token_usage\"", "\"input_tokens\""),
                 output: extract_json_number_after(&line, "\"total_token_usage\"", "\"output_tokens\""),
                 reasoning: extract_json_number_after(&line, "\"total_token_usage\"", "\"reasoning_output_tokens\""),
@@ -848,6 +942,14 @@ fn match_thread_for_placeholder(name: &str, threads: &[CodexThread]) -> Vec<Code
     threads
         .iter()
         .filter(|thread| infer_thread_project_key(thread) == target)
+        .cloned()
+        .collect()
+}
+
+fn match_threads_for_path(path: &str, threads: &[CodexThread]) -> Vec<CodexThread> {
+    threads
+        .iter()
+        .filter(|thread| path_matches(path, &thread.cwd) || path_matches(&thread.cwd, path))
         .cloned()
         .collect()
 }
@@ -942,9 +1044,13 @@ fn read_ide_processes() -> Vec<IdeProcess> {
 
     let markers = [
         "/Visual Studio Code.app/",
+        "/Code Helper",
         "/Cursor.app/",
+        "/Cursor Helper",
         "/Windsurf.app/",
+        "/Windsurf Helper",
         "/Trae.app/",
+        "/Trae Helper",
         "/Xcode.app/",
     ];
 
@@ -967,7 +1073,11 @@ fn read_ide_processes() -> Vec<IdeProcess> {
 
 fn read_window_titles(process_name: &str) -> Vec<String> {
     let script = format!(
-        "tell application \"System Events\" to tell process \"{process_name}\" to get name of every window"
+        "with timeout of 1 second\n\
+tell application \"System Events\"\n\
+tell process \"{process_name}\" to get name of every window\n\
+end tell\n\
+end timeout"
     );
     let output = match Command::new("osascript").args(["-e", &script]).output() {
         Ok(output) if output.status.success() => output,
@@ -979,6 +1089,33 @@ fn read_window_titles(process_name: &str) -> Vec<String> {
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
         .collect()
+}
+
+fn is_process_running(process_name: &str) -> bool {
+    Command::new("pgrep")
+        .args(["-x", process_name])
+        .output()
+        .map(|output| output.status.success())
+        .unwrap_or(false)
+}
+
+fn read_all_ide_window_titles() -> Vec<String> {
+    let mut titles = Vec::new();
+    let mut seen = HashSet::new();
+
+    for process_name in IDE_PROCESS_NAMES {
+        if !is_process_running(process_name) {
+            continue;
+        }
+
+        for title in read_window_titles(process_name) {
+            if seen.insert(title.clone()) {
+                titles.push(title);
+            }
+        }
+    }
+
+    titles
 }
 
 fn project_paths_from_titles(projects: &[ProjectSnapshot], titles: &[String]) -> Vec<String> {
@@ -997,7 +1134,56 @@ fn project_paths_from_titles(projects: &[ProjectSnapshot], titles: &[String]) ->
     matched
 }
 
-fn project_paths_for_pid(pid: i32, projects: &[ProjectSnapshot]) -> Vec<String> {
+fn extract_project_name_from_title(title: &str) -> Option<String> {
+    let trimmed = title.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    if let Some((_, suffix)) = trimmed.rsplit_once(" — ") {
+        let candidate = suffix.trim();
+        if !candidate.is_empty() && candidate != "Code" {
+            return Some(candidate.to_string());
+        }
+    }
+
+    if let Some(open_bracket) = trimmed.rfind('[') {
+        if trimmed.ends_with(']') {
+            let candidate = trimmed[open_bracket + 1..trimmed.len() - 1].trim();
+            if !candidate.is_empty() {
+                return Some(candidate.to_string());
+            }
+        }
+    }
+
+    if let Some((prefix, _)) = trimmed.split_once(" – ") {
+        let candidate = prefix.trim();
+        if !candidate.is_empty() {
+            return Some(candidate.to_string());
+        }
+    }
+
+    let ignored_titles = [
+        "Code",
+        "Welcome",
+        "Settings",
+        "Extensions",
+        "Search",
+        "Run and Debug",
+        "Source Control",
+        "Timeline",
+        "Output",
+        "Terminal",
+        "Problems",
+    ];
+    if ignored_titles.iter().any(|item| item.eq_ignore_ascii_case(trimmed)) {
+        return None;
+    }
+
+    Some(trimmed.to_string())
+}
+
+fn known_project_paths_for_pid(pid: i32, known_paths: &[String]) -> Vec<String> {
     let output = match Command::new("lsof")
         .args(["-Fn", "-p", &pid.to_string()])
         .output()
@@ -1012,9 +1198,9 @@ fn project_paths_for_pid(pid: i32, projects: &[ProjectSnapshot]) -> Vec<String> 
         let Some(path) = line.strip_prefix('n') else {
             continue;
         };
-        for project in projects {
-            if path_matches(&project.path, path) && seen.insert(project.path.clone()) {
-                matched.push(project.path.clone());
+        for known_path in known_paths {
+            if path_matches(known_path, path) && seen.insert(known_path.clone()) {
+                matched.push(known_path.clone());
             }
         }
     }
@@ -1022,9 +1208,9 @@ fn project_paths_for_pid(pid: i32, projects: &[ProjectSnapshot]) -> Vec<String> 
     matched
 }
 
-fn read_ide_signal(projects: &[ProjectSnapshot]) -> IdeSignal {
+fn read_ide_signal(projects: &[ProjectSnapshot], known_paths: &[String]) -> IdeSignal {
     if projects.is_empty() {
-        let code_titles = read_window_titles("Code");
+        let code_titles = read_all_ide_window_titles();
         return IdeSignal {
             frontmost_project_name: infer_project_name_from_titles(&code_titles),
             ..IdeSignal::default()
@@ -1037,7 +1223,7 @@ fn read_ide_signal(projects: &[ProjectSnapshot]) -> IdeSignal {
     let mut open_project_paths = Vec::new();
     let mut seen = HashSet::new();
 
-    let code_titles = read_window_titles("Code");
+    let code_titles = read_all_ide_window_titles();
     let code_title_paths = project_paths_from_titles(projects, &code_titles);
     for path in &code_title_paths {
         if seen.insert(path.clone()) {
@@ -1046,7 +1232,7 @@ fn read_ide_signal(projects: &[ProjectSnapshot]) -> IdeSignal {
     }
 
     for process in read_ide_processes() {
-        let project_paths = project_paths_for_pid(process.pid, projects);
+        let project_paths = known_project_paths_for_pid(process.pid, known_paths);
         if project_paths.is_empty() {
             continue;
         }
@@ -1062,7 +1248,7 @@ fn read_ide_signal(projects: &[ProjectSnapshot]) -> IdeSignal {
         }
     }
 
-    if frontmost_project_paths.is_empty() && matches!(frontmost_app_name.as_deref(), Some("Code")) {
+    if frontmost_project_paths.is_empty() && IDE_PROCESS_NAMES.iter().any(|name| frontmost_app_name.as_deref() == Some(*name)) {
         frontmost_project_paths = code_title_paths.clone();
     }
 
@@ -1076,9 +1262,8 @@ fn read_ide_signal(projects: &[ProjectSnapshot]) -> IdeSignal {
 fn infer_project_name_from_titles(titles: &[String]) -> String {
     titles
         .first()
-        .and_then(|title| title.rsplit(" — ").next())
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty() && value != "Code")
+        .and_then(|title| extract_project_name_from_title(title))
+        .filter(|value| !value.is_empty() && !IDE_PROCESS_NAMES.contains(&value.as_str()))
         .unwrap_or_default()
 }
 
@@ -1087,16 +1272,13 @@ fn infer_projects_from_titles(titles: &[String]) -> Vec<(String, String)> {
     let mut seen = HashSet::new();
 
     for title in titles {
-        let parts: Vec<&str> = title.split(" — ").collect();
-        if let Some(project_name_raw) = parts.last() {
-            let project_name = project_name_raw.trim();
-            if project_name.is_empty() || project_name == "Code" || !seen.insert(project_name.to_string()) {
+        if let Some(project_name) = extract_project_name_from_title(title) {
+            if IDE_PROCESS_NAMES.contains(&project_name.as_str()) || !seen.insert(project_name.clone()) {
                 continue;
             }
 
-            let display_name = project_name.to_string();
-            let pseudo_path = format!("ide://{display_name}");
-            items.push((display_name, pseudo_path));
+            let pseudo_path = format!("ide://{project_name}");
+            items.push((project_name, pseudo_path));
         }
     }
 
@@ -1871,6 +2053,10 @@ fn collect_runtime_state() -> RuntimeState {
         .as_ref()
         .map(|thread| read_last_thread_message(&thread.rollout_path))
         .unwrap_or_default();
+    let active_thread_id = latest_thread
+        .as_ref()
+        .map(|thread| thread.id.as_str())
+        .unwrap_or("");
 
     let mut seen = HashSet::new();
     let mut projects = Vec::new();
@@ -1885,7 +2071,13 @@ fn collect_runtime_state() -> RuntimeState {
         project_threads
             .entry(state_file.clone())
             .or_default()
-            .push(build_thread_runtime(thread, &thread_log_ts, process_running, now));
+            .push(build_thread_runtime(
+                thread,
+                &thread_log_ts,
+                process_running,
+                now,
+                active_thread_id,
+            ));
     }
 
     for (state_file, mut thread_runtimes) in project_threads {
@@ -1899,6 +2091,7 @@ fn collect_runtime_state() -> RuntimeState {
                 .cmp(&left.thread.updated_at)
                 .then_with(|| right.last_log_ts.cmp(&left.last_log_ts))
         });
+        enrich_primary_thread_runtime(&mut thread_runtimes[0]);
         let project_runtime = ProjectRuntime {
             primary_thread: thread_runtimes[0].clone(),
             token_usage: build_project_token_usage(&thread_runtimes, today),
@@ -1908,8 +2101,17 @@ fn collect_runtime_state() -> RuntimeState {
         }
     }
 
-    let ide_signal = read_ide_signal(&projects);
-    let code_titles = read_window_titles("Code");
+    let code_titles = read_all_ide_window_titles();
+    let mut known_paths = projects
+        .iter()
+        .map(|project| project.path.clone())
+        .collect::<Vec<_>>();
+    for thread in &threads {
+        if !thread.cwd.trim().is_empty() && !known_paths.iter().any(|path| path == &thread.cwd) {
+            known_paths.push(thread.cwd.clone());
+        }
+    }
+    let ide_signal = read_ide_signal(&projects, &known_paths);
     for project in &mut projects {
         project.is_open_in_ide = ide_signal
             .open_project_paths
@@ -1923,7 +2125,15 @@ fn collect_runtime_state() -> RuntimeState {
         }
         let mut matched_threads = match_thread_for_placeholder(&name, &threads)
             .into_iter()
-            .map(|thread| build_thread_runtime(&thread, &thread_log_ts, process_running, now))
+            .map(|thread| {
+                build_thread_runtime(
+                    &thread,
+                    &thread_log_ts,
+                    process_running,
+                    now,
+                    active_thread_id,
+                )
+            })
             .collect::<Vec<_>>();
         matched_threads.sort_by(|left, right| {
             right
@@ -1932,10 +2142,15 @@ fn collect_runtime_state() -> RuntimeState {
                 .cmp(&left.thread.updated_at)
                 .then_with(|| right.last_log_ts.cmp(&left.last_log_ts))
         });
-        let project_runtime = matched_threads.first().map(|primary| ProjectRuntime {
-            primary_thread: primary.clone(),
-            token_usage: build_project_token_usage(&matched_threads, today),
-        });
+        let project_runtime = if matched_threads.is_empty() {
+            None
+        } else {
+            enrich_primary_thread_runtime(&mut matched_threads[0]);
+            Some(ProjectRuntime {
+                primary_thread: matched_threads[0].clone(),
+                token_usage: build_project_token_usage(&matched_threads, today),
+            })
+        };
         projects.push(placeholder_project_snapshot(
             &name,
             &pseudo_path,
@@ -1943,6 +2158,56 @@ fn collect_runtime_state() -> RuntimeState {
             project_runtime.as_ref(),
         ));
     }
+
+    for open_path in &ide_signal.open_project_paths {
+        if projects.iter().any(|project| path_matches(&project.path, open_path) || path_matches(open_path, &project.path)) {
+            continue;
+        }
+
+        let mut matched_threads = match_threads_for_path(open_path, &threads)
+            .into_iter()
+            .map(|thread| {
+                build_thread_runtime(
+                    &thread,
+                    &thread_log_ts,
+                    process_running,
+                    now,
+                    active_thread_id,
+                )
+            })
+            .collect::<Vec<_>>();
+        matched_threads.sort_by(|left, right| {
+            right
+                .thread
+                .updated_at
+                .cmp(&left.thread.updated_at)
+                .then_with(|| right.last_log_ts.cmp(&left.last_log_ts))
+        });
+        let project_runtime = if matched_threads.is_empty() {
+            None
+        } else {
+            enrich_primary_thread_runtime(&mut matched_threads[0]);
+            Some(ProjectRuntime {
+                primary_thread: matched_threads[0].clone(),
+                token_usage: build_project_token_usage(&matched_threads, today),
+            })
+        };
+
+        let display_name = Path::new(open_path)
+            .file_name()
+            .map(|value| value.to_string_lossy().to_string())
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| open_path.to_string());
+
+        projects.push(placeholder_project_snapshot(
+            &display_name,
+            open_path,
+            &active_project_path,
+            project_runtime.as_ref(),
+        ));
+    }
+
+    write_runtime_debug_snapshot(&code_titles, &known_paths, &ide_signal, &projects);
 
     let spotlight = find_spotlight(&projects, &ide_signal, &active_project_path);
     let groups = build_groups(&projects);
@@ -2527,12 +2792,7 @@ pub fn run() {
                 thread::sleep(Duration::from_millis(400));
                 if let Some(window) = startup_hide_handle.get_webview_window("main") {
                     let _ = position_top_center(&window);
-                    if cfg!(debug_assertions) {
-                        let _ = window.show();
-                        let _ = window.set_focus();
-                    } else {
-                        let _ = window.hide();
-                    }
+                    let _ = window.hide();
                 }
             });
 
