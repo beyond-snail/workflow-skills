@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { ProjectSnapshot } from "../lib/types";
 import { codexStatusLabels } from "../lib/codex-labels";
+import { isWorkflowLinked, parseTaskProgress } from "../lib/progress";
 
 type FocusCardProps = {
   project: ProjectSnapshot;
@@ -8,6 +9,7 @@ type FocusCardProps = {
 
 export function FocusCard({ project }: FocusCardProps) {
   const autoResumeCopy = project.auto_resume_enabled ? "自动续跑已开启" : "自动续跑未开启";
+  const progressRatio = isWorkflowLinked(project) ? parseTaskProgress(project.progress_label) : null;
 
   return (
     <section className="card card--focus">
@@ -47,12 +49,14 @@ export function FocusCard({ project }: FocusCardProps) {
         </button>
       </div>
 
-      <div className="progress-track">
-        <div
-          className="progress-fill progress-fill--soft"
-          style={{ width: project.workflow_stage === "execution" ? "68%" : project.workflow_stage === "requirement" ? "44%" : "18%" }}
-        />
-      </div>
+      {progressRatio !== null ? (
+        <div className="progress-track">
+          <div
+            className="progress-fill progress-fill--soft"
+            style={{ width: `${progressRatio}%` }}
+          />
+        </div>
+      ) : null}
     </section>
   );
 }

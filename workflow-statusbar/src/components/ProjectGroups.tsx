@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { LogicalSize, getCurrentWindow } from "@tauri-apps/api/window";
 import type { ProjectGroup } from "../lib/types";
 import { codexStatusLabels } from "../lib/codex-labels";
+import { isWorkflowLinked, parseTaskProgress } from "../lib/progress";
 
 type ProjectGroupsProps = {
   groups: ProjectGroup[];
@@ -54,59 +55,56 @@ export function ProjectGroups({ groups, spotlightPath }: ProjectGroupsProps) {
           </div>
 
           <div className="group-panel__list">
-            {visibleProjects.map((project) => (
-              <button className="card card--group-project" key={project.path} type="button" onClick={() => invoke("open_path", { path: project.path })}>
-                <div className="agent-card__head">
-                  <div className="agent-card__brand">
-                    <div className="agent-avatar agent-avatar--project">
-                      {project.name.slice(0, 1)}
+            {visibleProjects.map((project) => {
+              const progressRatio = isWorkflowLinked(project) ? parseTaskProgress(project.progress_label) : null;
+
+              return (
+                <button className="card card--group-project" key={project.path} type="button" onClick={() => invoke("open_path", { path: project.path })}>
+                  <div className="agent-card__head">
+                    <div className="agent-card__brand">
+                      <div className="agent-avatar agent-avatar--project">
+                        {project.name.slice(0, 1)}
+                      </div>
+                      <div className="agent-title">
+                        <h2>{project.name}</h2>
+                        <p>{project.current_task_title || project.current_req_title || "等待 task / req 回写"}</p>
+                      </div>
                     </div>
-                    <div className="agent-title">
-                      <h2>{project.name}</h2>
-                      <p>{project.current_task_title || project.current_req_title || "等待 task / req 回写"}</p>
+                    <div className="agent-card__status agent-card__status--muted">
+                      <span className={`status-dot status-dot--${project.is_blocked ? "stalled" : project.workflow_stage}`} />
+                      <strong>{project.gate_status}</strong>
                     </div>
                   </div>
-                  <div className="agent-card__status agent-card__status--muted">
-                    <span className={`status-dot status-dot--${project.is_blocked ? "stalled" : project.workflow_stage}`} />
-                    <strong>{project.gate_status}</strong>
+
+                  <div className="agent-card__divider" />
+
+                  <div className="agent-card__row">
+                    <div className="agent-card__signal">
+                      <span className="status-dot status-dot--running" />
+                      <strong>当前任务</strong>
+                    </div>
+                    <div className="agent-card__meta">
+                      <span>{project.current_task_id || project.current_req_id || "待同步"} / {project.stage_label}</span>
+                      <strong>{project.progress_label.replace("任务 ", "")}</strong>
+                    </div>
                   </div>
-                </div>
 
-                <div className="agent-card__divider" />
-
-                <div className="agent-card__row">
-                  <div className="agent-card__signal">
-                    <span className="status-dot status-dot--running" />
-                    <strong>当前任务</strong>
+                  <div className="agent-card__subrow">
+                    <span>Codex {codexStatusLabels[project.codex_status]} · {project.codex_heartbeat_at}</span>
+                    <span>{project.auto_resume_enabled ? "自动续跑已开启" : project.current_task_status || project.health || "待同步"}</span>
                   </div>
-                  <div className="agent-card__meta">
-                    <span>{project.current_task_id || project.current_req_id || "待同步"} / {project.stage_label}</span>
-                    <strong>{project.progress_label.replace("任务 ", "")}</strong>
-                  </div>
-                </div>
 
-                <div className="agent-card__subrow">
-                  <span>Codex {codexStatusLabels[project.codex_status]} · {project.codex_heartbeat_at}</span>
-                  <span>{project.auto_resume_enabled ? "自动续跑已开启" : project.current_task_status || project.health || "待同步"}</span>
-                </div>
-
-                <div className="progress-track">
-                  <div
-                    className="progress-fill progress-fill--soft"
-                    style={{
-                      width:
-                        project.workflow_stage === "execution"
-                          ? "68%"
-                          : project.workflow_stage === "requirement"
-                            ? "44%"
-                            : project.workflow_stage === "bootstrap"
-                              ? "18%"
-                              : "100%",
-                    }}
-                  />
-                </div>
-              </button>
-            ))}
+                  {progressRatio !== null ? (
+                    <div className="progress-track">
+                      <div
+                        className="progress-fill progress-fill--soft"
+                        style={{ width: `${progressRatio}%` }}
+                      />
+                    </div>
+                  ) : null}
+                </button>
+              );
+            })}
           </div>
         </div>
       ) : null}

@@ -1,5 +1,6 @@
 import type { ProjectSnapshot, RuntimeState } from "../lib/types";
 import { codexStatusLabels } from "../lib/codex-labels";
+import { isWorkflowLinked, parseTaskProgress } from "../lib/progress";
 
 type StatusCardProps = {
   state: RuntimeState;
@@ -22,7 +23,7 @@ function formatToken(value: number) {
 
 export function StatusCard({ state, project, compact = false }: StatusCardProps) {
   const hasProject = Boolean(project);
-  const isWorkflowLinked = Boolean(project && project.workflow_stage !== "unknown");
+  const workflowLinked = isWorkflowLinked(project);
   const activeThreadName = state.codex.active_thread_name || "等待活跃线程";
   let autoResumeCopy = "未接入 workflow";
   if (project) {
@@ -78,28 +79,11 @@ export function StatusCard({ state, project, compact = false }: StatusCardProps)
     : projectLine
       ? "Codex 监控"
       : "打开项目后自动开始监控";
-  const progressRatio =
-    compact
-      ? project?.workflow_stage === "execution"
-        ? 68
-        : project?.workflow_stage === "requirement"
-          ? 44
-          : project?.workflow_stage === "done"
-            ? 100
-            : 18
-      : state.codex.status === "running"
-      ? 78
-      : state.codex.status === "waiting_input"
-        ? 52
-        : state.codex.status === "stalled"
-          ? 34
-          : state.codex.status === "offline"
-            ? 8
-            : 18;
+  const progressRatio = project && workflowLinked ? parseTaskProgress(project.progress_label) : null;
 
   const displayStatus = compact && project ? project.codex_status : state.codex.status;
   const displayStatusLabel =
-    compact && project && !isWorkflowLinked && project.codex_status === "stalled"
+    compact && project && !workflowLinked && project.codex_status === "stalled"
       ? "等待中"
       : codexStatusLabels[displayStatus];
 
@@ -155,9 +139,11 @@ export function StatusCard({ state, project, compact = false }: StatusCardProps)
         {tokenLine}
       </div>
 
-      <div className="progress-track">
-        <div className="progress-fill" style={{ width: `${progressRatio}%` }} />
-      </div>
+      {progressRatio !== null ? (
+        <div className="progress-track">
+          <div className="progress-fill" style={{ width: `${progressRatio}%` }} />
+        </div>
+      ) : null}
     </section>
   );
 }
