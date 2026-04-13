@@ -57,6 +57,9 @@ struct CodexState {
     heartbeat_at: String,
     active_thread_id: String,
     active_thread_name: String,
+    last_message_role: String,
+    last_message_text: String,
+    active_ide_project_name: String,
     active_project_path: String,
     source: String,
     confidence: String,
@@ -370,6 +373,12 @@ struct ThreadRuntime {
     follow_up_prompted: bool,
 }
 
+#[derive(Default)]
+struct ThreadLastMessage {
+    role: String,
+    text: String,
+}
+
 #[derive(Clone, Debug)]
 struct IdeProcess {
     pid: i32,
@@ -379,6 +388,7 @@ struct IdeProcess {
 struct IdeSignal {
     frontmost_project_paths: Vec<String>,
     open_project_paths: Vec<String>,
+    frontmost_project_name: String,
 }
 
 fn unix_now() -> i64 {
@@ -519,6 +529,93 @@ fn detect_follow_up_prompt(rollout_path: &str) -> bool {
     }
 
     matched
+}
+
+fn read_last_thread_message(rollout_path: &str) -> ThreadLastMessage {
+    if rollout_path.trim().is_empty() {
+        return ThreadLastMessage::default();
+    }
+
+    let content = match fs::read_to_string(rollout_path) {
+        Ok(content) => content,
+        Err(_) => return ThreadLastMessage::default(),
+    };
+
+    let mut last_role = String::new();
+    let mut last_text = String::new();
+
+    for line in content.lines() {
+        if line.contains("\"role\":\"assistant\"") {
+            if let Some(text) = extract_json_field(line, "\"text\":\"") {
+                if !text.trim().is_empty() {
+                    last_role = "assistant".into();
+                    last_text = text;
+                }
+            } else if let Some(text) = extract_json_field(line, "\"message\":\"") {
+                if !text.trim().is_empty() {
+                    last_role = "assistant".into();
+                    last_text = text;
+                }
+            }
+        } else if line.contains("\"role\":\"user\"") {
+            if let Some(text) = extract_json_field(line, "\"text\":\"") {
+                if !text.trim().is_empty() {
+                    last_role = "user".into();
+                    last_text = text;
+                }
+            }
+        } else if line.contains("\"type\":\"agent_message\"") {
+            if let Some(text) = extract_json_field(line, "\"message\":\"") {
+                if !text.trim().is_empty() {
+                    last_role = "assistant".into();
+                    last_text = text;
+                }
+            }
+        }
+    }
+
+    ThreadLastMessage {
+        role: last_role,
+        text: sanitize_inline_text(&last_text),
+    }
+}
+
+fn extract_json_field(line: &str, marker: &str) -> Option<String> {
+    let start = line.find(marker)? + marker.len();
+    let rest = &line[start..];
+    let mut escaped = false;
+    let mut value = String::new();
+
+    for ch in rest.chars() {
+        if escaped {
+            match ch {
+                'n' | 'r' => value.push(' '),
+                't' => value.push(' '),
+                '"' => value.push('"'),
+                '\\' => value.push('\\'),
+                _ => value.push(ch),
+            }
+            escaped = false;
+            continue;
+        }
+
+        match ch {
+            '\\' => escaped = true,
+            '"' => break,
+            _ => value.push(ch),
+        }
+    }
+
+    Some(value)
+}
+
+fn sanitize_inline_text(input: &str) -> String {
+    input
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .trim()
+        .to_string()
 }
 
 fn read_latest_log_ts(home: &Path) -> Option<i64> {
@@ -726,7 +823,11 @@ fn project_paths_for_pid(pid: i32, projects: &[ProjectSnapshot]) -> Vec<String> 
 
 fn read_ide_signal(projects: &[ProjectSnapshot]) -> IdeSignal {
     if projects.is_empty() {
-        return IdeSignal::default();
+        let code_titles = read_window_titles("Code");
+        return IdeSignal {
+            frontmost_project_name: infer_project_name_from_titles(&code_titles),
+            ..IdeSignal::default()
+        };
     }
 
     let frontmost_pid = read_frontmost_pid();
@@ -767,7 +868,17 @@ fn read_ide_signal(projects: &[ProjectSnapshot]) -> IdeSignal {
     IdeSignal {
         frontmost_project_paths,
         open_project_paths,
+        frontmost_project_name: infer_project_name_from_titles(&code_titles),
     }
+}
+
+fn infer_project_name_from_titles(titles: &[String]) -> String {
+    titles
+        .first()
+        .and_then(|title| title.rsplit(" — ").next())
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty() && value != "Code")
+        .unwrap_or_default()
 }
 
 fn read_project_snapshot(
@@ -1412,6 +1523,9 @@ fn collect_runtime_state() -> RuntimeState {
                     heartbeat_at: "不可用".into(),
                     active_thread_id: String::new(),
                     active_thread_name: "无法读取 ~/.codex".into(),
+                    last_message_role: String::new(),
+                    last_message_text: String::new(),
+                    active_ide_project_name: String::new(),
                     active_project_path: String::new(),
                     source: "none".into(),
                     confidence: "low".into(),
@@ -1449,6 +1563,10 @@ fn collect_runtime_state() -> RuntimeState {
     let active_project_path = latest_thread
         .as_ref()
         .map(|thread| thread.cwd.clone())
+        .unwrap_or_default();
+    let last_message = latest_thread
+        .as_ref()
+        .map(|thread| read_last_thread_message(&thread.rollout_path))
         .unwrap_or_default();
 
     let mut seen = HashSet::new();
@@ -1506,6 +1624,13 @@ fn collect_runtime_state() -> RuntimeState {
                 .as_ref()
                 .map(|thread| thread.title.clone())
                 .unwrap_or_else(|| "暂无活跃会话".into()),
+            last_message_role: last_message.role,
+            last_message_text: last_message.text,
+            active_ide_project_name: spotlight
+                .as_ref()
+                .map(|project| project.name.clone())
+                .filter(|name| !name.is_empty())
+                .unwrap_or_else(|| ide_signal.frontmost_project_name.clone()),
             active_project_path,
             source: "state_5.sqlite + logs_2.sqlite".into(),
             confidence: if process_running { "high".into() } else { "medium".into() },

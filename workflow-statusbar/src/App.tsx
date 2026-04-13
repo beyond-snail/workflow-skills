@@ -1,11 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { currentMonitor, getCurrentWindow } from "@tauri-apps/api/window";
 import { AlertSettingsPanel } from "./components/AlertSettingsPanel";
 import { AppShell } from "./components/AppShell";
 import { EmptyState } from "./components/EmptyState";
-import { FocusCard } from "./components/FocusCard";
 import { StatusCard } from "./components/StatusCard";
 import type { AlertSettings, RuntimeState } from "./lib/types";
 
@@ -53,6 +52,9 @@ const mockState: RuntimeState = {
     heartbeat_at: "7 秒前",
     active_thread_id: "mock-thread",
     active_thread_name: "看下 刚刚 改了些什么",
+    last_message_role: "assistant",
+    last_message_text: "下一步如果你要继续，我就直接进入支付页联调，并把下单链路里的异常提示一起收掉。",
+    active_ide_project_name: "solo",
     active_project_path: mockProject.path,
     source: "mock",
     confidence: "test",
@@ -217,20 +219,6 @@ function App() {
     };
   }, [panelMode, state, alertSettings]);
 
-  const groupedSummary = useMemo(() => {
-    if (!state) {
-      return [];
-    }
-
-    return [
-      { label: "执行中", value: state.summary.execution },
-      { label: "需求中", value: state.summary.requirement },
-      { label: "待初始化", value: state.summary.bootstrap },
-      { label: "已阻塞", value: state.summary.blocked },
-      { label: "已完成", value: state.summary.done },
-    ];
-  }, [state]);
-
   const displayProject = state?.spotlight_project ?? null;
 
   if (!state) {
@@ -299,15 +287,8 @@ function App() {
         <StatusCard
           key={`status-${displayProject?.path ?? "empty"}`}
           state={state}
-          summary={groupedSummary}
           project={displayProject}
         />
-        {displayProject ? (
-          <FocusCard
-            key={`focus-${displayProject.path}`}
-            project={displayProject}
-          />
-        ) : null}
       </div>
     </AppShell>
   );

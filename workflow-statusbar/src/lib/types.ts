@@ -6,6 +6,9 @@ export type CodexState = {
   heartbeat_at: string;
   active_thread_id: string;
   active_thread_name: string;
+  last_message_role: string;
+  last_message_text: string;
+  active_ide_project_name: string;
   active_project_path: string;
   source: string;
   confidence: string;
