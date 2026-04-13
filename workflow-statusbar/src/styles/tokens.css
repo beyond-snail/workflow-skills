@@ -458,6 +458,16 @@ button {
   text-overflow: ellipsis;
 }
 
+.token-line {
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .inline-link-button {
   padding: 0;
   color: var(--muted);

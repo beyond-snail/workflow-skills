@@ -1,3 +1,4 @@
+use chrono::{Datelike, Local};
 use dirs::home_dir;
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
@@ -19,7 +20,6 @@ use tauri::{
 };
 use tauri_plugin_notification::NotificationExt;
 
-const LOOKUP_LIMIT: usize = 12;
 const MAX_GROUP_ITEMS: usize = 5;
 const PROJECT_ROTATION_SECONDS: i64 = 8;
 const AUTO_RESUME_COOLDOWN_SECONDS: i64 = 90;
@@ -93,6 +93,12 @@ struct ProjectSnapshot {
     codex_heartbeat_at: String,
     codex_thread_id: String,
     codex_thread_name: String,
+    last_message_role: String,
+    last_message_text: String,
+    token_total: i64,
+    token_input: i64,
+    token_output: i64,
+    token_reasoning: i64,
     auto_resume_enabled: bool,
     follow_up_prompted: bool,
 }
@@ -363,6 +369,8 @@ struct CodexThread {
     title: String,
     cwd: String,
     rollout_path: String,
+    updated_at: i64,
+    tokens_used: i64,
 }
 
 #[derive(Clone)]
@@ -371,12 +379,35 @@ struct ThreadRuntime {
     last_log_ts: i64,
     status: CodexStatus,
     follow_up_prompted: bool,
+    token_usage: TokenUsage,
+}
+
+#[derive(Clone, Default)]
+struct ProjectTokenUsage {
+    total: i64,
+    today_input: i64,
+    today_output: i64,
+    today_reasoning: i64,
+}
+
+#[derive(Clone)]
+struct ProjectRuntime {
+    primary_thread: ThreadRuntime,
+    token_usage: ProjectTokenUsage,
 }
 
 #[derive(Default)]
 struct ThreadLastMessage {
     role: String,
     text: String,
+}
+
+#[derive(Clone, Default)]
+struct TokenUsage {
+    total: i64,
+    input: i64,
+    output: i64,
+    reasoning: i64,
 }
 
 #[derive(Clone, Debug)]
@@ -432,6 +463,17 @@ fn path_matches(project_path: &str, candidate_path: &str) -> bool {
     candidate == project || candidate.starts_with(&(project.to_string() + "/"))
 }
 
+fn project_name_key(input: &str) -> String {
+    input.trim().to_lowercase()
+}
+
+fn project_name_from_path(path: &str) -> Option<String> {
+    Path::new(path)
+        .file_name()
+        .map(|value| value.to_string_lossy().to_string())
+        .filter(|value| !value.trim().is_empty())
+}
+
 fn stage_from_str(input: &str) -> WorkflowStage {
     match input {
         "bootstrap" => WorkflowStage::Bootstrap,
@@ -472,18 +514,20 @@ fn read_recent_threads(home: &Path) -> Vec<CodexThread> {
     };
 
     let mut statement = match connection.prepare(
-        "select id, title, cwd, rollout_path from threads order by updated_at desc limit ?1",
+        "select id, title, cwd, rollout_path, updated_at, tokens_used from threads where archived = 0 order by updated_at desc",
     ) {
         Ok(statement) => statement,
         Err(_) => return Vec::new(),
     };
 
-    let rows = statement.query_map([LOOKUP_LIMIT as i64], |row| {
+    let rows = statement.query_map([], |row| {
         Ok(CodexThread {
             id: row.get(0)?,
             title: row.get(1)?,
             cwd: row.get(2)?,
             rollout_path: row.get(3)?,
+            updated_at: row.get(4)?,
+            tokens_used: row.get(5)?,
         })
     });
 
@@ -618,6 +662,75 @@ fn sanitize_inline_text(input: &str) -> String {
         .to_string()
 }
 
+fn read_latest_token_usage(rollout_path: &str) -> TokenUsage {
+    if rollout_path.trim().is_empty() {
+        return TokenUsage::default();
+    }
+
+    let file = match fs::File::open(rollout_path) {
+        Ok(file) => file,
+        Err(_) => return TokenUsage::default(),
+    };
+
+    let mut usage = TokenUsage::default();
+    let reader = BufReader::new(file);
+    for line in reader.lines().map_while(Result::ok) {
+        if !line.contains("\"token_count\"") || !line.contains("\"total_token_usage\"") {
+            continue;
+        }
+
+        let total = extract_json_number_after(&line, "\"total_token_usage\"", "\"total_tokens\"");
+        if total <= 0 {
+            continue;
+        }
+
+        usage = TokenUsage {
+            total,
+            input: extract_json_number_after(&line, "\"total_token_usage\"", "\"input_tokens\""),
+            output: extract_json_number_after(&line, "\"total_token_usage\"", "\"output_tokens\""),
+            reasoning: extract_json_number_after(&line, "\"total_token_usage\"", "\"reasoning_output_tokens\""),
+        };
+    }
+
+    usage
+}
+
+fn local_today() -> (i32, u32, u32) {
+    let now = Local::now();
+    (now.year(), now.month(), now.day())
+}
+
+fn parse_line_day(line: &str) -> Option<(i32, u32, u32)> {
+    let marker = "\"timestamp\":\"";
+    let start = line.find(marker)? + marker.len();
+    let rest = &line[start..];
+    let year = rest.get(0..4)?.parse::<i32>().ok()?;
+    let month = rest.get(5..7)?.parse::<u32>().ok()?;
+    let day = rest.get(8..10)?.parse::<u32>().ok()?;
+    Some((year, month, day))
+}
+
+fn extract_json_number_after(line: &str, scope_marker: &str, marker: &str) -> i64 {
+    let scoped = line
+        .find(scope_marker)
+        .and_then(|start| line.get(start..))
+        .unwrap_or(line);
+    let Some(start) = scoped.find(marker).map(|index| index + marker.len()) else {
+        return 0;
+    };
+    let rest = &scoped[start..];
+    let Some(colon_index) = rest.find(':') else {
+        return 0;
+    };
+    let number = rest[colon_index + 1..]
+        .chars()
+        .skip_while(|ch| ch.is_whitespace())
+        .take_while(|ch| ch.is_ascii_digit())
+        .collect::<String>();
+
+    number.parse::<i64>().unwrap_or_default()
+}
+
 fn read_latest_log_ts(home: &Path) -> Option<i64> {
     let db_path = home.join(".codex/logs_2.sqlite");
     let connection = Connection::open(db_path).ok()?;
@@ -649,6 +762,94 @@ fn read_thread_log_ts(home: &Path) -> HashMap<String, i64> {
         Ok(rows) => rows.flatten().collect(),
         Err(_) => HashMap::new(),
     }
+}
+
+fn build_thread_runtime(
+    thread: &CodexThread,
+    thread_log_ts: &HashMap<String, i64>,
+    process_running: bool,
+    now: i64,
+) -> ThreadRuntime {
+    let last_log_ts = thread_log_ts.get(&thread.id).copied().unwrap_or_default();
+    ThreadRuntime {
+        thread: thread.clone(),
+        last_log_ts,
+        status: codex_status_from_activity(process_running, last_log_ts, now),
+        follow_up_prompted: detect_follow_up_prompt(&thread.rollout_path),
+        token_usage: read_latest_token_usage(&thread.rollout_path),
+    }
+}
+
+fn build_project_token_usage(runtimes: &[ThreadRuntime], today: (i32, u32, u32)) -> ProjectTokenUsage {
+    let mut usage = ProjectTokenUsage::default();
+
+    for runtime in runtimes {
+        usage.total += runtime.thread.tokens_used.max(runtime.token_usage.total);
+        let file = match fs::File::open(&runtime.thread.rollout_path) {
+            Ok(file) => file,
+            Err(_) => continue,
+        };
+        let reader = BufReader::new(file);
+        let mut first_today: Option<TokenUsage> = None;
+        let mut latest_today: Option<TokenUsage> = None;
+
+        for line in reader.lines().map_while(Result::ok) {
+            if !line.contains("\"token_count\"") || !line.contains("\"total_token_usage\"") {
+                continue;
+            }
+            if parse_line_day(&line) != Some(today) {
+                continue;
+            }
+
+            let total = extract_json_number_after(&line, "\"total_token_usage\"", "\"total_tokens\"");
+            if total <= 0 {
+                continue;
+            }
+
+            let current = TokenUsage {
+                total,
+                input: extract_json_number_after(&line, "\"total_token_usage\"", "\"input_tokens\""),
+                output: extract_json_number_after(&line, "\"total_token_usage\"", "\"output_tokens\""),
+                reasoning: extract_json_number_after(&line, "\"total_token_usage\"", "\"reasoning_output_tokens\""),
+            };
+
+            if first_today.is_none() {
+                first_today = Some(current.clone());
+            }
+            latest_today = Some(current);
+        }
+
+        match (first_today, latest_today) {
+            (Some(first), Some(last)) => {
+                usage.today_input += (last.input - first.input).max(0);
+                usage.today_output += (last.output - first.output).max(0);
+                usage.today_reasoning += (last.reasoning - first.reasoning).max(0);
+            }
+            (None, _) => {}
+            (Some(single), None) => {
+                usage.today_input += single.input;
+                usage.today_output += single.output;
+                usage.today_reasoning += single.reasoning;
+            }
+        }
+    }
+
+    usage
+}
+
+fn infer_thread_project_key(thread: &CodexThread) -> String {
+    project_name_from_path(&thread.cwd)
+        .map(|name| project_name_key(&name))
+        .unwrap_or_else(|| project_name_key(&thread.cwd))
+}
+
+fn match_thread_for_placeholder(name: &str, threads: &[CodexThread]) -> Vec<CodexThread> {
+    let target = project_name_key(name);
+    threads
+        .iter()
+        .filter(|thread| infer_thread_project_key(thread) == target)
+        .cloned()
+        .collect()
 }
 
 fn codex_status_from_activity(process_running: bool, last_log_ts: i64, now: i64) -> CodexStatus {
@@ -902,7 +1103,12 @@ fn infer_projects_from_titles(titles: &[String]) -> Vec<(String, String)> {
     items
 }
 
-fn placeholder_project_snapshot(name: &str, path: &str, active_project_path: &str) -> ProjectSnapshot {
+fn placeholder_project_snapshot(
+    name: &str,
+    path: &str,
+    active_project_path: &str,
+    project_runtime: Option<&ProjectRuntime>,
+) -> ProjectSnapshot {
     ProjectSnapshot {
         name: name.into(),
         path: path.into(),
@@ -923,19 +1129,47 @@ fn placeholder_project_snapshot(name: &str, path: &str, active_project_path: &st
         is_open_in_ide: true,
         progress_label: "未接入 workflow".into(),
         stage_label: "未同步".into(),
-        codex_status: CodexStatus::Idle,
-        codex_heartbeat_at: "未采集".into(),
-        codex_thread_id: String::new(),
-        codex_thread_name: name.into(),
-        auto_resume_enabled: false,
-        follow_up_prompted: false,
+        codex_status: project_runtime
+            .map(|runtime| runtime.primary_thread.status.clone())
+            .unwrap_or(CodexStatus::Idle),
+        codex_heartbeat_at: project_runtime
+            .map(|runtime| fmt_relative_age(runtime.primary_thread.last_log_ts))
+            .unwrap_or_else(|| "未采集".into()),
+        codex_thread_id: project_runtime
+            .map(|runtime| runtime.primary_thread.thread.id.clone())
+            .unwrap_or_default(),
+        codex_thread_name: project_runtime
+            .map(|runtime| runtime.primary_thread.thread.title.clone())
+            .unwrap_or_else(|| name.into()),
+        last_message_role: project_runtime
+            .map(|runtime| read_last_thread_message(&runtime.primary_thread.thread.rollout_path).role)
+            .unwrap_or_default(),
+        last_message_text: project_runtime
+            .map(|runtime| read_last_thread_message(&runtime.primary_thread.thread.rollout_path).text)
+            .unwrap_or_default(),
+        token_total: project_runtime
+            .map(|runtime| runtime.token_usage.total)
+            .unwrap_or_default(),
+        token_input: project_runtime
+            .map(|runtime| runtime.token_usage.today_input)
+            .unwrap_or_default(),
+        token_output: project_runtime
+            .map(|runtime| runtime.token_usage.today_output)
+            .unwrap_or_default(),
+        token_reasoning: project_runtime
+            .map(|runtime| runtime.token_usage.today_reasoning)
+            .unwrap_or_default(),
+        auto_resume_enabled: project_runtime.is_some(),
+        follow_up_prompted: project_runtime
+            .map(|runtime| runtime.primary_thread.follow_up_prompted)
+            .unwrap_or(false),
     }
 }
 
 fn read_project_snapshot(
     state_path: &Path,
     active_project_path: &str,
-    thread_runtime: Option<&ThreadRuntime>,
+    project_runtime: Option<&ProjectRuntime>,
 ) -> Option<ProjectSnapshot> {
     let content = fs::read_to_string(state_path).ok()?;
     let payload: ProjectFile = serde_json::from_str(&content).ok()?;
@@ -1009,21 +1243,39 @@ fn read_project_snapshot(
         is_open_in_ide: false,
         progress_label,
         stage_label: stage_label(&stage),
-        codex_status: thread_runtime
-            .map(|runtime| runtime.status.clone())
+        codex_status: project_runtime
+            .map(|runtime| runtime.primary_thread.status.clone())
             .unwrap_or(CodexStatus::Idle),
-        codex_heartbeat_at: thread_runtime
-            .map(|runtime| fmt_relative_age(runtime.last_log_ts))
+        codex_heartbeat_at: project_runtime
+            .map(|runtime| fmt_relative_age(runtime.primary_thread.last_log_ts))
             .unwrap_or_else(|| "未采集".into()),
-        codex_thread_id: thread_runtime
-            .map(|runtime| runtime.thread.id.clone())
+        codex_thread_id: project_runtime
+            .map(|runtime| runtime.primary_thread.thread.id.clone())
             .unwrap_or_default(),
-        codex_thread_name: thread_runtime
-            .map(|runtime| runtime.thread.title.clone())
+        codex_thread_name: project_runtime
+            .map(|runtime| runtime.primary_thread.thread.title.clone())
             .unwrap_or_default(),
-        auto_resume_enabled: thread_runtime.is_some() && !is_blocked,
-        follow_up_prompted: thread_runtime
-            .map(|runtime| runtime.follow_up_prompted)
+        last_message_role: project_runtime
+            .map(|runtime| read_last_thread_message(&runtime.primary_thread.thread.rollout_path).role)
+            .unwrap_or_default(),
+        last_message_text: project_runtime
+            .map(|runtime| read_last_thread_message(&runtime.primary_thread.thread.rollout_path).text)
+            .unwrap_or_default(),
+        token_total: project_runtime
+            .map(|runtime| runtime.token_usage.total)
+            .unwrap_or_default(),
+        token_input: project_runtime
+            .map(|runtime| runtime.token_usage.today_input)
+            .unwrap_or_default(),
+        token_output: project_runtime
+            .map(|runtime| runtime.token_usage.today_output)
+            .unwrap_or_default(),
+        token_reasoning: project_runtime
+            .map(|runtime| runtime.token_usage.today_reasoning)
+            .unwrap_or_default(),
+        auto_resume_enabled: project_runtime.is_some() && !is_blocked,
+        follow_up_prompted: project_runtime
+            .map(|runtime| runtime.primary_thread.follow_up_prompted)
             .unwrap_or(false),
     })
 }
@@ -1622,29 +1874,36 @@ fn collect_runtime_state() -> RuntimeState {
 
     let mut seen = HashSet::new();
     let mut projects = Vec::new();
-    let mut project_threads: HashMap<PathBuf, ThreadRuntime> = HashMap::new();
+    let today = local_today();
+    let mut project_threads: HashMap<PathBuf, Vec<ThreadRuntime>> = HashMap::new();
 
     for thread in &threads {
         let cwd = PathBuf::from(&thread.cwd);
         let Some(state_file) = lookup_state_file(&cwd) else {
             continue;
         };
-        project_threads.entry(state_file.clone()).or_insert_with(|| {
-            let last_log_ts = thread_log_ts.get(&thread.id).copied().unwrap_or_default();
-            ThreadRuntime {
-                thread: thread.clone(),
-                last_log_ts,
-                status: codex_status_from_activity(process_running, last_log_ts, now),
-                follow_up_prompted: detect_follow_up_prompt(&thread.rollout_path),
-            }
-        });
+        project_threads
+            .entry(state_file.clone())
+            .or_default()
+            .push(build_thread_runtime(thread, &thread_log_ts, process_running, now));
     }
 
-    for (state_file, thread_runtime) in project_threads {
+    for (state_file, mut thread_runtimes) in project_threads {
         if !seen.insert(state_file.clone()) {
             continue;
         }
-        if let Some(snapshot) = read_project_snapshot(&state_file, &active_project_path, Some(&thread_runtime)) {
+        thread_runtimes.sort_by(|left, right| {
+            right
+                .thread
+                .updated_at
+                .cmp(&left.thread.updated_at)
+                .then_with(|| right.last_log_ts.cmp(&left.last_log_ts))
+        });
+        let project_runtime = ProjectRuntime {
+            primary_thread: thread_runtimes[0].clone(),
+            token_usage: build_project_token_usage(&thread_runtimes, today),
+        };
+        if let Some(snapshot) = read_project_snapshot(&state_file, &active_project_path, Some(&project_runtime)) {
             projects.push(snapshot);
         }
     }
@@ -1662,7 +1921,27 @@ fn collect_runtime_state() -> RuntimeState {
         if projects.iter().any(|project| project.name == name || project.path == pseudo_path) {
             continue;
         }
-        projects.push(placeholder_project_snapshot(&name, &pseudo_path, &active_project_path));
+        let mut matched_threads = match_thread_for_placeholder(&name, &threads)
+            .into_iter()
+            .map(|thread| build_thread_runtime(&thread, &thread_log_ts, process_running, now))
+            .collect::<Vec<_>>();
+        matched_threads.sort_by(|left, right| {
+            right
+                .thread
+                .updated_at
+                .cmp(&left.thread.updated_at)
+                .then_with(|| right.last_log_ts.cmp(&left.last_log_ts))
+        });
+        let project_runtime = matched_threads.first().map(|primary| ProjectRuntime {
+            primary_thread: primary.clone(),
+            token_usage: build_project_token_usage(&matched_threads, today),
+        });
+        projects.push(placeholder_project_snapshot(
+            &name,
+            &pseudo_path,
+            &active_project_path,
+            project_runtime.as_ref(),
+        ));
     }
 
     let spotlight = find_spotlight(&projects, &ide_signal, &active_project_path);
@@ -2248,7 +2527,12 @@ pub fn run() {
                 thread::sleep(Duration::from_millis(400));
                 if let Some(window) = startup_hide_handle.get_webview_window("main") {
                     let _ = position_top_center(&window);
-                    let _ = window.hide();
+                    if cfg!(debug_assertions) {
+                        let _ = window.show();
+                        let _ = window.set_focus();
+                    } else {
+                        let _ = window.hide();
+                    }
                 }
             });
 
@@ -2361,6 +2645,12 @@ mod tests {
             codex_heartbeat_at: "3 秒前".into(),
             codex_thread_id: "thread-1".into(),
             codex_thread_name: "测试线程".into(),
+            last_message_role: "assistant".into(),
+            last_message_text: "继续推进中".into(),
+            token_total: 5_300_000,
+            token_input: 120_000,
+            token_output: 26_800,
+            token_reasoning: 9_500,
             auto_resume_enabled: true,
             follow_up_prompted: false,
         }

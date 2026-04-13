@@ -44,6 +44,12 @@ const mockProject = {
   codex_heartbeat_at: "41 分钟前",
   codex_thread_id: "mock-thread",
   codex_thread_name: "solo",
+  last_message_role: "assistant",
+  last_message_text: "下一步如果你要继续，我就直接进入支付页联调，并把下单链路里的异常提示一起收掉。",
+  token_total: 166000,
+  token_input: 163000,
+  token_output: 3000,
+  token_reasoning: 576,
   auto_resume_enabled: true,
 } as const;
 

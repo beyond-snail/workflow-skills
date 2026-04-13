@@ -41,6 +41,12 @@ export type ProjectSnapshot = {
   codex_heartbeat_at: string;
   codex_thread_id: string;
   codex_thread_name: string;
+  last_message_role: string;
+  last_message_text: string;
+  token_total: number;
+  token_input: number;
+  token_output: number;
+  token_reasoning: number;
   auto_resume_enabled: boolean;
 };
 

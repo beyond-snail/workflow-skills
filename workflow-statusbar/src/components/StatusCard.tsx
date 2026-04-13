@@ -7,7 +7,22 @@ type StatusCardProps = {
   compact?: boolean;
 };
 
+function formatToken(value: number) {
+  if (!value) {
+    return "0";
+  }
+  if (value >= 1_000_000) {
+    return `${(value / 1_000_000).toFixed(value >= 10_000_000 ? 0 : 1)}M`;
+  }
+  if (value >= 1_000) {
+    return `${(value / 1_000).toFixed(value >= 100_000 ? 0 : 1)}k`;
+  }
+  return String(value);
+}
+
 export function StatusCard({ state, project, compact = false }: StatusCardProps) {
+  const hasProject = Boolean(project);
+  const isWorkflowLinked = Boolean(project && project.workflow_stage !== "unknown");
   const activeThreadName = state.codex.active_thread_name || "等待活跃线程";
   let autoResumeCopy = "未接入 workflow";
   if (project) {
@@ -20,29 +35,44 @@ export function StatusCard({ state, project, compact = false }: StatusCardProps)
       : state.codex.auto_resume_enabled
         ? `自动续跑已开启${state.codex.monitored_project_name ? ` · ${state.codex.monitored_project_name}` : ""}`
         : "自动续跑未开启";
+  } else {
+    autoResumeCopy = "等待打开项目";
   }
+  const effectiveLastMessageRole = project?.last_message_role || state.codex.last_message_role;
+  const effectiveLastMessageText = project?.last_message_text || state.codex.last_message_text;
   const lastMessageRole =
-    state.codex.last_message_role === "user"
+    effectiveLastMessageRole === "user"
       ? "最后输入"
-      : state.codex.last_message_role === "assistant"
+      : effectiveLastMessageRole === "assistant"
         ? "最后回复"
         : "最后对话";
-  const lastMessageText = state.codex.last_message_text || "暂无可展示的最近对话内容";
+  const lastMessageText = hasProject
+    ? effectiveLastMessageText || "暂无可展示的最近对话内容"
+    : "状态栏仍在后台运行。打开 IDE 项目后，会自动展示对应项目的会话、任务和 Token。";
   const projectLine = project?.name || state.codex.active_ide_project_name || "";
   const taskLine = project
     ? `${project.current_task_id || project.current_req_id || "待同步"} · ${project.current_task_title || project.current_req_title || "等待 task / req 回写"}`
     : "";
-  const displayThreadName = compact && project ? project.codex_thread_name || activeThreadName : activeThreadName;
+  const displayThreadName = hasProject
+    ? compact && project
+      ? project.codex_thread_name || activeThreadName
+      : activeThreadName
+    : "等待打开 IDE 项目";
   const displayLastMessage = compact
     ? project?.health || project?.gate_status || "未接入 workflow"
     : lastMessageText;
   const displayLastMessageRole = compact ? "最近状态" : lastMessageRole;
-  const headerTitle = projectLine || "Codex";
+  const tokenLine = project && project.token_total > 0
+    ? `Token ${formatToken(project.token_total)} · 输入 ${formatToken(project.token_input)} · 输出 ${formatToken(project.token_output)} · 推理 ${formatToken(project.token_reasoning)}`
+    : hasProject
+      ? "Token 未采集"
+      : "打开项目后采集 Token";
+  const headerTitle = projectLine || "未检测到打开的 IDE 项目";
   const headerCaption = compact
     ? project?.gate_status || "未接入 workflow"
     : projectLine
       ? "Codex 监控"
-      : "等待识别项目";
+      : "打开项目后自动开始监控";
   const progressRatio =
     compact
       ? project?.workflow_stage === "execution"
@@ -62,6 +92,12 @@ export function StatusCard({ state, project, compact = false }: StatusCardProps)
             ? 8
             : 18;
 
+  const displayStatus = compact && project ? project.codex_status : state.codex.status;
+  const displayStatusLabel =
+    compact && project && !isWorkflowLinked && project.codex_status === "stalled"
+      ? "等待中"
+      : codexStatusLabels[displayStatus];
+
   return (
     <section className={`card ${compact ? "card--focus" : "card--hero"}`}>
       <div className="agent-card__head">
@@ -75,8 +111,8 @@ export function StatusCard({ state, project, compact = false }: StatusCardProps)
           </div>
         </div>
         <div className="agent-card__status">
-          <span className={`status-dot status-dot--${compact && project ? project.codex_status : state.codex.status}`} />
-          <strong>{compact && project ? codexStatusLabels[project.codex_status] : codexStatusLabels[state.codex.status]}</strong>
+          <span className={`status-dot status-dot--${displayStatus}`} />
+          <strong>{displayStatusLabel}</strong>
         </div>
       </div>
 
@@ -108,6 +144,10 @@ export function StatusCard({ state, project, compact = false }: StatusCardProps)
       <div className="agent-card__subrow">
         <span>心跳 {compact && project ? project.codex_heartbeat_at : state.codex.heartbeat_at}</span>
         <span>{autoResumeCopy}</span>
+      </div>
+
+      <div className="token-line" title={tokenLine}>
+        {tokenLine}
       </div>
 
       <div className="progress-track">
