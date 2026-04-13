@@ -30,7 +30,7 @@ export function StatusCard({ state, project, compact = false }: StatusCardProps)
     autoResumeCopy = compact
       ? project.auto_resume_enabled
         ? "自动续跑已开启"
-        : project.workflow_stage === "unknown"
+        : !workflowLinked
           ? "未接入 workflow"
           : "自动续跑未开启"
       : state.codex.auto_resume_enabled

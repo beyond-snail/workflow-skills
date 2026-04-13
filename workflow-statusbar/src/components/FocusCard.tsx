@@ -8,8 +8,13 @@ type FocusCardProps = {
 };
 
 export function FocusCard({ project }: FocusCardProps) {
-  const autoResumeCopy = project.auto_resume_enabled ? "自动续跑已开启" : "自动续跑未开启";
-  const progressRatio = isWorkflowLinked(project) ? parseTaskProgress(project.progress_label) : null;
+  const workflowLinked = isWorkflowLinked(project);
+  const autoResumeCopy = project.auto_resume_enabled
+    ? "自动续跑已开启"
+    : workflowLinked
+      ? "自动续跑未开启"
+      : "未接入 workflow";
+  const progressRatio = workflowLinked ? parseTaskProgress(project.progress_label) : null;
 
   return (
     <section className="card card--focus">
@@ -38,7 +43,7 @@ export function FocusCard({ project }: FocusCardProps) {
         </div>
         <div className="agent-card__meta">
           <span>{project.current_task_id || project.current_req_id || "待同步"} / {project.stage_label}</span>
-          <strong>{project.progress_label.replace("任务 ", "")}</strong>
+          <strong>{workflowLinked ? project.progress_label.replace("任务 ", "") : "未接入 workflow"}</strong>
         </div>
       </div>
 

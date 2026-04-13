@@ -420,11 +420,23 @@ struct ThreadLastMessage {
     text: String,
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Serialize, Deserialize, Default)]
 struct TokenUsage {
     input: i64,
     output: i64,
     reasoning: i64,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+struct TokenThreadCacheEntry {
+    day_key: String,
+    baseline: TokenUsage,
+    latest: TokenUsage,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+struct TokenUsageCache {
+    threads: HashMap<String, TokenThreadCacheEntry>,
 }
 
 #[derive(Clone, Debug)]
@@ -497,6 +509,28 @@ fn path_matches(project_path: &str, candidate_path: &str) -> bool {
 fn debug_log_path() -> Option<PathBuf> {
     let home = home_dir()?;
     Some(home.join("Library/Logs/workflow-statusbar/runtime-debug.log"))
+}
+
+fn token_usage_cache_path(home: &Path) -> PathBuf {
+    home.join("Library/Application Support/workflow-statusbar/token-usage-cache.json")
+}
+
+fn read_token_usage_cache(home: &Path) -> TokenUsageCache {
+    let path = token_usage_cache_path(home);
+    match fs::read_to_string(path) {
+        Ok(content) => serde_json::from_str(&content).unwrap_or_default(),
+        Err(_) => TokenUsageCache::default(),
+    }
+}
+
+fn save_token_usage_cache(home: &Path, cache: &TokenUsageCache) {
+    let path = token_usage_cache_path(home);
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    if let Ok(content) = serde_json::to_string_pretty(cache) {
+        let _ = fs::write(path, content);
+    }
 }
 
 fn write_runtime_debug_snapshot(
@@ -775,6 +809,10 @@ fn local_today() -> (i32, u32, u32) {
     (now.year(), now.month(), now.day())
 }
 
+fn format_day_key(day: (i32, u32, u32)) -> String {
+    format!("{:04}-{:02}-{:02}", day.0, day.1, day.2)
+}
+
 fn parse_line_day(line: &str) -> Option<(i32, u32, u32)> {
     let marker = "\"timestamp\":\"";
     let start = line.find(marker)? + marker.len();
@@ -873,8 +911,13 @@ fn enrich_primary_thread_runtime(runtime: &mut ThreadRuntime) {
     runtime.follow_up_prompted = detect_follow_up_prompt(&runtime.thread.rollout_path);
 }
 
-fn build_project_token_usage(runtimes: &[ThreadRuntime], today: (i32, u32, u32)) -> ProjectTokenUsage {
+fn build_project_token_usage(
+    runtimes: &[ThreadRuntime],
+    today: (i32, u32, u32),
+    cache: &mut TokenUsageCache,
+) -> ProjectTokenUsage {
     let mut usage = ProjectTokenUsage::default();
+    let day_key = format_day_key(today);
 
     for runtime in runtimes {
         usage.total += runtime.thread.tokens_used.max(0);
@@ -882,7 +925,22 @@ fn build_project_token_usage(runtimes: &[ThreadRuntime], today: (i32, u32, u32))
             continue;
         }
 
+        let entry = cache
+            .threads
+            .entry(runtime.thread.id.clone())
+            .or_default();
+        if entry.day_key != day_key {
+            *entry = TokenThreadCacheEntry {
+                day_key: day_key.clone(),
+                baseline: TokenUsage::default(),
+                latest: TokenUsage::default(),
+            };
+        }
+
         let Some(content) = read_file_tail(&runtime.thread.rollout_path, 1024 * 1024) else {
+            usage.today_input += (entry.latest.input - entry.baseline.input).max(0);
+            usage.today_output += (entry.latest.output - entry.baseline.output).max(0);
+            usage.today_reasoning += (entry.latest.reasoning - entry.baseline.reasoning).max(0);
             continue;
         };
         let mut first_today: Option<TokenUsage> = None;
@@ -913,19 +971,27 @@ fn build_project_token_usage(runtimes: &[ThreadRuntime], today: (i32, u32, u32))
             latest_today = Some(current);
         }
 
-        match (first_today, latest_today) {
-            (Some(first), Some(last)) => {
-                usage.today_input += (last.input - first.input).max(0);
-                usage.today_output += (last.output - first.output).max(0);
-                usage.today_reasoning += (last.reasoning - first.reasoning).max(0);
-            }
-            (None, _) => {}
-            (Some(single), None) => {
-                usage.today_input += single.input;
-                usage.today_output += single.output;
-                usage.today_reasoning += single.reasoning;
+        if let Some(first) = first_today {
+            let baseline_empty =
+                entry.baseline.input == 0 && entry.baseline.output == 0 && entry.baseline.reasoning == 0;
+            let first_total = first.input + first.output + first.reasoning;
+            let baseline_total = entry.baseline.input + entry.baseline.output + entry.baseline.reasoning;
+            if baseline_empty || first_total < baseline_total {
+                entry.baseline = first.clone();
             }
         }
+
+        if let Some(last) = latest_today {
+            let last_total = last.input + last.output + last.reasoning;
+            let latest_total = entry.latest.input + entry.latest.output + entry.latest.reasoning;
+            if last_total >= latest_total {
+                entry.latest = last;
+            }
+        }
+
+        usage.today_input += (entry.latest.input - entry.baseline.input).max(0);
+        usage.today_output += (entry.latest.output - entry.baseline.output).max(0);
+        usage.today_reasoning += (entry.latest.reasoning - entry.baseline.reasoning).max(0);
     }
 
     usage
@@ -2034,6 +2100,7 @@ fn collect_runtime_state() -> RuntimeState {
     };
 
     let threads = read_recent_threads(&home);
+    let mut token_usage_cache = read_token_usage_cache(&home);
     let latest_thread = threads.first().cloned();
     let latest_log_ts = read_latest_log_ts(&home).unwrap_or_default();
     let thread_log_ts = read_thread_log_ts(&home);
@@ -2094,7 +2161,7 @@ fn collect_runtime_state() -> RuntimeState {
         enrich_primary_thread_runtime(&mut thread_runtimes[0]);
         let project_runtime = ProjectRuntime {
             primary_thread: thread_runtimes[0].clone(),
-            token_usage: build_project_token_usage(&thread_runtimes, today),
+            token_usage: build_project_token_usage(&thread_runtimes, today, &mut token_usage_cache),
         };
         if let Some(snapshot) = read_project_snapshot(&state_file, &active_project_path, Some(&project_runtime)) {
             projects.push(snapshot);
@@ -2148,7 +2215,7 @@ fn collect_runtime_state() -> RuntimeState {
             enrich_primary_thread_runtime(&mut matched_threads[0]);
             Some(ProjectRuntime {
                 primary_thread: matched_threads[0].clone(),
-                token_usage: build_project_token_usage(&matched_threads, today),
+                token_usage: build_project_token_usage(&matched_threads, today, &mut token_usage_cache),
             })
         };
         projects.push(placeholder_project_snapshot(
@@ -2189,7 +2256,7 @@ fn collect_runtime_state() -> RuntimeState {
             enrich_primary_thread_runtime(&mut matched_threads[0]);
             Some(ProjectRuntime {
                 primary_thread: matched_threads[0].clone(),
-                token_usage: build_project_token_usage(&matched_threads, today),
+                token_usage: build_project_token_usage(&matched_threads, today, &mut token_usage_cache),
             })
         };
 
@@ -2207,6 +2274,7 @@ fn collect_runtime_state() -> RuntimeState {
         ));
     }
 
+    save_token_usage_cache(&home, &token_usage_cache);
     write_runtime_debug_snapshot(&code_titles, &known_paths, &ide_signal, &projects);
 
     let spotlight = find_spotlight(&projects, &ide_signal, &active_project_path);

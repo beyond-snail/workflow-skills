@@ -1,6 +1,6 @@
 import type { ProjectSnapshot } from "./types";
 
-export function isWorkflowLinked(project: ProjectSnapshot | null | undefined) {
+export function isWorkflowLinked(project?: ProjectSnapshot | null) {
   return Boolean(project && project.workflow_stage !== "unknown");
 }
 

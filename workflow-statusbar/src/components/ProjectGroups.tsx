@@ -56,7 +56,8 @@ export function ProjectGroups({ groups, spotlightPath }: ProjectGroupsProps) {
 
           <div className="group-panel__list">
             {visibleProjects.map((project) => {
-              const progressRatio = isWorkflowLinked(project) ? parseTaskProgress(project.progress_label) : null;
+              const workflowLinked = isWorkflowLinked(project);
+              const progressRatio = workflowLinked ? parseTaskProgress(project.progress_label) : null;
 
               return (
                 <button className="card card--group-project" key={project.path} type="button" onClick={() => invoke("open_path", { path: project.path })}>
@@ -85,13 +86,13 @@ export function ProjectGroups({ groups, spotlightPath }: ProjectGroupsProps) {
                     </div>
                     <div className="agent-card__meta">
                       <span>{project.current_task_id || project.current_req_id || "待同步"} / {project.stage_label}</span>
-                      <strong>{project.progress_label.replace("任务 ", "")}</strong>
+                      <strong>{workflowLinked ? project.progress_label.replace("任务 ", "") : "未接入 workflow"}</strong>
                     </div>
                   </div>
 
                   <div className="agent-card__subrow">
                     <span>Codex {codexStatusLabels[project.codex_status]} · {project.codex_heartbeat_at}</span>
-                    <span>{project.auto_resume_enabled ? "自动续跑已开启" : project.current_task_status || project.health || "待同步"}</span>
+                    <span>{project.auto_resume_enabled ? "自动续跑已开启" : workflowLinked ? project.current_task_status || project.health || "待同步" : "未接入 workflow"}</span>
                   </div>
 
                   {progressRatio !== null ? (

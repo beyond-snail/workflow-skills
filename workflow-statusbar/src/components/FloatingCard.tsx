@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { RuntimeState } from "../lib/types";
 import { codexStatusLabels } from "../lib/codex-labels";
+import { isWorkflowLinked, parseTaskProgress } from "../lib/progress";
 
 type FloatingCardProps = {
   state: RuntimeState;
@@ -8,7 +9,15 @@ type FloatingCardProps = {
 
 export function FloatingCard({ state }: FloatingCardProps) {
   const project = state.spotlight_project;
-  const autoResumeCopy = project?.auto_resume_enabled ? "自动续跑开启" : "自动续跑关闭";
+  const workflowLinked = isWorkflowLinked(project);
+  const autoResumeCopy = project
+    ? project.auto_resume_enabled
+      ? "自动续跑开启"
+      : workflowLinked
+        ? "自动续跑关闭"
+        : "未接入 workflow"
+    : "等待关联项目";
+  const progressRatio = workflowLinked ? parseTaskProgress(project?.progress_label) : null;
 
   return (
     <section className="card card--floating">
@@ -46,9 +55,11 @@ export function FloatingCard({ state }: FloatingCardProps) {
         </button>
       </div>
 
-      <div className="progress-track">
-        <div className="progress-fill" style={{ width: project ? "66%" : "16%" }} />
-      </div>
+      {progressRatio !== null ? (
+        <div className="progress-track">
+          <div className="progress-fill" style={{ width: `${progressRatio}%` }} />
+        </div>
+      ) : null}
     </section>
   );
 }
