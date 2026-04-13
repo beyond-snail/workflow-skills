@@ -1970,10 +1970,7 @@ fn current_task_key(project: &ProjectSnapshot) -> String {
 
 fn should_attempt_auto_resume(previous: &CodexStatus, current: &CodexStatus) -> bool {
     matches!(previous, CodexStatus::Running)
-        && matches!(
-            current,
-            CodexStatus::WaitingInput | CodexStatus::Stalled | CodexStatus::Idle
-        )
+        && matches!(current, CodexStatus::Stalled | CodexStatus::Idle)
 }
 
 fn should_attempt_follow_up_resume(previous: &ProjectRuntimeSignature, current: &ProjectRuntimeSignature) -> bool {
@@ -1998,6 +1995,9 @@ fn should_skip_auto_resume(
 fn trigger_auto_resume(project: &ProjectSnapshot, thread_id: &str) -> Result<(), String> {
     if thread_id.trim().is_empty() {
         return Err("missing active thread id".into());
+    }
+    if matches!(project.workflow_stage, WorkflowStage::Unknown) {
+        return Err("workflow stage unknown".into());
     }
 
     let prompt = "继续当前任务，请从中断处继续执行；如果最后一条回复是在询问下一步、提示“如果你要继续”、或给出可直接继续的选项，请不要等待用户确认，直接选择最符合当前任务目标的下一步继续推进。";
@@ -3017,6 +3017,30 @@ mod tests {
             &previous.codex_status,
             &current.codex_status
         ));
+    }
+
+    #[test]
+    fn waiting_input_transition_is_not_treated_as_interrupt() {
+        let mut project = sample_project("/tmp/erp-finance");
+        let previous = project_signature(&project);
+        project.codex_status = CodexStatus::WaitingInput;
+        let current = project_signature(&project);
+
+        assert!(!should_attempt_auto_resume(
+            &previous.codex_status,
+            &current.codex_status
+        ));
+    }
+
+    #[test]
+    fn unknown_workflow_project_cannot_auto_resume() {
+        let mut project = sample_project("/tmp/skill");
+        project.workflow_stage = WorkflowStage::Unknown;
+
+        let result = trigger_auto_resume(&project, &project.codex_thread_id);
+
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "workflow stage unknown");
     }
 
     #[test]
