@@ -300,6 +300,7 @@ struct RemoteAlertPayload {
     body: String,
     project_name: String,
     project_path: String,
+    active_host: String,
     thread_id: String,
     task_id: String,
     task_title: String,
@@ -316,6 +317,8 @@ struct DebugProjectEntry<'a> {
     is_open_in_ide: bool,
     thread_name: &'a str,
     workflow_stage: &'a WorkflowStage,
+    active_host: &'a Option<HostKind>,
+    other_host_summary: &'a str,
 }
 
 #[derive(Serialize)]
@@ -614,6 +617,8 @@ fn write_runtime_debug_snapshot(
                 is_open_in_ide: project.is_open_in_ide,
                 thread_name: &project.codex_thread_name,
                 workflow_stage: &project.workflow_stage,
+                active_host: &project.active_host,
+                other_host_summary: &project.other_host_summary,
             })
             .collect(),
     };
@@ -1829,6 +1834,13 @@ fn codex_status_key(status: &CodexStatus) -> &'static str {
     }
 }
 
+fn host_kind_label(host: Option<&HostKind>) -> &'static str {
+    match host {
+        Some(HostKind::Claude) => "Claude",
+        _ => "Codex",
+    }
+}
+
 fn build_codex_global_state(
     codex_status: CodexStatus,
     latest_log_ts: i64,
@@ -2332,12 +2344,13 @@ fn post_feishu_alert(
 
     let content = serde_json::json!({
         "text": format!(
-            "{}\n{}\n项目：{}\n任务：{}\n阶段：{}\nCodex：{}\n心跳：{}",
+            "{}\n{}\n项目：{}\n任务：{}\n阶段：{}\nHost：{}\n状态：{}\n心跳：{}",
             payload.title,
             payload.body,
             if payload.project_name.is_empty() { "未识别" } else { &payload.project_name },
             if payload.task_id.is_empty() { "未识别" } else { &payload.task_id },
             payload.workflow_stage,
+            if payload.active_host.is_empty() { "未识别" } else { &payload.active_host },
             payload.codex_status,
             if payload.heartbeat_at.is_empty() { "未采集" } else { &payload.heartbeat_at }
         )
@@ -2943,7 +2956,11 @@ fn notify_changes<R: tauri::Runtime>(
                     "{}{}",
                     project.name,
                     if interrupted {
-                        format!(" 已从执行中切换为 {}", codex_status_label(&signature.codex_status))
+                        format!(
+                            " {} 已从执行中切换为 {}",
+                            host_kind_label(project.active_host.as_ref()),
+                            codex_status_label(&signature.codex_status)
+                        )
                     } else {
                         " 最新回复停在可继续推进的收尾语气".into()
                     }
@@ -3046,6 +3063,9 @@ fn push_alert<R: tauri::Runtime>(
                 body: body.into(),
                 project_name: project.map(|item| item.name.clone()).unwrap_or_default(),
                 project_path: project.map(|item| item.path.clone()).unwrap_or_default(),
+                active_host: project
+                    .map(|item| host_kind_label(item.active_host.as_ref()).to_string())
+                    .unwrap_or_else(|| "Codex".into()),
                 thread_id: project
                     .map(|item| item.codex_thread_id.clone())
                     .unwrap_or_default(),
@@ -3137,6 +3157,7 @@ fn send_test_alert_command<R: tauri::Runtime>(
         body: "这是一条手动触发的测试消息，用来确认飞书提醒链路已经打通。".into(),
         project_name: "workflow-statusbar".into(),
         project_path: "/Users/wucongpeng/Documents/ai/skill/workflow-skills-copy/workflow-statusbar".into(),
+        active_host: "Codex".into(),
         thread_id: "test-thread".into(),
         task_id: "TEST-ALERT".into(),
         task_title: "验证飞书提醒".into(),

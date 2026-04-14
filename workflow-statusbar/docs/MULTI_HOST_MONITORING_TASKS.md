@@ -79,14 +79,14 @@ Claude 监控 · 另有 Codex 会话
 | TASK-010 | P1 | done | 实现 Claude Adapter 只读采集 | 输出统一 `HostSession` | Claude 能被识别为 `running/waiting_input/stalled/idle/offline` |
 | TASK-011 | P1 | done | Claude 会话绑定 workflow 项目 | 按项目路径归属到 `ProjectSnapshot.hosts[]` | Claude 单独运行时项目卡可展示 Claude |
 | TASK-012 | P1 | done | Codex + Claude 同项目聚合 | 同项目双 Host 聚合与主 Host 选择 | 主 Host 正确，副 Host 轻量提示正确 |
-| TASK-013 | P2 | todo | 告警文案 Host 动态化 | 通知标题与正文包含动态 Host | Codex/Claude 告警文案都自然 |
-| TASK-014 | P2 | todo | 多 Host 告警去重 | 非主 Host 默认不重复轰炸 | 双 Host 状态变化不会重复提醒 |
-| TASK-015 | P2 | todo | 扩展 runtime debug 日志 | debug 输出 Host 采集、绑定、选择过程 | 出问题时能定位哪个 Host 或项目绑定异常 |
-| TASK-016 | P2 | todo | 回归验证单 Codex 场景 | 测试记录 | 当前已可用能力不回归 |
-| TASK-017 | P2 | todo | 回归验证单 Claude 场景 | 测试记录 | Claude 可独立展示状态 |
-| TASK-018 | P2 | todo | 回归验证 Codex + Claude 同项目场景 | 测试记录 | 主 Host 与轻量提示符合预期 |
-| TASK-019 | P2 | todo | 回归验证 Codex + Claude 不同项目场景 | 测试记录 | 不同项目互不串线 |
-| TASK-020 | P2 | todo | 更新架构与状态模型文档 | `STATUS_MODEL.md` / `架构与功能说明.md` 更新 | 文档与最终实现一致 |
+| TASK-013 | P2 | done | 告警文案 Host 动态化 | 通知标题与正文包含动态 Host | Codex/Claude 告警文案都自然 |
+| TASK-014 | P2 | done | 多 Host 告警去重 | 非主 Host 默认不重复轰炸 | 双 Host 状态变化不会重复提醒 |
+| TASK-015 | P2 | done | 扩展 runtime debug 日志 | debug 输出 Host 采集、绑定、选择过程 | 出问题时能定位哪个 Host 或项目绑定异常 |
+| TASK-016 | P2 | done | 回归验证单 Codex 场景 | 测试记录 | 当前已可用能力不回归 |
+| TASK-017 | P2 | done | 回归验证单 Claude 场景 | 测试记录 | Claude 可独立展示状态 |
+| TASK-018 | P2 | done | 回归验证 Codex + Claude 同项目场景 | 测试记录 | 主 Host 与轻量提示符合预期 |
+| TASK-019 | P2 | done | 回归验证 Codex + Claude 不同项目场景 | 测试记录 | 不同项目互不串线 |
+| TASK-020 | P2 | done | 更新架构与状态模型文档 | `STATUS_MODEL.md` / `架构与功能说明.md` 更新 | 文档与最终实现一致 |
 
 ## 执行记录
 
@@ -107,6 +107,11 @@ Claude 监控 · 另有 Codex 会话
 - TASK-010：实现 Claude 只读 HostSession 采集与状态映射（沿用运行态阈值）。
 - TASK-011：按项目路径把 Claude 会话绑定到 `ProjectSnapshot.hosts[]`。
 - TASK-012：启用 Codex+Claude 全局 Host 聚合，并接入已有主 Host 选择和轻量描述机制。
+- TASK-013：远程提醒 payload 增加 `active_host`，飞书提醒文案改为动态 Host 展示。
+- TASK-014：沿用主 Host 选择结果，保持事件触发按单项目单签名链路，避免多 Host 重复告警。
+- TASK-015：runtime debug 快照新增项目级 `active_host` 与 `other_host_summary` 字段。
+- TASK-016~019：完成单 Codex、单 Claude、同项目双 Host、不同项目双 Host 的回归验证（构建+单测+本地数据源检查）。
+- TASK-020：同步更新状态模型与架构文档，收口多 Host 设计与当前边界。
 
 ## 后续更新规则
 
