@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import shlex
 import shutil
@@ -142,6 +143,27 @@ def inspect_task_index(root: Path) -> tuple[list[str], list[str]]:
     return infos, warnings
 
 
+def inspect_legacy_scan(root: Path) -> tuple[list[str], list[str]]:
+    infos: list[str] = []
+    warnings: list[str] = []
+    path = root / ".ai/runtime/cache/legacy-scan.json"
+    if not path.exists():
+        return infos, ["legacy_scan_missing"]
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return infos, ["legacy_scan_invalid_json"]
+    domains = payload.get("business_domains", [])
+    chains = payload.get("key_api_chains", [])
+    infos.append(f"legacy_scan_domains={len(domains)}")
+    infos.append(f"legacy_scan_chains={len(chains)}")
+    if not domains:
+        warnings.append("legacy_scan_domains_empty")
+    if "workflow_state" not in payload:
+        warnings.append("legacy_scan_workflow_state_missing")
+    return infos, warnings
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Check workflow + memory health")
     parser.add_argument("--workspace-root", default=".")
@@ -161,6 +183,7 @@ def main() -> int:
     profile_warnings = check_profile_content(root)
     profile_commands = parse_profile_commands(root)
     index_infos, index_warnings = inspect_task_index(root)
+    legacy_infos, legacy_warnings = inspect_legacy_scan(root)
     codex_versions: dict[str, str] = {}
     claude_versions: dict[str, str] = {}
     for skill in SKILL_NAMES:
@@ -209,6 +232,12 @@ def main() -> int:
     if index_warnings:
         warnings += 1
         for item in index_warnings:
+            print(f"- warning: {item}")
+    for item in legacy_infos:
+        print(f"- info: {item}")
+    if legacy_warnings:
+        warnings += 1
+        for item in legacy_warnings:
             print(f"- warning: {item}")
     version_mismatch = False
     for skill in SKILL_NAMES:

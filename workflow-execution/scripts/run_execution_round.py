@@ -578,6 +578,7 @@ def main() -> int:
             summary=(args.summary or f"{selected.task_id} 执行预览") + f"；{legacy_context['summary']}",
             blockers=list(args.blocker) or warnings,
             evidence_refs=[*(str(p) for p in (*record_files, *test_result_files)), *legacy_context["evidence_refs"]],
+            legacy_context=legacy_context,
         )
         preview_path = write_project_state(project_paths.workspace_root, preview_state, dry_run=True)
         print(f"- action: update project-state preview at `{preview_path}`")
@@ -1000,6 +1001,7 @@ def main() -> int:
         summary=(args.summary or f"{selected.task_id} 执行回合已{final_task_status}") + f"；{legacy_context['summary']}",
         blockers=blockers,
         evidence_refs=[*(str(p) for p in (*record_files, *test_result_files, *gate_doc_files)), *legacy_context["evidence_refs"]],
+        legacy_context=legacy_context,
     )
     state_path = write_project_state(project_paths.workspace_root, state, dry_run=False)
     print(f"- project_state: {state_path}")

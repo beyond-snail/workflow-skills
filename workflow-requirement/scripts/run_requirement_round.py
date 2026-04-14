@@ -322,6 +322,7 @@ def main() -> int:
             summary=(args.summary or f"{planned.req_id} 需求已入池，等待人工审核") + f"；{legacy_context['summary']}",
             blockers=warnings,
             evidence_refs=legacy_context["evidence_refs"],
+            legacy_context=legacy_context,
         )
         preview_path = write_project_state(project_paths.workspace_root, preview_state, dry_run=True)
         print(f"- action: update project-state preview at `{preview_path}`")
@@ -483,6 +484,7 @@ def main() -> int:
         summary=(args.summary or f"{planned.req_id} 需求已入池，等待人工审核") + f"；{legacy_context['summary']}",
         blockers=warnings,
         evidence_refs=legacy_context["evidence_refs"],
+        legacy_context=legacy_context,
     )
     state_path = write_project_state(project_paths.workspace_root, state, dry_run=False)
     print(f"- project_state: {state_path}")

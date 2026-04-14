@@ -256,6 +256,7 @@ def build_project_state(
     summary: str = "",
     blockers: list[str] | None = None,
     evidence_refs: list[str] | None = None,
+    legacy_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     state = load_state(workspace_root, profile)
     requirements = build_requirement_entries(requirements_pool)
@@ -282,6 +283,13 @@ def build_project_state(
         "currentTaskStatus": current_task_status,
         "currentMode": current_mode,
     }
+    if legacy_context is not None:
+        state["workflow"]["legacyContext"] = {
+            "summary": legacy_context.get("summary", ""),
+            "matchedDomains": [item.get("name", "") for item in legacy_context.get("matched_domains", [])],
+            "matchedChains": [item.get("endpoint", "") for item in legacy_context.get("matched_chains", [])[:5]],
+            "matchedDocs": [item.get("path", "") for item in legacy_context.get("matched_docs", [])[:5]],
+        }
     state["metrics"] = metrics
     state["requirements"] = requirements
     state["tasks"] = tasks
