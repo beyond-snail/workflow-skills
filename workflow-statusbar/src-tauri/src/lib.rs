@@ -472,6 +472,13 @@ fn unix_now() -> i64 {
         .unwrap_or_default()
 }
 
+fn is_follow_up_resume_candidate(status: &CodexStatus) -> bool {
+    matches!(
+        status,
+        CodexStatus::WaitingInput | CodexStatus::Stalled | CodexStatus::Idle
+    )
+}
+
 fn fmt_relative_age(ts: i64) -> String {
     if ts <= 0 {
         return "未采集".into();
@@ -1974,7 +1981,9 @@ fn should_attempt_auto_resume(previous: &CodexStatus, current: &CodexStatus) -> 
 }
 
 fn should_attempt_follow_up_resume(previous: &ProjectRuntimeSignature, current: &ProjectRuntimeSignature) -> bool {
-    !previous.follow_up_prompted && current.follow_up_prompted
+    !previous.follow_up_prompted
+        && current.follow_up_prompted
+        && is_follow_up_resume_candidate(&current.codex_status)
 }
 
 fn should_skip_auto_resume(
@@ -1992,6 +2001,29 @@ fn should_skip_auto_resume(
         && now.saturating_sub(record.attempted_at) < AUTO_RESUME_COOLDOWN_SECONDS
 }
 
+fn resolve_codex_command() -> Result<PathBuf, String> {
+    let mut candidates = Vec::new();
+
+    if let Some(path_os) = env::var_os("PATH") {
+        candidates.extend(
+            env::split_paths(&path_os)
+                .map(|dir| dir.join("codex"))
+                .collect::<Vec<_>>(),
+        );
+    }
+
+    if let Some(home) = home_dir() {
+        candidates.push(home.join(".npm-global/bin/codex"));
+    }
+    candidates.push(PathBuf::from("/opt/homebrew/bin/codex"));
+    candidates.push(PathBuf::from("/usr/local/bin/codex"));
+
+    candidates
+        .into_iter()
+        .find(|path| path.is_file())
+        .ok_or_else(|| "codex command not found".into())
+}
+
 fn trigger_auto_resume(project: &ProjectSnapshot, thread_id: &str) -> Result<(), String> {
     if thread_id.trim().is_empty() {
         return Err("missing active thread id".into());
@@ -2000,8 +2032,9 @@ fn trigger_auto_resume(project: &ProjectSnapshot, thread_id: &str) -> Result<(),
         return Err("workflow stage unknown".into());
     }
 
+    let codex_command = resolve_codex_command()?;
     let prompt = "继续当前任务，请从中断处继续执行；如果最后一条回复是在询问下一步、提示“如果你要继续”、或给出可直接继续的选项，请不要等待用户确认，直接选择最符合当前任务目标的下一步继续推进。";
-    Command::new("codex")
+    Command::new(codex_command)
         .args([
             "exec",
             "--full-auto",
@@ -2352,6 +2385,7 @@ fn maybe_resume_follow_up_on_startup<R: tauri::Runtime>(
             || !project.follow_up_prompted
             || !project.auto_resume_enabled
             || project.codex_thread_id.is_empty()
+            || !is_follow_up_resume_candidate(&project.codex_status)
         {
             continue;
         }
@@ -3056,9 +3090,36 @@ mod tests {
         let mut project = sample_project("/tmp/solo");
         let previous = project_signature(&project);
         project.follow_up_prompted = true;
+        project.codex_status = CodexStatus::WaitingInput;
         let current = project_signature(&project);
 
         assert!(should_attempt_follow_up_resume(&previous, &current));
+    }
+
+    #[test]
+    fn follow_up_prompt_while_running_is_not_treated_as_interrupt() {
+        let mut project = sample_project("/tmp/solo");
+        let previous = project_signature(&project);
+        project.follow_up_prompted = true;
+        let current = project_signature(&project);
+
+        assert!(!should_attempt_follow_up_resume(&previous, &current));
+    }
+
+    #[test]
+    fn running_status_is_not_follow_up_resume_candidate() {
+        assert!(!is_follow_up_resume_candidate(&CodexStatus::Running));
+        assert!(is_follow_up_resume_candidate(&CodexStatus::WaitingInput));
+        assert!(is_follow_up_resume_candidate(&CodexStatus::Stalled));
+        assert!(is_follow_up_resume_candidate(&CodexStatus::Idle));
+    }
+
+    #[test]
+    fn codex_command_can_be_resolved_in_local_environment() {
+        let command = resolve_codex_command();
+
+        assert!(command.is_ok());
+        assert!(command.unwrap().is_file());
     }
 
     #[test]
