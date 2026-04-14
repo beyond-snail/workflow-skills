@@ -237,6 +237,8 @@ class BusinessDomain:
     summary: str
     confidence: str
     evidence: list[str]
+    doc_evidence: list[str]
+    code_locations: list[str]
 
 
 @dataclass
@@ -247,8 +249,11 @@ class ApiChain:
     service: str
     mapper_or_table: str
     downstream: str
+    request_object: str
+    response_object: str
     confidence: str
     tags: list[str]
+    evidence: list[str]
 
 
 def detect_language_and_build(root: Path) -> tuple[str, str]:
@@ -446,8 +451,94 @@ def iter_java_files(root: Path, suffix: str) -> list[Path]:
     return files
 
 
+def iter_markdown_files(root: Path) -> list[Path]:
+    ignored = {".git", ".idea", ".vscode", "node_modules", "target", "build", ".ai"}
+    files: list[Path] = []
+    for path in root.rglob("*.md"):
+        if any(part in ignored for part in path.parts):
+            continue
+        files.append(path)
+    return sorted(files)
+
+
+def collect_doc_titles(root: Path) -> list[tuple[str, str]]:
+    titles: list[tuple[str, str]] = []
+    for path in iter_markdown_files(root):
+        text = path.read_text(encoding="utf-8", errors="ignore")
+        first_heading = ""
+        for line in text.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("#"):
+                first_heading = stripped.lstrip("#").strip()
+                break
+        title = first_heading or path.stem
+        titles.append((str(path.relative_to(root)), title))
+    return titles
+
+
+def tokenize_name(value: str) -> set[str]:
+    cleaned = []
+    current = []
+    for ch in value:
+        if ch.isalnum():
+            current.append(ch.lower())
+        else:
+            if current:
+                cleaned.append("".join(current))
+                current = []
+    if current:
+        cleaned.append("".join(current))
+    tokens = set(cleaned)
+    merged = "".join(cleaned)
+    if merged:
+        tokens.add(merged)
+    return {token for token in tokens if len(token) >= 3}
+
+
+def normalize_domain_name(name: str) -> str:
+    aliases = {
+        "salescostreport": "sales-cost-report",
+        "salescost": "sales-cost-report",
+        "acsalescosttransfer": "sales-cost-transfer",
+        "acsalescostsummary": "sales-cost-transfer",
+        "monthlysettlement": "monthly-settlement",
+        "settlement": "monthly-settlement",
+        "invoice": "invoice-billing",
+        "bill": "invoice-billing",
+        "oractb": "trade-finance",
+        "ortctb": "trade-finance",
+        "trade": "trade-finance",
+        "risk": "risk-control",
+        "exception": "risk-control",
+        "org": "org-config",
+        "account": "org-config",
+        "config": "org-config",
+    }
+    lowered = "".join(ch.lower() for ch in name if ch.isalnum())
+    for needle, target in aliases.items():
+        if needle in lowered:
+            return target
+    if lowered:
+        return lowered
+    return "project-overview"
+
+
 def summarize_domain(raw_name: str) -> str:
     lowered = raw_name.lower()
+    if lowered == "sales-cost-report":
+        return "销售成本结转、汇总查询、报表导出相关能力"
+    if lowered == "sales-cost-transfer":
+        return "销售成本结转落库、汇总与状态推进能力"
+    if lowered == "monthly-settlement":
+        return "月结、结算周期、往来汇总相关能力"
+    if lowered == "invoice-billing":
+        return "发票、票据、账单回退与更新能力"
+    if lowered == "trade-finance":
+        return "订单、交易、财务单据联动能力"
+    if lowered == "risk-control":
+        return "风险校验、异常处理与修复复核能力"
+    if lowered == "org-config":
+        return "组织、账套、配置与通用参数能力"
     if "salescost" in lowered or "cost" in lowered:
         return "成本/报表相关能力"
     if "settlement" in lowered:
@@ -465,20 +556,60 @@ def summarize_domain(raw_name: str) -> str:
 
 def infer_business_domains(root: Path) -> list[BusinessDomain]:
     controller_files = iter_java_files(root, "Controller.java")
-    buckets: dict[str, list[str]] = {}
+    doc_titles = collect_doc_titles(root)
+    buckets: dict[str, dict[str, list[str]]] = {}
+    def ensure_bucket(name: str) -> dict[str, list[str]]:
+        return buckets.setdefault(
+            name,
+            {
+                "controller": [],
+                "service": [],
+                "model": [],
+                "docs": [],
+            },
+        )
     for path in controller_files:
         stem = path.stem.removesuffix("Controller")
-        key = stem[:1].lower() + stem[1:] if stem else path.stem
-        buckets.setdefault(key, []).append(str(path.relative_to(root)))
+        key = normalize_domain_name(stem[:1].lower() + stem[1:] if stem else path.stem)
+        ensure_bucket(key)["controller"].append(str(path.relative_to(root)))
+    for path in iter_java_files(root, "Service.java"):
+        key = normalize_domain_name(path.stem.removesuffix("Service"))
+        ensure_bucket(key)["service"].append(str(path.relative_to(root)))
+    for path in iter_java_files(root, ".java"):
+        stem = path.stem
+        if stem.endswith(("Controller", "Service", "ServiceImpl", "Mapper", "FeignClient", "Convert")):
+            continue
+        key = normalize_domain_name(stem)
+        if key != "project-overview":
+            ensure_bucket(key)["model"].append(str(path.relative_to(root)))
+    for rel, title in doc_titles:
+        doc_tokens = tokenize_name(title) | tokenize_name(rel)
+        for key in list(buckets.keys()) or ["project-overview"]:
+            if key == "project-overview":
+                continue
+            key_tokens = tokenize_name(key)
+            if key_tokens & doc_tokens:
+                ensure_bucket(key)["docs"].append(rel)
     domains: list[BusinessDomain] = []
-    for key, evidence in sorted(buckets.items(), key=lambda item: (-len(item[1]), item[0]))[:8]:
-        confidence = "high" if len(evidence) >= 2 else "medium"
+    ranked = sorted(
+        buckets.items(),
+        key=lambda item: (
+            -(len(item[1]["controller"]) * 4 + len(item[1]["service"]) * 3 + len(item[1]["model"]) + len(item[1]["docs"]) * 2),
+            item[0],
+        ),
+    )
+    for key, evidence in ranked[:8]:
+        score = len(evidence["controller"]) * 4 + len(evidence["service"]) * 3 + len(evidence["model"]) + len(evidence["docs"]) * 2
+        confidence = "high" if score >= 8 else "medium" if score >= 4 else "low"
+        merged_evidence = evidence["controller"][:2] + evidence["service"][:2] + evidence["model"][:2]
         domains.append(
             BusinessDomain(
                 name=key,
                 summary=summarize_domain(key),
                 confidence=confidence,
-                evidence=evidence[:4],
+                evidence=merged_evidence[:6],
+                doc_evidence=evidence["docs"][:4],
+                code_locations=(evidence["controller"][:2] + evidence["service"][:2] + evidence["model"][:2])[:6],
             )
         )
     if not domains:
@@ -488,6 +619,8 @@ def infer_business_domains(root: Path) -> list[BusinessDomain]:
                 summary="未识别到明显业务域，建议结合现有文档补充。",
                 confidence="low",
                 evidence=[],
+                doc_evidence=[item[0] for item in doc_titles[:4]],
+                code_locations=[],
             )
         )
     return domains
@@ -512,6 +645,27 @@ def extract_endpoint_lines(text: str) -> list[tuple[str, str]]:
     return endpoints
 
 
+def extract_request_response_objects(text: str) -> tuple[str, str]:
+    request_object = ""
+    response_object = ""
+    for line in text.splitlines():
+        stripped = line.strip()
+        if "public " in stripped and "(" in stripped and ")" in stripped:
+            signature = stripped
+            response_object = signature.split("public ", 1)[1].split(" ", 1)[0].strip()
+            params = signature.split("(", 1)[1].split(")", 1)[0]
+            for piece in params.split(","):
+                piece = piece.strip()
+                if not piece:
+                    continue
+                token = piece.split()[-2] if len(piece.split()) >= 2 else piece.split()[-1]
+                if token[0].isupper():
+                    request_object = token
+                    break
+            break
+    return request_object or "(unknown)", response_object or "(unknown)"
+
+
 def infer_api_chains(root: Path, domains: list[BusinessDomain]) -> list[ApiChain]:
     domain_names = {domain.name.lower(): domain.name for domain in domains}
     chains: list[ApiChain] = []
@@ -521,6 +675,7 @@ def infer_api_chains(root: Path, domains: list[BusinessDomain]) -> list[ApiChain
         service_name = ""
         mapper_name = ""
         downstream = ""
+        request_object, response_object = extract_request_response_objects(text)
         for line in text.splitlines():
             stripped = line.strip()
             if stripped.startswith("private final ") and stripped.endswith("Service;"):
@@ -539,6 +694,8 @@ def infer_api_chains(root: Path, domains: list[BusinessDomain]) -> list[ApiChain
                     break
                 if "@FeignClient" in stripped or "FeignClient" in stripped:
                     downstream = "feign-client"
+            if not downstream and "FeignClient" in service_text:
+                downstream = "feign-client"
         matched_domain = next((value for key, value in domain_names.items() if key in service_hint.lower()), service_hint or "unknown")
         for method, endpoint in extract_endpoint_lines(text)[:4]:
             tags = []
@@ -551,6 +708,10 @@ def infer_api_chains(root: Path, domains: list[BusinessDomain]) -> list[ApiChain
                 tags.append("query")
             if any(item in lowered for item in ("batch", "sync")):
                 tags.append("batch")
+            if any(item in lowered for item in ("verify", "check", "risk")):
+                tags.append("risk")
+            if any(item in lowered for item in ("finish", "settlement", "transfer")):
+                tags.append("flow")
             chains.append(
                 ApiChain(
                     domain=matched_domain,
@@ -559,8 +720,11 @@ def infer_api_chains(root: Path, domains: list[BusinessDomain]) -> list[ApiChain
                     service=service_name or "(unknown)",
                     mapper_or_table=mapper_name or "(unknown)",
                     downstream=downstream or "(none)",
+                    request_object=request_object,
+                    response_object=response_object,
                     confidence="medium" if mapper_name or service_name else "low",
                     tags=tags or ["general"],
+                    evidence=[str(path.relative_to(root))] + ([str(service_impl.relative_to(root))] if service_impl else []),
                 )
             )
     return chains[:20]
@@ -580,9 +744,26 @@ def collect_legacy_assets(root: Path) -> dict[str, list[str]]:
     return result
 
 
+def build_migration_recommendations(workflow_state: WorkflowState, legacy_assets: dict[str, list[str]]) -> list[str]:
+    recommendations: list[str] = []
+    if workflow_state.state in {"legacy_bootstrap", "mixed_legacy_current"}:
+        recommendations.append("优先以 `docs/workflow/` 作为后续治理主源，旧 `doc/` 目录先保留兼容。")
+    if legacy_assets.get("legacy_governance"):
+        recommendations.append("将旧治理文档建立索引到 `docs/workflow/`，暂不直接删除原文件。")
+    if legacy_assets.get("legacy_prd"):
+        recommendations.append("将旧 PRD 目录映射到 `docs/workflow/PRD/`，新需求统一从新路径进入。")
+    if legacy_assets.get("root_docs"):
+        recommendations.append("根目录历史分析文档建议保留原位，并在 `legacy-analysis.md` 中作为证据引用。")
+    if not recommendations:
+        recommendations.append("当前仓库已接近标准结构，主要执行补齐与刷新。")
+    return recommendations
+
+
 def build_legacy_scan_payload(root: Path, detection: Detection, workflow_state: WorkflowState) -> dict[str, object]:
     domains = infer_business_domains(root)
     chains = infer_api_chains(root, domains)
+    legacy_assets = collect_legacy_assets(root)
+    doc_titles = collect_doc_titles(root)
     risks: list[str] = []
     if workflow_state.state in {"legacy_bootstrap", "mixed_legacy_current"}:
         risks.append("检测到旧版 workflow 资产，需兼容迁移并避免覆盖。")
@@ -590,17 +771,22 @@ def build_legacy_scan_payload(root: Path, detection: Detection, workflow_state: 
         risks.append("未自动识别到默认编译命令。")
     if not detection.test_cmd:
         risks.append("未自动识别到默认测试命令。")
+    if len(chains) == 0:
+        risks.append("未识别到关键接口链路，需结合文档和人工补充。")
     return {
         "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
         "workflow_state": asdict(workflow_state),
         "detection": asdict(detection),
-        "legacy_assets": collect_legacy_assets(root),
+        "legacy_assets": legacy_assets,
+        "doc_inventory": [{"path": path, "title": title} for path, title in doc_titles[:40]],
         "business_domains": [asdict(item) for item in domains],
         "key_api_chains": [asdict(item) for item in chains],
+        "migration_recommendations": build_migration_recommendations(workflow_state, legacy_assets),
         "risks": risks,
         "manual_confirmations": [
             "低置信度业务域需后续需求执行时持续修正。",
-            "旧文档与新底座并存时，以 docs/workflow 为后续主源。"
+            "旧文档与新底座并存时，以 docs/workflow 为后续主源。",
+            "查询与导出链路是否共用同一口径，建议后续需求执行时重点确认。"
         ],
     }
 
@@ -611,6 +797,8 @@ def render_legacy_analysis(payload: dict[str, object]) -> str:
     domains = payload["business_domains"]
     chains = payload["key_api_chains"]
     legacy_assets = payload["legacy_assets"]
+    doc_inventory = payload["doc_inventory"]
+    migration_recommendations = payload["migration_recommendations"]
     risks = payload["risks"]
     lines = [
         "# Legacy Analysis",
@@ -640,17 +828,31 @@ def render_legacy_analysis(payload: dict[str, object]) -> str:
     for domain in domains:
         lines.append(f"- `{domain['name']}`：{domain['summary']}（confidence=`{domain['confidence']}`）")
         if domain["evidence"]:
-            lines.append(f"  证据：{', '.join(f'`{item}`' for item in domain['evidence'])}")
+            lines.append(f"  代码证据：{', '.join(f'`{item}`' for item in domain['evidence'])}")
+        if domain["doc_evidence"]:
+            lines.append(f"  文档证据：{', '.join(f'`{item}`' for item in domain['doc_evidence'])}")
     lines.extend(["", "## 5. 关键接口链路画像"])
     if chains:
         for chain in chains[:12]:
             lines.append(
                 f"- `{chain['endpoint']}` -> `{chain['service']}` -> `{chain['mapper_or_table']}` / `{chain['downstream']}` "
-                f"[domain=`{chain['domain']}` tags=`{','.join(chain['tags'])}` confidence=`{chain['confidence']}`]"
+                f"[domain=`{chain['domain']}` req=`{chain['request_object']}` resp=`{chain['response_object']}` "
+                f"tags=`{','.join(chain['tags'])}` confidence=`{chain['confidence']}`]"
             )
+            if chain["evidence"]:
+                lines.append(f"  证据：{', '.join(f'`{item}`' for item in chain['evidence'])}")
     else:
         lines.append("- 未自动识别到关键接口链路。")
-    lines.extend(["", "## 6. 风险与待确认项"])
+    lines.extend(["", "## 6. 文档证据概览"])
+    if doc_inventory:
+        for item in doc_inventory[:12]:
+            lines.append(f"- `{item['path']}`：{item['title']}")
+    else:
+        lines.append("- 未发现可用 Markdown 文档证据。")
+    lines.extend(["", "## 7. 迁移建议"])
+    for item in migration_recommendations:
+        lines.append(f"- {item}")
+    lines.extend(["", "## 8. 风险与待确认项"])
     if risks:
         for risk in risks:
             lines.append(f"- {risk}")
