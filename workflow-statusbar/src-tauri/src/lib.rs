@@ -457,6 +457,15 @@ struct ThreadLastMessage {
     text: String,
 }
 
+#[derive(Clone)]
+struct ClaudeThread {
+    id: String,
+    project_path: String,
+    updated_at: i64,
+    last_message_role: String,
+    last_message_text: String,
+}
+
 #[derive(Clone, Serialize, Deserialize, Default)]
 struct TokenUsage {
     input: i64,
@@ -1090,6 +1099,111 @@ fn codex_process_running() -> bool {
         .output()
         .map(|output| output.status.success())
         .unwrap_or(false)
+}
+
+fn claude_process_running() -> bool {
+    Command::new("pgrep")
+        .args(["-f", "claude"])
+        .output()
+        .map(|output| output.status.success())
+        .unwrap_or(false)
+}
+
+fn read_recent_claude_threads(home: &Path) -> Vec<ClaudeThread> {
+    let history_path = home.join(".claude/history.jsonl");
+    let content = match fs::read_to_string(history_path) {
+        Ok(content) => content,
+        Err(_) => return Vec::new(),
+    };
+
+    let mut project_by_session: HashMap<String, (String, i64)> = HashMap::new();
+    for line in content.lines() {
+        let Ok(payload) = serde_json::from_str::<serde_json::Value>(line) else {
+            continue;
+        };
+        let Some(session_id) = payload.get("sessionId").and_then(|value| value.as_str()) else {
+            continue;
+        };
+        let Some(project_path) = payload.get("project").and_then(|value| value.as_str()) else {
+            continue;
+        };
+        let timestamp_ms = payload.get("timestamp").and_then(|value| value.as_i64()).unwrap_or_default();
+        let timestamp = if timestamp_ms > 0 { timestamp_ms / 1000 } else { 0 };
+        if timestamp <= 0 {
+            continue;
+        }
+
+        let replace = project_by_session
+            .get(session_id)
+            .map(|(_, existing_ts)| timestamp >= *existing_ts)
+            .unwrap_or(true);
+        if replace {
+            project_by_session.insert(session_id.to_string(), (project_path.to_string(), timestamp));
+        }
+    }
+
+    let projects_root = home.join(".claude/projects");
+    let mut threads = Vec::new();
+    let mut seen = HashSet::new();
+    for (session_id, (project_path, history_ts)) in project_by_session {
+        let escaped = project_path.trim_start_matches('/').replace('/', "-");
+        let candidate = projects_root.join(format!("-{escaped}/{session_id}.jsonl"));
+        let file_path = if candidate.is_file() {
+            candidate
+        } else {
+            continue;
+        };
+
+        let mut updated_at = history_ts;
+        let mut last_role = String::new();
+        let mut last_text = String::new();
+        if let Ok(file_content) = fs::read_to_string(&file_path) {
+            for line in file_content.lines() {
+                let Ok(payload) = serde_json::from_str::<serde_json::Value>(line) else {
+                    continue;
+                };
+                if let Some(ts) = payload.get("timestamp").and_then(|value| value.as_str()) {
+                    if let Ok(parsed) = chrono::DateTime::parse_from_rfc3339(ts) {
+                        updated_at = updated_at.max(parsed.timestamp());
+                    }
+                }
+
+                let Some(message) = payload.get("message") else {
+                    continue;
+                };
+                let Some(role) = message.get("role").and_then(|value| value.as_str()) else {
+                    continue;
+                };
+                let Some(content) = message.get("content").and_then(|value| value.as_array()) else {
+                    continue;
+                };
+                let text = content
+                    .iter()
+                    .filter_map(|item| item.get("text").and_then(|value| value.as_str()))
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                if text.trim().is_empty() {
+                    continue;
+                }
+
+                last_role = role.to_string();
+                last_text = sanitize_inline_text(&text);
+            }
+        }
+
+        if seen.insert((session_id.clone(), project_path.clone())) {
+            threads.push(ClaudeThread {
+                id: session_id,
+                project_path,
+                updated_at,
+                last_message_role: last_role,
+                last_message_text: last_text,
+            });
+        }
+    }
+
+    threads.sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
+    threads
 }
 
 fn read_frontmost_pid() -> Option<i32> {
@@ -1752,6 +1866,45 @@ fn build_codex_global_state(
     }
 }
 
+fn build_claude_global_host_session(
+    process_running: bool,
+    thread: Option<&ClaudeThread>,
+    now: i64,
+) -> HostSession {
+    let log_ts = thread.map(|item| item.updated_at).unwrap_or_default();
+    let status = if home_dir().map(|path| path.join(".claude").exists()).unwrap_or(false) {
+        codex_status_from_activity(process_running, log_ts, now)
+    } else {
+        CodexStatus::Offline
+    };
+    HostSession {
+        host: HostKind::Claude,
+        status,
+        heartbeat_at: fmt_relative_age(log_ts),
+        thread_id: thread.map(|item| item.id.clone()).unwrap_or_default(),
+        thread_name: thread
+            .map(|item| {
+                project_name_from_path(&item.project_path)
+                    .filter(|name| !name.trim().is_empty())
+                    .unwrap_or_else(|| item.project_path.clone())
+            })
+            .unwrap_or_else(|| "暂无活跃会话".into()),
+        project_path: thread.map(|item| item.project_path.clone()).unwrap_or_default(),
+        last_message_role: thread.map(|item| item.last_message_role.clone()).unwrap_or_default(),
+        last_message_text: thread.map(|item| item.last_message_text.clone()).unwrap_or_default(),
+        process_running,
+        source: "history.jsonl + projects/*.jsonl".into(),
+        confidence: if process_running { "medium".into() } else { "low".into() },
+        token_total: 0,
+        token_input: 0,
+        token_output: 0,
+        token_reasoning: 0,
+        auto_resume_enabled: false,
+        follow_up_prompted: false,
+        updated_at: log_ts,
+    }
+}
+
 fn build_codex_project_host_session(
     runtime: &ProjectRuntime,
     project_path: &str,
@@ -1894,6 +2047,22 @@ fn apply_runtime_host_compatibility(state: &mut RuntimeState, now: i64) {
         project.active_host = project_active_session.map(|session| session.host.clone());
         project.other_host_summary = other_host_summary_for(&project.hosts, project.active_host.as_ref());
         apply_legacy_codex_fields_from_hosts(project);
+    }
+}
+
+fn enrich_projects_with_claude_host(projects: &mut [ProjectSnapshot], claude_threads: &[ClaudeThread], now: i64) {
+    for thread in claude_threads {
+        let Some(project) = projects
+            .iter_mut()
+            .find(|project| path_matches(&project.path, &thread.project_path) || path_matches(&thread.project_path, &project.path))
+        else {
+            continue;
+        };
+        if project.hosts.iter().any(|host| matches!(host.host, HostKind::Claude) && host.thread_id == thread.id) {
+            continue;
+        }
+        let process_running = claude_process_running();
+        project.hosts.push(build_claude_global_host_session(process_running, Some(thread), now));
     }
 }
 
@@ -2410,6 +2579,7 @@ fn collect_runtime_state() -> RuntimeState {
         .as_ref()
         .map(|thread| thread.id.as_str())
         .unwrap_or("");
+    let claude_threads = read_recent_claude_threads(&home);
 
     let mut seen = HashSet::new();
     let mut projects = Vec::new();
@@ -2561,6 +2731,7 @@ fn collect_runtime_state() -> RuntimeState {
     }
 
     save_token_usage_cache(&home, &token_usage_cache);
+    enrich_projects_with_claude_host(&mut projects, &claude_threads, now);
     write_runtime_debug_snapshot(&code_titles, &known_paths, &ide_signal, &projects);
 
     let spotlight = find_spotlight(&projects, &ide_signal, &active_project_path);
@@ -2581,7 +2752,9 @@ fn collect_runtime_state() -> RuntimeState {
         process_running,
         auto_resume_project,
     );
-    let hosts = vec![build_codex_global_host_session(&codex_state, now)];
+    let claude_process = claude_process_running();
+    let claude_host = build_claude_global_host_session(claude_process, claude_threads.first(), now);
+    let hosts = vec![build_codex_global_host_session(&codex_state, now), claude_host];
     let active_host = select_active_host_session(&hosts).map(|session| session.host.clone());
     let other_host_summary = other_host_summary_for(&hosts, active_host.as_ref());
 

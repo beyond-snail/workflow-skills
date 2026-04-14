@@ -75,10 +75,10 @@ Claude 监控 · 另有 Codex 会话
 | TASK-006 | P0 | done | 实现主 Host 选择函数 | `select_active_host` 或等价函数 | 多 Host mock 数据下选择结果符合规则 |
 | TASK-007 | P0 | done | 前端标题副文案动态化 | `Codex 监控` 改为动态 `Codex/Claude 监控` | 单 Host UI 基本不变 |
 | TASK-008 | P0 | done | 前端多 Host 轻量提示 | 展示 `另有 Codex 会话` / `另有 Claude 会话` | 双 Host 时只增加一段轻量文案 |
-| TASK-009 | P1 | todo | 调研 Claude 本地状态源 | 记录 Claude 会话、消息、活跃时间、项目路径来源 | 明确可读取字段与不可读取字段 |
-| TASK-010 | P1 | todo | 实现 Claude Adapter 只读采集 | 输出统一 `HostSession` | Claude 能被识别为 `running/waiting_input/stalled/idle/offline` |
-| TASK-011 | P1 | todo | Claude 会话绑定 workflow 项目 | 按项目路径归属到 `ProjectSnapshot.hosts[]` | Claude 单独运行时项目卡可展示 Claude |
-| TASK-012 | P1 | todo | Codex + Claude 同项目聚合 | 同项目双 Host 聚合与主 Host 选择 | 主 Host 正确，副 Host 轻量提示正确 |
+| TASK-009 | P1 | done | 调研 Claude 本地状态源 | 记录 Claude 会话、消息、活跃时间、项目路径来源 | 明确可读取字段与不可读取字段 |
+| TASK-010 | P1 | done | 实现 Claude Adapter 只读采集 | 输出统一 `HostSession` | Claude 能被识别为 `running/waiting_input/stalled/idle/offline` |
+| TASK-011 | P1 | done | Claude 会话绑定 workflow 项目 | 按项目路径归属到 `ProjectSnapshot.hosts[]` | Claude 单独运行时项目卡可展示 Claude |
+| TASK-012 | P1 | done | Codex + Claude 同项目聚合 | 同项目双 Host 聚合与主 Host 选择 | 主 Host 正确，副 Host 轻量提示正确 |
 | TASK-013 | P2 | todo | 告警文案 Host 动态化 | 通知标题与正文包含动态 Host | Codex/Claude 告警文案都自然 |
 | TASK-014 | P2 | todo | 多 Host 告警去重 | 非主 Host 默认不重复轰炸 | 双 Host 状态变化不会重复提醒 |
 | TASK-015 | P2 | todo | 扩展 runtime debug 日志 | debug 输出 Host 采集、绑定、选择过程 | 出问题时能定位哪个 Host 或项目绑定异常 |
@@ -103,6 +103,10 @@ Claude 监控 · 另有 Codex 会话
 - TASK-006：新增主 Host 选择逻辑（按状态优先级 + 最近活跃 + Codex 兜底）并补充单元测试。
 - TASK-007：主卡/焦点卡/分组卡/悬浮卡支持动态 Host 文案。
 - TASK-008：在现有卡片结构下增加多 Host 轻量描述（`另有 xxx 会话`）。
+- TASK-009：确认 Claude 可用状态源为 `~/.claude/history.jsonl` + `~/.claude/projects/*/*.jsonl` + `pgrep`。
+- TASK-010：实现 Claude 只读 HostSession 采集与状态映射（沿用运行态阈值）。
+- TASK-011：按项目路径把 Claude 会话绑定到 `ProjectSnapshot.hosts[]`。
+- TASK-012：启用 Codex+Claude 全局 Host 聚合，并接入已有主 Host 选择和轻量描述机制。
 
 ## 后续更新规则
 
