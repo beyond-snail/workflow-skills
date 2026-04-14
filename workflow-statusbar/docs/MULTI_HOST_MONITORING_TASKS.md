@@ -67,10 +67,10 @@ Claude 监控 · 另有 Codex 会话
 
 | 编号 | 优先级 | 状态 | 任务 | 产出 | 验收标准 |
 | --- | --- | --- | --- | --- | --- |
-| TASK-001 | P0 | todo | 抽象 Host 类型与状态枚举 | 后端新增 `HostKind`、`HostSession`、通用状态字段 | 只接 Codex 时运行态输出不回归 |
-| TASK-002 | P0 | todo | 为 `RuntimeState` 增加多 Host 字段 | `RuntimeState` 支持 `hosts` / `active_host` 等字段 | 前端可读取主 Host 与其他 Host 摘要 |
-| TASK-003 | P0 | todo | 为 `ProjectSnapshot` 增加项目级 Host 聚合字段 | `ProjectSnapshot` 支持 `hosts[]`、`active_host`、`other_host_summary` | 单项目可承载 Codex 与 Claude 会话 |
-| TASK-004 | P0 | todo | 保留旧 `codex_*` 兼容字段 | 新模型回填旧字段 | 现有组件不需要一次性大改 |
+| TASK-001 | P0 | done | 抽象 Host 类型与状态枚举 | 后端新增 `HostKind`、`HostSession`、通用状态字段 | 只接 Codex 时运行态输出不回归 |
+| TASK-002 | P0 | done | 为 `RuntimeState` 增加多 Host 字段 | `RuntimeState` 支持 `hosts` / `active_host` 等字段 | 前端可读取主 Host 与其他 Host 摘要 |
+| TASK-003 | P0 | done | 为 `ProjectSnapshot` 增加项目级 Host 聚合字段 | `ProjectSnapshot` 支持 `hosts[]`、`active_host`、`other_host_summary` | 单项目可承载 Codex 与 Claude 会话 |
+| TASK-004 | P0 | done | 保留旧 `codex_*` 兼容字段 | 新模型回填旧字段 | 现有组件不需要一次性大改 |
 | TASK-005 | P0 | todo | 实现 Codex Adapter 包装层 | 现有 Codex 读取逻辑封装为统一 Host 输出 | Codex 监控结果与当前一致 |
 | TASK-006 | P0 | todo | 实现主 Host 选择函数 | `select_active_host` 或等价函数 | 多 Host mock 数据下选择结果符合规则 |
 | TASK-007 | P0 | todo | 前端标题副文案动态化 | `Codex 监控` 改为动态 `Codex/Claude 监控` | 单 Host UI 基本不变 |
@@ -95,6 +95,10 @@ Claude 监控 · 另有 Codex 会话
 - 创建多 Host 监控升级开发任务清单。
 - 明确本轮不处理 IDE 识别和悬浮卡。
 - 明确 UI 保持现有卡片结构，仅增加动态 Host 文案和多 Host 轻量提示。
+- TASK-001：新增 Rust/TypeScript 通用 Host 类型，先不改变现有 Codex 运行逻辑。
+- TASK-002：为 `RuntimeState` 增加多 Host 字段，先由 Codex 全局状态回填。
+- TASK-003：为 `ProjectSnapshot` 增加项目级 `hosts[]`、`active_host` 和轻量描述字段，先由 Codex 项目运行态回填。
+- TASK-004：新增兼容层，由 `hosts[]` 回填旧 `codex_*` 字段，降低前端切换风险。
 
 ## 后续更新规则
 

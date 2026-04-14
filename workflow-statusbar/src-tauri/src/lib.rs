@@ -41,6 +41,35 @@ enum CodexStatus {
     Offline,
 }
 
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq, Hash)]
+#[serde(rename_all = "snake_case")]
+enum HostKind {
+    Codex,
+    Claude,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+struct HostSession {
+    host: HostKind,
+    status: CodexStatus,
+    heartbeat_at: String,
+    thread_id: String,
+    thread_name: String,
+    project_path: String,
+    last_message_role: String,
+    last_message_text: String,
+    process_running: bool,
+    source: String,
+    confidence: String,
+    token_total: i64,
+    token_input: i64,
+    token_output: i64,
+    token_reasoning: i64,
+    auto_resume_enabled: bool,
+    follow_up_prompted: bool,
+    updated_at: i64,
+}
+
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 enum WorkflowStage {
@@ -85,6 +114,9 @@ struct ProjectSnapshot {
     current_mode: String,
     last_sync_at: String,
     sync_source: String,
+    active_host: Option<HostKind>,
+    other_host_summary: String,
+    hosts: Vec<HostSession>,
     is_blocked: bool,
     is_active_by_codex: bool,
     is_open_in_ide: bool,
@@ -124,6 +156,9 @@ struct Summary {
 #[derive(Clone, Serialize, Deserialize, Debug)]
 struct RuntimeState {
     codex: CodexState,
+    active_host: Option<HostKind>,
+    other_host_summary: String,
+    hosts: Vec<HostSession>,
     projects: Vec<ProjectSnapshot>,
     groups: Vec<ProjectGroup>,
     summary: Summary,
@@ -1368,6 +1403,9 @@ fn placeholder_project_snapshot(
     active_project_path: &str,
     project_runtime: Option<&ProjectRuntime>,
 ) -> ProjectSnapshot {
+    let hosts = project_runtime
+        .map(|runtime| vec![host_session_from_project_runtime(runtime, path, false)])
+        .unwrap_or_default();
     ProjectSnapshot {
         name: name.into(),
         path: path.into(),
@@ -1383,6 +1421,9 @@ fn placeholder_project_snapshot(
         current_mode: String::new(),
         last_sync_at: "未同步".into(),
         sync_source: "ide".into(),
+        active_host: hosts.first().map(|session| session.host.clone()),
+        other_host_summary: String::new(),
+        hosts,
         is_blocked: false,
         is_active_by_codex: !active_project_path.is_empty() && path_matches(path, active_project_path),
         is_open_in_ide: true,
@@ -1487,6 +1528,9 @@ fn read_project_snapshot(
             stage,
             WorkflowStage::Bootstrap | WorkflowStage::Requirement | WorkflowStage::Execution
         );
+    let hosts = project_runtime
+        .map(|runtime| vec![host_session_from_project_runtime(runtime, &project_path, auto_resume_enabled)])
+        .unwrap_or_default();
 
     Some(ProjectSnapshot {
         name,
@@ -1503,6 +1547,9 @@ fn read_project_snapshot(
         current_mode: payload.workflow.current_mode,
         last_sync_at: format_sync_text(&payload.sync.last_sync_at),
         sync_source: payload.sync.source,
+        active_host: hosts.first().map(|session| session.host.clone()),
+        other_host_summary: String::new(),
+        hosts,
         is_blocked,
         is_active_by_codex: !active_project_path.is_empty() && path_matches(&project_path, active_project_path),
         is_open_in_ide: false,
@@ -1665,6 +1712,99 @@ fn codex_status_key(status: &CodexStatus) -> &'static str {
         CodexStatus::Stalled => "stalled",
         CodexStatus::Idle => "idle",
         CodexStatus::Offline => "offline",
+    }
+}
+
+fn host_session_from_project_runtime(
+    runtime: &ProjectRuntime,
+    project_path: &str,
+    auto_resume_enabled: bool,
+) -> HostSession {
+    let last_message = read_last_thread_message(&runtime.primary_thread.thread.rollout_path);
+    HostSession {
+        host: HostKind::Codex,
+        status: runtime.primary_thread.status.clone(),
+        heartbeat_at: fmt_relative_age(runtime.primary_thread.last_log_ts),
+        thread_id: runtime.primary_thread.thread.id.clone(),
+        thread_name: runtime.primary_thread.thread.title.clone(),
+        project_path: project_path.into(),
+        last_message_role: last_message.role,
+        last_message_text: last_message.text,
+        process_running: !matches!(runtime.primary_thread.status, CodexStatus::Idle | CodexStatus::Offline),
+        source: "state_5.sqlite + logs_2.sqlite".into(),
+        confidence: "high".into(),
+        token_total: runtime.token_usage.total,
+        token_input: runtime.token_usage.today_input,
+        token_output: runtime.token_usage.today_output,
+        token_reasoning: runtime.token_usage.today_reasoning,
+        auto_resume_enabled,
+        follow_up_prompted: runtime.primary_thread.follow_up_prompted,
+        updated_at: runtime.primary_thread.thread.updated_at,
+    }
+}
+
+fn host_session_from_codex_state(state: &CodexState, updated_at: i64) -> HostSession {
+    HostSession {
+        host: HostKind::Codex,
+        status: state.status.clone(),
+        heartbeat_at: state.heartbeat_at.clone(),
+        thread_id: state.active_thread_id.clone(),
+        thread_name: state.active_thread_name.clone(),
+        project_path: state.active_project_path.clone(),
+        last_message_role: state.last_message_role.clone(),
+        last_message_text: state.last_message_text.clone(),
+        process_running: state.process_running,
+        source: state.source.clone(),
+        confidence: state.confidence.clone(),
+        token_total: 0,
+        token_input: 0,
+        token_output: 0,
+        token_reasoning: 0,
+        auto_resume_enabled: state.auto_resume_enabled,
+        follow_up_prompted: false,
+        updated_at,
+    }
+}
+
+fn apply_legacy_codex_fields_from_hosts(project: &mut ProjectSnapshot) {
+    let Some(primary) = project
+        .hosts
+        .iter()
+        .find(|session| matches!(session.host, HostKind::Codex))
+        .or_else(|| project.hosts.first())
+    else {
+        return;
+    };
+
+    project.codex_status = primary.status.clone();
+    project.codex_heartbeat_at = primary.heartbeat_at.clone();
+    project.codex_thread_id = primary.thread_id.clone();
+    project.codex_thread_name = primary.thread_name.clone();
+    if project.last_message_role.is_empty() {
+        project.last_message_role = primary.last_message_role.clone();
+    }
+    if project.last_message_text.is_empty() {
+        project.last_message_text = primary.last_message_text.clone();
+    }
+    if project.token_total == 0 {
+        project.token_total = primary.token_total;
+        project.token_input = primary.token_input;
+        project.token_output = primary.token_output;
+        project.token_reasoning = primary.token_reasoning;
+    }
+}
+
+fn apply_runtime_host_compatibility(state: &mut RuntimeState, now: i64) {
+    if state.hosts.is_empty() {
+        state.hosts.push(host_session_from_codex_state(&state.codex, now));
+    }
+
+    if state.active_host.is_none() {
+        state.active_host = Some(HostKind::Codex);
+    }
+
+    for project in &mut state.projects {
+        apply_legacy_codex_fields_from_hosts(project);
     }
 }
 
@@ -2137,6 +2277,9 @@ fn collect_runtime_state() -> RuntimeState {
                     auto_resume_enabled: false,
                     monitored_project_name: String::new(),
                 },
+                active_host: None,
+                other_host_summary: String::new(),
+                hosts: Vec::new(),
                 projects: Vec::new(),
                 groups: Vec::new(),
                 summary: Summary {
@@ -2338,8 +2481,7 @@ fn collect_runtime_state() -> RuntimeState {
         .as_ref()
         .and_then(|project| find_auto_resume_project(&projects, &project.path));
 
-    RuntimeState {
-        codex: CodexState {
+    let codex_state = CodexState {
             status: codex_status,
             heartbeat_at: fmt_relative_age(latest_log_ts),
             active_thread_id: latest_thread
@@ -2365,13 +2507,22 @@ fn collect_runtime_state() -> RuntimeState {
             monitored_project_name: auto_resume_project
                 .map(|project| project.name.clone())
                 .unwrap_or_default(),
-        },
+        };
+    let hosts = vec![host_session_from_codex_state(&codex_state, now)];
+
+    let mut runtime = RuntimeState {
+        codex: codex_state,
+        active_host: Some(HostKind::Codex),
+        other_host_summary: String::new(),
+        hosts,
         projects,
         groups,
         summary,
         spotlight_project: spotlight,
         updated_at: fmt_relative_age(now),
-    }
+    };
+    apply_runtime_host_compatibility(&mut runtime, now);
+    runtime
 }
 
 fn signature_for(state: &RuntimeState) -> RuntimeSignature {
@@ -3004,6 +3155,26 @@ mod tests {
     use super::*;
 
     fn sample_project(path: &str) -> ProjectSnapshot {
+        let primary_host = HostSession {
+            host: HostKind::Codex,
+            status: CodexStatus::Running,
+            heartbeat_at: "3 秒前".into(),
+            thread_id: "thread-1".into(),
+            thread_name: "测试线程".into(),
+            project_path: path.into(),
+            last_message_role: "assistant".into(),
+            last_message_text: "继续推进中".into(),
+            process_running: true,
+            source: "test".into(),
+            confidence: "high".into(),
+            token_total: 5_300_000,
+            token_input: 120_000,
+            token_output: 26_800,
+            token_reasoning: 9_500,
+            auto_resume_enabled: true,
+            follow_up_prompted: false,
+            updated_at: unix_now(),
+        };
         ProjectSnapshot {
             name: "erp-finance".into(),
             path: path.into(),
@@ -3019,6 +3190,9 @@ mod tests {
             current_mode: "execute".into(),
             last_sync_at: "5 秒前".into(),
             sync_source: "test".into(),
+            active_host: Some(HostKind::Codex),
+            other_host_summary: String::new(),
+            hosts: vec![primary_host.clone()],
             is_blocked: false,
             is_active_by_codex: true,
             is_open_in_ide: true,

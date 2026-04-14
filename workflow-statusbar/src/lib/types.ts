@@ -1,5 +1,27 @@
 export type CodexStatus = "running" | "waiting_input" | "stalled" | "idle" | "offline";
 export type WorkflowStage = "idle" | "bootstrap" | "requirement" | "execution" | "done" | "unknown";
+export type HostKind = "codex" | "claude";
+
+export type HostSession = {
+  host: HostKind;
+  status: CodexStatus;
+  heartbeat_at: string;
+  thread_id: string;
+  thread_name: string;
+  project_path: string;
+  last_message_role: string;
+  last_message_text: string;
+  process_running: boolean;
+  source: string;
+  confidence: string;
+  token_total: number;
+  token_input: number;
+  token_output: number;
+  token_reasoning: number;
+  auto_resume_enabled: boolean;
+  follow_up_prompted: boolean;
+  updated_at: number;
+};
 
 export type CodexState = {
   status: CodexStatus;
@@ -32,6 +54,9 @@ export type ProjectSnapshot = {
   current_mode: string;
   last_sync_at: string;
   sync_source: string;
+  active_host?: HostKind | null;
+  other_host_summary?: string;
+  hosts?: HostSession[];
   is_blocked: boolean;
   is_active_by_codex: boolean;
   is_open_in_ide: boolean;
@@ -67,6 +92,9 @@ export type Summary = {
 
 export type RuntimeState = {
   codex: CodexState;
+  active_host?: HostKind | null;
+  other_host_summary?: string;
+  hosts?: HostSession[];
   projects: ProjectSnapshot[];
   groups: ProjectGroup[];
   summary: Summary;
