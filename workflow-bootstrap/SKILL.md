@@ -7,6 +7,8 @@ description: 当需要给一个新仓库或旧仓库补齐 workflow + memory 协
 
 初始化一个仓库的最小 workflow + memory 底座，让后续 `workflow-requirement` 和 `workflow-execution` 有稳定的目录和配置可用。
 
+当前版本的 `wf-init` 默认自动扫描仓库状态，不要求用户先说明是新项目还是老项目。对老项目会自动生成画像、识别旧底座资产、产出迁移建议，并尽量以保守方式兼容旧目录。
+
 ## 什么时候用
 
 在以下场景使用：
@@ -15,6 +17,7 @@ description: 当需要给一个新仓库或旧仓库补齐 workflow + memory 协
 2. 老仓库需要补齐 `.ai/` 目标目录和最小记忆结构，并自动迁移历史记忆目录
 3. 需要自动生成 `docs/workflow/PROJECT_CONTEXT.md`、`docs/workflow/开发协作约定.md`、宿主补充文件和 `.ai/runtime/profile/project-profile.yml`
 4. 需要在底座初始化时同步生成 `.ai/runtime/project-state.json` 骨架，作为后续状态同步的单一事实源
+5. 需要自动识别老项目状态并生成 `docs/workflow/legacy-analysis.md` 与 `.ai/runtime/cache/legacy-scan.json`
 
 ## 推荐提示词
 
@@ -33,6 +36,7 @@ description: 当需要给一个新仓库或旧仓库补齐 workflow + memory 协
 3. 不改业务代码，不创建需求包，不进入 execution
 4. 允许在旧仓库中建立 `.ai/` 骨架并保持旧目录兼容
 5. 会自动扫描仓库并填充可用初稿，但不替代项目特有规则判断
+6. `wf-init` 默认自动执行“状态识别 -> 老项目画像 -> 兼容迁移/补齐 -> 生成底座”
 
 ## 默认生成
 
@@ -64,6 +68,10 @@ description: 当需要给一个新仓库或旧仓库补齐 workflow + memory 协
 7. `docs/workflow/requirements/`
    - `需求池.md`（若缺失）
    - `任务看板.md`（若缺失）
+8. `docs/workflow/`
+   - `legacy-analysis.md`（自动刷新）
+9. `.ai/runtime/cache/`
+   - `legacy-scan.json`（自动刷新）
 
 ## 自动迁移与自检
 
@@ -74,6 +82,7 @@ bootstrap 默认还会尝试：
 3. 重写 Markdown 中的旧路径引用
 4. 对初始化结果执行最小自检并输出 warning/info
 5. 初始化 `archived/` 目录，供后续任务记忆归档使用
+6. 自动识别当前仓库属于 `fresh / legacy_bootstrap / current / partial_current / mixed_legacy_current`
 
 ## 自动识别内容
 
@@ -88,6 +97,9 @@ bootstrap 会自动尝试识别：
 7. 代码主目录
 8. 模块目录
 9. 常见分层提示（如 `controller/service/mapper`）
+10. 老项目业务域初稿
+11. 关键接口链路初稿
+12. 旧底座资产与迁移建议
 
 并把这些结果写入：
 
@@ -95,6 +107,8 @@ bootstrap 会自动尝试识别：
 2. `docs/workflow/开发协作约定.md`
 3. `.ai/runtime/profile/project-profile.yml`
 4. `.ai/runtime/project-state.json`
+5. `docs/workflow/legacy-analysis.md`
+6. `.ai/runtime/cache/legacy-scan.json`
 
 ## 可选参数
 
@@ -131,6 +145,7 @@ python3 <skill-dir>/scripts/init_workflow_bootstrap.py --host codex --host claud
 4. 当前 profile 落点
 5. 迁移与自检结果
 6. 后续如何接 `workflow-requirement` / `workflow-execution`
+7. 自动识别到的 workflow 状态、业务域数量、关键接口链路数量
 
 ## 健康检查入口
 

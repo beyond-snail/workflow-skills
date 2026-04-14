@@ -2,10 +2,11 @@
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import json
 import os
 import shutil
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 
@@ -220,6 +221,36 @@ class Detection:
     code_hints: list[str]
 
 
+@dataclass
+class WorkflowState:
+    state: str
+    current_score: int
+    legacy_score: int
+    current_signals: list[str]
+    legacy_signals: list[str]
+    recommended_actions: list[str]
+
+
+@dataclass
+class BusinessDomain:
+    name: str
+    summary: str
+    confidence: str
+    evidence: list[str]
+
+
+@dataclass
+class ApiChain:
+    domain: str
+    endpoint: str
+    controller: str
+    service: str
+    mapper_or_table: str
+    downstream: str
+    confidence: str
+    tags: list[str]
+
+
 def detect_language_and_build(root: Path) -> tuple[str, str]:
     if (root / "pom.xml").exists():
         return "java", "maven"
@@ -348,7 +379,290 @@ def collect_detection(root: Path) -> Detection:
     )
 
 
-def render_project_context(d: Detection) -> str:
+def detect_workflow_state(root: Path) -> WorkflowState:
+    current_markers = {
+        "docs/workflow/PROJECT_CONTEXT.md": 3,
+        "docs/workflow/开发协作约定.md": 2,
+        "docs/workflow/requirements/需求池.md": 2,
+        "docs/workflow/requirements/任务看板.md": 2,
+        ".ai/runtime/project-state.json": 3,
+        ".ai/runtime/profile/project-profile.yml": 2,
+        ".ai/memory/tasks/index.md": 2,
+    }
+    legacy_markers = {
+        "PROJECT_CONTEXT.md": 2,
+        "BUSINESS_LOGIC.md": 1,
+        "API_REFERENCE.md": 1,
+        "ARCHITECTURE.md": 1,
+        "doc/开发协作约定.md": 2,
+        "doc/requirements/需求池.md": 3,
+        "doc/requirements/任务看板.md": 3,
+        "doc/PRD": 2,
+    }
+    current_signals = [path for path in current_markers if (root / path).exists()]
+    legacy_signals = [path for path in legacy_markers if (root / path).exists()]
+    current_score = sum(current_markers[path] for path in current_signals)
+    legacy_score = sum(legacy_markers[path] for path in legacy_signals)
+
+    if current_score == 0 and legacy_score == 0:
+        state = "fresh"
+    elif current_score >= 9 and legacy_score >= 5:
+        state = "mixed_legacy_current"
+    elif current_score >= 9:
+        state = "current"
+    elif legacy_score >= 5:
+        state = "legacy_bootstrap"
+    else:
+        state = "partial_current"
+
+    recommendations = {
+        "fresh": ["初始化标准 workflow 底座", "生成最小项目上下文"],
+        "legacy_bootstrap": ["建立 docs/workflow 新主源", "迁移或索引旧治理资料", "生成老项目画像报告"],
+        "current": ["补齐缺失文件", "刷新老项目画像与缓存"],
+        "partial_current": ["补齐当前底座缺口", "刷新项目上下文与状态缓存"],
+        "mixed_legacy_current": ["保留旧目录兼容", "以 docs/workflow 为主源", "输出迁移收口建议与冲突清单"],
+    }
+    return WorkflowState(
+        state=state,
+        current_score=current_score,
+        legacy_score=legacy_score,
+        current_signals=current_signals,
+        legacy_signals=legacy_signals,
+        recommended_actions=recommendations[state],
+    )
+
+
+def iter_java_files(root: Path, suffix: str) -> list[Path]:
+    base = root / "src/main/java"
+    if base.exists():
+        return sorted(base.rglob(f"*{suffix}"))
+    files: list[Path] = []
+    for module in root.iterdir():
+        if not module.is_dir() or module.name.startswith("."):
+            continue
+        nested = module / "src/main/java"
+        if nested.exists():
+            files.extend(sorted(nested.rglob(f"*{suffix}")))
+    return files
+
+
+def summarize_domain(raw_name: str) -> str:
+    lowered = raw_name.lower()
+    if "salescost" in lowered or "cost" in lowered:
+        return "成本/报表相关能力"
+    if "settlement" in lowered:
+        return "月结/结算相关能力"
+    if "invoice" in lowered or "bill" in lowered or "kp" in lowered:
+        return "发票/票据相关能力"
+    if "trade" in lowered or "order" in lowered or "oractb" in lowered or "ortctb" in lowered:
+        return "订单/交易财务相关能力"
+    if "risk" in lowered or "exception" in lowered:
+        return "风险/异常处理能力"
+    if "org" in lowered or "account" in lowered or "config" in lowered:
+        return "组织/账套/配置能力"
+    return "待人工补充的业务能力"
+
+
+def infer_business_domains(root: Path) -> list[BusinessDomain]:
+    controller_files = iter_java_files(root, "Controller.java")
+    buckets: dict[str, list[str]] = {}
+    for path in controller_files:
+        stem = path.stem.removesuffix("Controller")
+        key = stem[:1].lower() + stem[1:] if stem else path.stem
+        buckets.setdefault(key, []).append(str(path.relative_to(root)))
+    domains: list[BusinessDomain] = []
+    for key, evidence in sorted(buckets.items(), key=lambda item: (-len(item[1]), item[0]))[:8]:
+        confidence = "high" if len(evidence) >= 2 else "medium"
+        domains.append(
+            BusinessDomain(
+                name=key,
+                summary=summarize_domain(key),
+                confidence=confidence,
+                evidence=evidence[:4],
+            )
+        )
+    if not domains:
+        domains.append(
+            BusinessDomain(
+                name="project-overview",
+                summary="未识别到明显业务域，建议结合现有文档补充。",
+                confidence="low",
+                evidence=[],
+            )
+        )
+    return domains
+
+
+def extract_request_mapping(text: str) -> str:
+    for marker in ('@RequestMapping("', '@RequestMapping("/', "@RequestMapping(value = \""):
+        if marker in text:
+            fragment = text.split(marker, 1)[1]
+            return "/" + fragment.split('"', 1)[0].lstrip("/")
+    return ""
+
+
+def extract_endpoint_lines(text: str) -> list[tuple[str, str]]:
+    endpoints: list[tuple[str, str]] = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        for marker in ("@GetMapping(", "@PostMapping(", "@PutMapping(", "@DeleteMapping("):
+            if marker in stripped:
+                value = stripped.split(marker, 1)[1].split(")", 1)[0].strip().strip('"')
+                endpoints.append((marker[1:-1], value if value else "/"))
+    return endpoints
+
+
+def infer_api_chains(root: Path, domains: list[BusinessDomain]) -> list[ApiChain]:
+    domain_names = {domain.name.lower(): domain.name for domain in domains}
+    chains: list[ApiChain] = []
+    for path in iter_java_files(root, "Controller.java"):
+        text = path.read_text(encoding="utf-8", errors="ignore")
+        request_root = extract_request_mapping(text)
+        service_name = ""
+        mapper_name = ""
+        downstream = ""
+        for line in text.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("private final ") and stripped.endswith("Service;"):
+                service_name = stripped.split()[-1].rstrip(";")
+                break
+        service_hint = path.stem.removesuffix("Controller")
+        if not service_name:
+            service_name = service_hint[:1].lower() + service_hint[1:] + "Service" if service_hint else ""
+        service_impl = next((item for item in iter_java_files(root, "ServiceImpl.java") if service_hint in item.stem), None)
+        if service_impl:
+            service_text = service_impl.read_text(encoding="utf-8", errors="ignore")
+            for line in service_text.splitlines():
+                stripped = line.strip()
+                if stripped.startswith("private final ") and stripped.endswith("Mapper;"):
+                    mapper_name = stripped.split()[-1].rstrip(";")
+                    break
+                if "@FeignClient" in stripped or "FeignClient" in stripped:
+                    downstream = "feign-client"
+        matched_domain = next((value for key, value in domain_names.items() if key in service_hint.lower()), service_hint or "unknown")
+        for method, endpoint in extract_endpoint_lines(text)[:4]:
+            tags = []
+            lowered = endpoint.lower()
+            if any(item in lowered for item in ("export", "download")):
+                tags.append("export")
+            if any(item in lowered for item in ("add", "create", "save", "edit", "finish", "verify")):
+                tags.append("write")
+            if any(item in lowered for item in ("page", "list", "get")):
+                tags.append("query")
+            if any(item in lowered for item in ("batch", "sync")):
+                tags.append("batch")
+            chains.append(
+                ApiChain(
+                    domain=matched_domain,
+                    endpoint=f"{method} {request_root}{endpoint}",
+                    controller=str(path.relative_to(root)),
+                    service=service_name or "(unknown)",
+                    mapper_or_table=mapper_name or "(unknown)",
+                    downstream=downstream or "(none)",
+                    confidence="medium" if mapper_name or service_name else "low",
+                    tags=tags or ["general"],
+                )
+            )
+    return chains[:20]
+
+
+def collect_legacy_assets(root: Path) -> dict[str, list[str]]:
+    groups = {
+        "root_docs": ["PROJECT_CONTEXT.md", "BUSINESS_LOGIC.md", "API_REFERENCE.md", "ARCHITECTURE.md"],
+        "legacy_governance": ["doc/开发协作约定.md", "doc/requirements/需求池.md", "doc/requirements/任务看板.md"],
+        "legacy_prd": ["doc/PRD"],
+    }
+    result: dict[str, list[str]] = {}
+    for key, candidates in groups.items():
+        found = [candidate for candidate in candidates if (root / candidate).exists()]
+        if found:
+            result[key] = found
+    return result
+
+
+def build_legacy_scan_payload(root: Path, detection: Detection, workflow_state: WorkflowState) -> dict[str, object]:
+    domains = infer_business_domains(root)
+    chains = infer_api_chains(root, domains)
+    risks: list[str] = []
+    if workflow_state.state in {"legacy_bootstrap", "mixed_legacy_current"}:
+        risks.append("检测到旧版 workflow 资产，需兼容迁移并避免覆盖。")
+    if not detection.compile_cmd:
+        risks.append("未自动识别到默认编译命令。")
+    if not detection.test_cmd:
+        risks.append("未自动识别到默认测试命令。")
+    return {
+        "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "workflow_state": asdict(workflow_state),
+        "detection": asdict(detection),
+        "legacy_assets": collect_legacy_assets(root),
+        "business_domains": [asdict(item) for item in domains],
+        "key_api_chains": [asdict(item) for item in chains],
+        "risks": risks,
+        "manual_confirmations": [
+            "低置信度业务域需后续需求执行时持续修正。",
+            "旧文档与新底座并存时，以 docs/workflow 为后续主源。"
+        ],
+    }
+
+
+def render_legacy_analysis(payload: dict[str, object]) -> str:
+    state = payload["workflow_state"]
+    detection = payload["detection"]
+    domains = payload["business_domains"]
+    chains = payload["key_api_chains"]
+    legacy_assets = payload["legacy_assets"]
+    risks = payload["risks"]
+    lines = [
+        "# Legacy Analysis",
+        "",
+        "## 1. 接入结论",
+        f"- workflow 状态：`{state['state']}`",
+        f"- 当前底座分数：`{state['current_score']}`",
+        f"- 旧底座分数：`{state['legacy_score']}`",
+        f"- 建议动作：{'；'.join(state['recommended_actions'])}",
+        "",
+        "## 2. 仓库画像",
+        f"- 项目名称：`{detection['project_name']}`",
+        f"- 语言 / 构建：`{detection['language'] or 'unknown'}` / `{detection['build_tool'] or 'unknown'}`",
+        f"- 代码主目录：{', '.join(f'`{item}`' for item in detection['source_dirs']) or '待补充'}",
+        f"- 模块目录：{', '.join(f'`{item}`' for item in detection['module_dirs']) or '待补充'}",
+        f"- 默认编译命令：`{detection['compile_cmd'] or '待补充'}`",
+        f"- 默认测试命令：`{detection['test_cmd'] or '待补充'}`",
+        "",
+        "## 3. 治理画像",
+    ]
+    if legacy_assets:
+        for key, items in legacy_assets.items():
+            lines.append(f"- {key}：{', '.join(f'`{item}`' for item in items)}")
+    else:
+        lines.append("- 未检测到明显旧版治理资产。")
+    lines.extend(["", "## 4. 业务画像"])
+    for domain in domains:
+        lines.append(f"- `{domain['name']}`：{domain['summary']}（confidence=`{domain['confidence']}`）")
+        if domain["evidence"]:
+            lines.append(f"  证据：{', '.join(f'`{item}`' for item in domain['evidence'])}")
+    lines.extend(["", "## 5. 关键接口链路画像"])
+    if chains:
+        for chain in chains[:12]:
+            lines.append(
+                f"- `{chain['endpoint']}` -> `{chain['service']}` -> `{chain['mapper_or_table']}` / `{chain['downstream']}` "
+                f"[domain=`{chain['domain']}` tags=`{','.join(chain['tags'])}` confidence=`{chain['confidence']}`]"
+            )
+    else:
+        lines.append("- 未自动识别到关键接口链路。")
+    lines.extend(["", "## 6. 风险与待确认项"])
+    if risks:
+        for risk in risks:
+            lines.append(f"- {risk}")
+    else:
+        lines.append("- 当前未发现高风险项。")
+    for item in payload["manual_confirmations"]:
+        lines.append(f"- 待确认：{item}")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def render_project_context(d: Detection, workflow_state: WorkflowState | None = None, payload: dict[str, object] | None = None) -> str:
     tech = []
     if d.language == "java":
         tech.append("Java")
@@ -368,6 +682,16 @@ def render_project_context(d: Detection) -> str:
     source_line = "、".join(f"`{item}`" for item in d.source_dirs) if d.source_dirs else "待补充"
     module_line = "、".join(f"`{item}`" for item in d.module_dirs) if d.module_dirs else "待补充"
     hint_line = "、".join(f"`{item}`" for item in d.code_hints) if d.code_hints else "待补充"
+    workflow_line = workflow_state.state if workflow_state else "unknown"
+    domain_line = "待补充"
+    chain_line = "待补充"
+    if payload:
+        domains = payload.get("business_domains", [])
+        chains = payload.get("key_api_chains", [])
+        if domains:
+            domain_line = "、".join(f"`{item['name']}`" for item in domains[:6])
+        if chains:
+            chain_line = "、".join(f"`{item['endpoint']}`" for item in chains[:5])
     return f"""# PROJECT_CONTEXT
 
 ## 1. 作用
@@ -377,6 +701,7 @@ def render_project_context(d: Detection) -> str:
 ## 2. 当前仓库事实
 - 项目名称：`{d.project_name}`
 - 主要技术栈：`{stack_line}`
+- workflow 当前状态：`{workflow_line}`
 - 正式需求治理目录：`{d.docs_root}/requirements/`
 - PRD 目录：`{d.prd_directory}`
 - 当前任务记忆目录：`.ai/memory/tasks/`
@@ -387,6 +712,8 @@ def render_project_context(d: Detection) -> str:
 - 代码主目录：{source_line}
 - 模块目录：{module_line}
 - 常见分层提示：{hint_line}
+- 主要业务域：{domain_line}
+- 关键接口链路索引：{chain_line}
 
 ## 4. 当前协作事实
 - 协作规则入口：`AGENTS.md`
@@ -394,6 +721,7 @@ def render_project_context(d: Detection) -> str:
 - 宿主补充目录：`.ai/governance/`
 - workflow runtime profile：`.ai/runtime/profile/project-profile.yml`
 - workflow 状态骨架：`.ai/runtime/project-state.json`
+- 老项目详细画像：`docs/workflow/legacy-analysis.md`
 
 ## 5. 默认约束
 - 正式治理材料长期保留在 `docs/workflow/requirements/`
@@ -484,6 +812,20 @@ def render_project_state(root: Path, d: Detection) -> str:
         },
     }
     return json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
+
+
+def render_project_state_with_scan(root: Path, d: Detection, workflow_state: WorkflowState, payload: dict[str, object]) -> str:
+    base = json.loads(render_project_state(root, d))
+    base["workflow"]["health"] = "已扫描"
+    base["workflow"]["risk"] = "中" if payload["risks"] else "低"
+    base["sync"]["status"] = workflow_state.state
+    base["sync"]["lastSyncAt"] = payload["generated_at"]
+    base["evidence"] = [
+        {"type": "business_domain", "name": item["name"], "confidence": item["confidence"]}
+        for item in payload["business_domains"]
+    ]
+    base["risks"] = [{"level": "warning", "summary": item} for item in payload["risks"]]
+    return json.dumps(base, ensure_ascii=False, indent=2) + "\n"
 
 
 def render_governance(d: Detection) -> str:
@@ -714,13 +1056,20 @@ def main() -> int:
     root = Path(args.workspace_root).resolve()
     hosts = args.host or ["codex"]
     detection = collect_detection(root)
+    workflow_state = detect_workflow_state(root)
+    legacy_scan = build_legacy_scan_payload(root, detection, workflow_state)
 
     actions: list[tuple[str, str]] = []
     actions.append(("AGENTS.md", write_file(root / "AGENTS.md", ROOT_AGENTS, args.dry_run)))
     actions.append(
         (
             "docs/workflow/PROJECT_CONTEXT.md",
-            write_file(root / "docs/workflow/PROJECT_CONTEXT.md", render_project_context(detection), args.dry_run, force=args.force_context),
+            write_file(
+                root / "docs/workflow/PROJECT_CONTEXT.md",
+                render_project_context(detection, workflow_state, legacy_scan),
+                args.dry_run,
+                force=args.force_context or workflow_state.state in {"legacy_bootstrap", "mixed_legacy_current", "partial_current"},
+            ),
         )
     )
     actions.append(
@@ -752,12 +1101,16 @@ def main() -> int:
         ".ai/memory/tasks/_template/verify.md": TASK_VERIFY,
         ".ai/memory/knowledge/README.md": KNOWLEDGE_README,
         ".ai/runtime/profile/project-profile.yml": render_profile(detection),
-        ".ai/runtime/project-state.json": render_project_state(root, detection),
+        ".ai/runtime/project-state.json": render_project_state_with_scan(root, detection, workflow_state, legacy_scan),
+        ".ai/runtime/cache/legacy-scan.json": json.dumps(legacy_scan, ensure_ascii=False, indent=2) + "\n",
+        "docs/workflow/legacy-analysis.md": render_legacy_analysis(legacy_scan),
         f"{detection.docs_root}/requirements/需求池.md": REQUIREMENTS_POOL,
         f"{detection.docs_root}/requirements/任务看板.md": TASK_BOARD,
     }
     for rel, content in files.items():
         force = args.force_profile if rel.endswith("project-profile.yml") else False
+        if rel in {".ai/runtime/project-state.json", ".ai/runtime/cache/legacy-scan.json", "docs/workflow/legacy-analysis.md"}:
+            force = True
         writer = write_executable_file if rel.startswith(".ai/bin/") else write_file
         actions.append((rel, writer(root / rel, content, args.dry_run, force=force)))
 
@@ -781,6 +1134,12 @@ def main() -> int:
     print(f"- detected_source_dirs: {', '.join(detection.source_dirs) or '(none)'}")
     print(f"- detected_module_dirs: {', '.join(detection.module_dirs) or '(none)'}")
     print(f"- detected_code_hints: {', '.join(detection.code_hints) or '(none)'}")
+    print(f"- workflow_state: {workflow_state.state}")
+    print(f"- workflow_current_score: {workflow_state.current_score}")
+    print(f"- workflow_legacy_score: {workflow_state.legacy_score}")
+    print(f"- detected_business_domains: {len(legacy_scan['business_domains'])}")
+    print(f"- detected_key_api_chains: {len(legacy_scan['key_api_chains'])}")
+    print(f"- recommended_actions: {'; '.join(workflow_state.recommended_actions)}")
     for rel, status in actions:
         print(f"- {status}: {rel}")
     for info in infos:

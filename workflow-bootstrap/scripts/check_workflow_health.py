@@ -11,10 +11,13 @@ from pathlib import Path
 REQUIRED_FILES = (
     "AGENTS.md",
     "docs/workflow/PROJECT_CONTEXT.md",
+    "docs/workflow/legacy-analysis.md",
     "docs/workflow/开发协作约定.md",
     ".ai/memory/tasks/index.md",
     ".ai/memory/knowledge/README.md",
     ".ai/runtime/profile/project-profile.yml",
+    ".ai/runtime/project-state.json",
+    ".ai/runtime/cache/legacy-scan.json",
     "docs/workflow/requirements/需求池.md",
     "docs/workflow/requirements/任务看板.md",
 )
