@@ -34,25 +34,25 @@
 
 - 标题：三阶段总览
 - 图：`bootstrap -> requirement -> execution` 的总流程图
-- 讲法：先把闭环讲清楚，再分别展开每一段
+- 讲法：先把闭环讲清楚，再补一句现在这条链路已经覆盖新项目和老项目；老项目会先自动画像，再进入后续治理
 
 ### 第 4 页：workflow-bootstrap
 
 - 标题：仓库底座初始化解决什么问题
 - 图：三 skill 对照图里的 bootstrap 区块
-- 讲法：它解决仓库有没有统一事实、目录、规则和 profile 的问题
+- 讲法：它解决仓库有没有统一事实、目录、规则和 profile 的问题；现在对老项目还会自动扫描旧底座、业务域和接口链路
 
 ### 第 5 页：workflow-bootstrap 的产物
 
 - 标题：bootstrap 会生成什么
 - 图：可视化草图里的总流程图输出卡片，或单独做目录树图
-- 讲法：讲 `AGENTS.md`、`PROJECT_CONTEXT.md`、`.ai/`、`project-profile.yml`
+- 讲法：讲 `AGENTS.md`、`docs/workflow/PROJECT_CONTEXT.md`、`.ai/`、`project-profile.yml`、`project-state.json`，以及老项目额外产出的 `legacy-analysis.md` 和 `legacy-scan.json`
 
 ### 第 6 页：workflow-requirement
 
 - 标题：需求治理解决什么问题
 - 图：三 skill 对照图里的 requirement 区块
-- 讲法：它把 PRD 变成需求池、任务看板和可交接材料
+- 讲法：它把 PRD 变成需求池、任务看板和可交接材料；如果是老项目，还会自动带上命中的 legacy context
 
 ### 第 7 页：workflow-requirement 的边界
 
@@ -64,7 +64,7 @@
 
 - 标题：执行收口解决什么问题
 - 图：三 skill 对照图里的 execution 区块
-- 讲法：它负责在显式开工后，把实现、验证、证据、提交和闸门同步收口
+- 讲法：它负责在显式开工后，把实现、验证、证据、提交和闸门同步收口，同时继续复用 legacy context 并回写统一状态
 
 ### 第 9 页：workflow-execution 的边界
 
@@ -76,13 +76,13 @@
 
 - 标题：三者如何组成闭环
 - 图：可视化草图里的三 skill 对照图，或总流程图完整版本
-- 讲法：bootstrap 提供事实，requirement 提供需求事实，execution 提供执行事实
+- 讲法：bootstrap 提供仓库事实和老项目画像，requirement 提供需求事实，execution 提供执行事实，三者共同维护 `project-state.json`
 
 ### 第 11 页：常见误用
 
 - 标题：最容易犯的 4 类错误
 - 图：误用对照图
-- 讲法：跳过 bootstrap、跳过审核门、无显式开工、只改代码不留痕
+- 讲法：跳过 bootstrap、老项目不先跑 `wf-init`、跳过审核门、无显式开工、只改代码不留痕
 
 ### 第 12 页：操作步骤总览
 
@@ -120,11 +120,11 @@
 - 第 1 页：今天讲的是三套 skill 的设计逻辑和用法
 - 第 2 页：三段式是为了解决三个不同层次的问题
 - 第 3 页：三个 skill 组成固定顺序的闭环
-- 第 4 页：bootstrap 解决仓库底座问题
-- 第 5 页：bootstrap 交付的是事实和规则
-- 第 6 页：requirement 解决需求治理问题
+- 第 4 页：bootstrap 解决仓库底座和老项目接入问题
+- 第 5 页：bootstrap 交付的是事实、规则和画像缓存
+- 第 6 页：requirement 解决需求治理并复用 legacy context
 - 第 7 页：requirement 必须停在审核门
-- 第 8 页：execution 解决执行收口问题
+- 第 8 页：execution 解决执行收口并同步统一状态
 - 第 9 页：execution 必须显式开工
 - 第 10 页：三者合起来形成完整闭环
 - 第 11 页：误用本质是阶段边界错

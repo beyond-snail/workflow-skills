@@ -41,8 +41,10 @@ AI 协作开发需要把“初始化、需求治理、执行收口”拆开，�
 要点：
 
 - `workflow-bootstrap` 先建立仓库底座
+- `workflow-bootstrap` 现在同时承担老项目自动扫描与画像
 - `workflow-requirement` 再把 PRD 变成可交接材料
 - `workflow-execution` 最后在审核通过后完成收口
+- 三个阶段共同维护 `project-state.json` 这一份统一状态源
 
 建议配图：
 
@@ -58,8 +60,11 @@ AI 协作开发需要把“初始化、需求治理、执行收口”拆开，�
 要点：
 
 - 自动识别语言、构建工具、测试命令、源码目录、PRD 目录
-- 生成 `AGENTS.md`、`PROJECT_CONTEXT.md`
+- 自动识别当前是新项目还是老项目
+- 生成 `AGENTS.md`、`docs/workflow/PROJECT_CONTEXT.md`
 - 创建 `.ai/governance/`、`.ai/memory/`、`.ai/runtime/profile/`
+- 生成 `.ai/runtime/project-state.json`
+- 老项目会额外产出 `legacy-analysis.md` 和 `legacy-scan.json`
 - 提供统一命令入口和健康检查
 
 建议配图：
@@ -76,10 +81,12 @@ bootstrap 的输出不是业务代码，而是协作规则和项目事实。
 要点：
 
 - `AGENTS.md`：协作契约
-- `PROJECT_CONTEXT.md`：项目事实
+- `docs/workflow/PROJECT_CONTEXT.md`：项目事实
 - `project-profile.yml`：构建和测试配置
 - `.ai/memory/`：任务和知识落点
-- `doc/requirements/`：需求治理骨架
+- `docs/workflow/requirements/`：需求治理骨架
+- `project-state.json`：统一状态事实源
+- 老项目画像：`legacy-analysis.md` + `legacy-scan.json`
 
 建议配图：
 
@@ -97,7 +104,9 @@ bootstrap 的输出不是业务代码，而是协作规则和项目事实。
 - 将 PRD 转成需求池
 - 将需求池转成任务看板
 - 生成 dated 需求包
+- 命中并复用老项目业务域、接口链路和历史文档上下文
 - 初始化 task memory
+- 回写 `project-state.json`
 - 做交接检查，但不进入开发
 
 建议配图：
@@ -132,9 +141,10 @@ requirement 不是执行入口，而是交接门。
 
 - 显式开工后才开始
 - 自动选择任务、更新状态
-- 读取 memory 和 knowledge
+- 读取 memory、knowledge 和 legacy context
 - 跑构建与测试
 - 写证据、写 verify、回写 issue / decision / knowledge
+- 回写 `project-state.json`
 - 提交、推送、跑 release gate
 
 建议配图：
@@ -167,7 +177,7 @@ execution 是收口链路，不是单纯的代码修改器。
 
 要点：
 
-- `bootstrap` 提供仓库事实
+- `bootstrap` 提供仓库事实和老项目画像
 - `requirement` 提供需求事实
 - `execution` 提供执行事实
 - 三者共同维护 memory、证据和状态
@@ -186,6 +196,7 @@ execution 是收口链路，不是单纯的代码修改器。
 要点：
 
 - 跳过 bootstrap
+- 老项目不跑 `wf-init` 就直接治理
 - requirement 直接进 execution
 - 忽略 memory 和 evidence
 - 把审核门当形式
@@ -222,10 +233,10 @@ execution 是收口链路，不是单纯的代码修改器。
 
 要点：
 
-- `workflow-bootstrap` 先建底座，再看 health check
-- `workflow-requirement` 先冻结 PRD，再生成需求包并停在审核门
+- `workflow-bootstrap` 先建底座并自动扫描老项目画像，再看 health check
+- `workflow-requirement` 先冻结 PRD，再生成需求包、复用 legacy context，并停在审核门
 - `workflow-execution` 先确认审核通过，再显式开工推进收口
-- 全程要保证 memory、证据和任务状态同步
+- 全程要保证 memory、证据、legacy context 和任务状态同步
 
 建议配图：
 
@@ -242,7 +253,7 @@ execution 是收口链路，不是单纯的代码修改器。
 
 - 可以扩展出 `review`、`qa`、`release`、`archive` 等阶段
 - 可以把脚本里的规则抽成可配置策略
-- 可以把证据沉淀升级成项目知识
+- 可以把证据和 legacy context 沉淀升级成项目知识
 - 可以从单仓库能力扩展到跨仓库协作
 
 建议配图：

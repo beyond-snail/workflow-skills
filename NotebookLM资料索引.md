@@ -8,6 +8,12 @@
 
 `workflow-bootstrap -> workflow-requirement -> workflow-execution`
 
+补充背景：
+
+- `workflow-bootstrap` 已支持老项目自动扫描与画像
+- `workflow-requirement` / `workflow-execution` 会复用老项目画像上下文
+- 三个 skill 会共同维护 `.ai/runtime/project-state.json`
+
 ## 推荐导入顺序
 
 1. [流程总览说明.md](./流程总览说明.md)
@@ -26,6 +32,8 @@
 - `workflow-bootstrap` = 仓库底座初始化
 - `workflow-requirement` = 需求治理
 - `workflow-execution` = 执行收口
+- 老项目也可以通过 `wf-init` 自动接入，不需要先人工分类
+- `legacy-analysis.md` 给人看，`legacy-scan.json` 给后续 skill 复用
 
 ## 生成 PPT 时的建议提示词
 
@@ -36,6 +44,7 @@
 3. 按“背景 -> 三 skill 分析 -> 使用方式 -> 误区”组织内容
 4. 每页只放一个核心观点，避免把脚本原文堆进去
 5. 用中文，偏分析，不要写练习题
+6. 明确讲出老项目自动画像与统一状态源的价值
 
 ## 适合的输出形式
 
@@ -45,6 +54,7 @@
 - 一页流程门槛图
 - 一页误区对照图
 - 一页操作步骤图
+- 一页老项目自动画像与状态源图
 - 一份逐页讲解话术
 - 一页未来扩展方向
 - 三张可视化草图
