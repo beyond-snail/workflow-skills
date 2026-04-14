@@ -44,6 +44,7 @@ enum CodexStatus {
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 enum WorkflowStage {
+    Idle,
     Bootstrap,
     Requirement,
     Execution,
@@ -112,6 +113,7 @@ struct ProjectGroup {
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 struct Summary {
+    idle: usize,
     bootstrap: usize,
     requirement: usize,
     execution: usize,
@@ -590,6 +592,7 @@ fn project_name_from_path(path: &str) -> Option<String> {
 
 fn stage_from_str(input: &str) -> WorkflowStage {
     match input {
+        "idle" => WorkflowStage::Idle,
         "bootstrap" => WorkflowStage::Bootstrap,
         "requirement" => WorkflowStage::Requirement,
         "execution" => WorkflowStage::Execution,
@@ -600,6 +603,7 @@ fn stage_from_str(input: &str) -> WorkflowStage {
 
 fn stage_label(stage: &WorkflowStage) -> String {
     match stage {
+        WorkflowStage::Idle => "已接入".into(),
         WorkflowStage::Bootstrap => "底座".into(),
         WorkflowStage::Requirement => "需求".into(),
         WorkflowStage::Execution => "执行".into(),
@@ -1477,6 +1481,12 @@ fn read_project_snapshot(
     let is_blocked = payload.workflow.current_task_status == "blocked"
         || gate_status.contains("阻塞")
         || risk == "高";
+    let auto_resume_enabled = project_runtime.is_some()
+        && !is_blocked
+        && matches!(
+            stage,
+            WorkflowStage::Bootstrap | WorkflowStage::Requirement | WorkflowStage::Execution
+        );
 
     Some(ProjectSnapshot {
         name,
@@ -1528,7 +1538,7 @@ fn read_project_snapshot(
         token_reasoning: project_runtime
             .map(|runtime| runtime.token_usage.today_reasoning)
             .unwrap_or_default(),
-        auto_resume_enabled: project_runtime.is_some() && !is_blocked,
+        auto_resume_enabled,
         follow_up_prompted: project_runtime
             .map(|runtime| runtime.primary_thread.follow_up_prompted)
             .unwrap_or(false),
@@ -1538,6 +1548,7 @@ fn read_project_snapshot(
 fn build_groups(projects: &[ProjectSnapshot]) -> Vec<ProjectGroup> {
     let specs = [
         ("execution", "执行中"),
+        ("idle", "已接入"),
         ("requirement", "需求中"),
         ("bootstrap", "待初始化"),
         ("blocked", "已阻塞"),
@@ -1551,6 +1562,12 @@ fn build_groups(projects: &[ProjectSnapshot]) -> Vec<ProjectGroup> {
                 "execution" => projects
                     .iter()
                     .filter(|item| matches!(item.workflow_stage, WorkflowStage::Execution) && !item.is_blocked)
+                    .take(MAX_GROUP_ITEMS)
+                    .cloned()
+                    .collect(),
+                "idle" => projects
+                    .iter()
+                    .filter(|item| matches!(item.workflow_stage, WorkflowStage::Idle) && !item.is_blocked)
                     .take(MAX_GROUP_ITEMS)
                     .cloned()
                     .collect(),
@@ -1592,6 +1609,7 @@ fn build_groups(projects: &[ProjectSnapshot]) -> Vec<ProjectGroup> {
 
 fn build_summary(projects: &[ProjectSnapshot]) -> Summary {
     let mut summary = Summary {
+        idle: 0,
         bootstrap: 0,
         requirement: 0,
         execution: 0,
@@ -1605,6 +1623,7 @@ fn build_summary(projects: &[ProjectSnapshot]) -> Summary {
         }
 
         match project.workflow_stage {
+            WorkflowStage::Idle => summary.idle += 1,
             WorkflowStage::Bootstrap => summary.bootstrap += 1,
             WorkflowStage::Requirement => summary.requirement += 1,
             WorkflowStage::Execution => summary.execution += 1,
@@ -1651,6 +1670,7 @@ fn codex_status_key(status: &CodexStatus) -> &'static str {
 
 fn workflow_stage_key(stage: &WorkflowStage) -> &'static str {
     match stage {
+        WorkflowStage::Idle => "idle",
         WorkflowStage::Bootstrap => "bootstrap",
         WorkflowStage::Requirement => "requirement",
         WorkflowStage::Execution => "execution",
@@ -2120,6 +2140,7 @@ fn collect_runtime_state() -> RuntimeState {
                 projects: Vec::new(),
                 groups: Vec::new(),
                 summary: Summary {
+                    idle: 0,
                     bootstrap: 0,
                     requirement: 0,
                     execution: 0,
@@ -3083,6 +3104,18 @@ mod tests {
 
         assert!(matches!(project.workflow_stage, WorkflowStage::Unknown));
         assert!(!project.auto_resume_enabled);
+    }
+
+    #[test]
+    fn idle_stage_is_treated_as_linked_but_not_auto_resumable() {
+        let mut project = sample_project("/tmp/b2c");
+        project.workflow_stage = WorkflowStage::Idle;
+        project.auto_resume_enabled = false;
+
+        assert!(matches!(project.workflow_stage, WorkflowStage::Idle));
+        assert!(!project.auto_resume_enabled);
+        assert_eq!(workflow_stage_key(&project.workflow_stage), "idle");
+        assert_eq!(stage_label(&project.workflow_stage), "已接入");
     }
 
     #[test]

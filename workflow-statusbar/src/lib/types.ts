@@ -1,5 +1,5 @@
 export type CodexStatus = "running" | "waiting_input" | "stalled" | "idle" | "offline";
-export type WorkflowStage = "bootstrap" | "requirement" | "execution" | "done" | "unknown";
+export type WorkflowStage = "idle" | "bootstrap" | "requirement" | "execution" | "done" | "unknown";
 
 export type CodexState = {
   status: CodexStatus;
@@ -57,6 +57,7 @@ export type ProjectGroup = {
 };
 
 export type Summary = {
+  idle: number;
   bootstrap: number;
   requirement: number;
   execution: number;

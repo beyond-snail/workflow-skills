@@ -72,6 +72,7 @@ const mockState: RuntimeState = {
   projects: [mockProject],
   groups: [],
   summary: {
+    idle: 0,
     bootstrap: 0,
     requirement: 0,
     execution: 1,

@@ -10,6 +10,7 @@
     "tauri": "tauri",
     "package:current": "tauri build",
     "package:mac": "tauri build --bundles app,dmg",
+    "package:mac:local": "bash ./scripts/package-local-mac.sh",
     "package:win": "tauri build --bundles nsis,msi"
   },
   "dependencies": {
