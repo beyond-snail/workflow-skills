@@ -25,7 +25,7 @@ export function FocusCard({ project }: FocusCardProps) {
           </div>
           <div className="agent-title">
             <h2>{project.name}</h2>
-            <p>{project.current_task_title || project.current_req_title || "等待 task / req 回写"}</p>
+            <p>{workflowLinked ? project.current_task_title || project.current_req_title || "等待 task / req 回写" : "未接入 workflow，暂无任务同步"}</p>
           </div>
         </div>
         <div className="agent-card__status agent-card__status--muted">
@@ -42,7 +42,7 @@ export function FocusCard({ project }: FocusCardProps) {
           <strong>当前任务</strong>
         </div>
         <div className="agent-card__meta">
-          <span>{project.current_task_id || project.current_req_id || "待同步"} / {project.stage_label}</span>
+          <span>{workflowLinked ? `${project.current_task_id || project.current_req_id || "待同步"} / ${project.stage_label}` : "未接入 workflow，暂无任务同步"}</span>
           <strong>{workflowLinked ? project.progress_label.replace("任务 ", "") : "未接入 workflow"}</strong>
         </div>
       </div>

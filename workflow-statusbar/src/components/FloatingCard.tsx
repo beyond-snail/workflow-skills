@@ -43,7 +43,7 @@ export function FloatingCard({ state }: FloatingCardProps) {
           <strong>{project ? project.stage_label : "当前会话"}</strong>
         </div>
         <div className="agent-card__meta">
-          <span>{project ? project.current_task_id || project.current_req_id || "待同步" : state.codex.active_thread_name}</span>
+          <span>{project ? workflowLinked ? project.current_task_id || project.current_req_id || "待同步" : "未接入 workflow，暂无任务同步" : state.codex.active_thread_name}</span>
           <strong>{project ? codexStatusLabels[project.codex_status] : "--"}</strong>
         </div>
       </div>

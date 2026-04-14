@@ -52,7 +52,9 @@ export function StatusCard({ state, project, compact = false }: StatusCardProps)
     : "状态栏仍在后台运行。打开 IDE 项目后，会自动展示对应项目的会话、任务和 Token。";
   const projectLine = project?.name || state.codex.active_ide_project_name || "";
   const taskLine = project
-    ? `${project.current_task_id || project.current_req_id || "待同步"} · ${project.current_task_title || project.current_req_title || "等待 task / req 回写"}`
+    ? workflowLinked
+      ? `${project.current_task_id || project.current_req_id || "待同步"} · ${project.current_task_title || project.current_req_title || "等待 task / req 回写"}`
+      : "未接入 workflow，暂无任务同步"
     : "";
   const displayThreadName = hasProject
     ? compact && project
