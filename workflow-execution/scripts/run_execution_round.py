@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from cli_common import add_dry_run_arg, add_profile_arg, load_profile_from_args, print_header
+from legacy_context import load_legacy_scan, match_legacy_context, render_legacy_context_lines
 from md_board_utils import find_requirement_row, get_cell
 from profile_paths import ProjectPaths
 from project_state import build_project_state, write_project_state
@@ -441,6 +442,14 @@ def main() -> int:
 
     req_id = args.req_id or selected.req_id or None
     req_ctx = resolve_requirement_context(project_paths, req_id)
+    legacy_scan = load_legacy_scan(project_paths.workspace_root)
+    legacy_context = match_legacy_context(
+        legacy_scan,
+        selected.title,
+        args.summary,
+        req_id or "",
+        req_ctx.title if req_ctx else "",
+    )
     if req_id and not selected.req_id:
         selected.req_id = req_id
 
@@ -490,6 +499,8 @@ def main() -> int:
             "mode": "dry-run" if args.dry_run else "live",
         },
     )
+    for line in render_legacy_context_lines(legacy_context):
+        print(line)
 
     if args.dry_run:
         memory_args = []
@@ -564,9 +575,9 @@ def main() -> int:
             current_task_title=selected.title,
             current_task_status=selected.status,
             current_mode=resolved_mode,
-            summary=args.summary or f"{selected.task_id} 执行预览",
+            summary=(args.summary or f"{selected.task_id} 执行预览") + f"；{legacy_context['summary']}",
             blockers=list(args.blocker) or warnings,
-            evidence_refs=[str(p) for p in (*record_files, *test_result_files)],
+            evidence_refs=[*(str(p) for p in (*record_files, *test_result_files)), *legacy_context["evidence_refs"]],
         )
         preview_path = write_project_state(project_paths.workspace_root, preview_state, dry_run=True)
         print(f"- action: update project-state preview at `{preview_path}`")
@@ -986,9 +997,9 @@ def main() -> int:
         current_task_title=selected.title,
         current_task_status=final_task_status,
         current_mode=resolved_mode,
-        summary=args.summary or f"{selected.task_id} 执行回合已{final_task_status}",
+        summary=(args.summary or f"{selected.task_id} 执行回合已{final_task_status}") + f"；{legacy_context['summary']}",
         blockers=blockers,
-        evidence_refs=[str(p) for p in (*record_files, *test_result_files, *gate_doc_files)],
+        evidence_refs=[*(str(p) for p in (*record_files, *test_result_files, *gate_doc_files)), *legacy_context["evidence_refs"]],
     )
     state_path = write_project_state(project_paths.workspace_root, state, dry_run=False)
     print(f"- project_state: {state_path}")

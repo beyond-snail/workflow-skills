@@ -14,6 +14,7 @@ from cli_common import add_dry_run_arg, add_profile_arg, load_profile_from_args,
 from profile_paths import ProjectPaths
 
 from create_requirement_bundle import next_req_id, next_task_id
+from legacy_context import load_legacy_scan, match_legacy_context, render_legacy_context_lines
 from project_state import build_project_state, write_project_state
 
 
@@ -254,6 +255,8 @@ def main() -> int:
     profile = load_profile_from_args(args)
     project_paths = ProjectPaths.from_profile(profile, Path.cwd())
     planned = plan_round(args, project_paths)
+    legacy_scan = load_legacy_scan(project_paths.workspace_root)
+    legacy_context = match_legacy_context(legacy_scan, args.theme, args.summary, planned.prd_rel)
 
     print_header(
         "Requirement Round",
@@ -267,6 +270,8 @@ def main() -> int:
             "mode": "dry-run" if args.dry_run else "live",
         },
     )
+    for line in render_legacy_context_lines(legacy_context):
+        print(line)
 
     prd_file = (project_paths.workspace_root / planned.prd_rel).resolve()
     if not args.skip_content_population and not prd_file.exists():
@@ -314,8 +319,9 @@ def main() -> int:
             current_task_id=planned.task_id,
             current_task_title=args.initial_task_title or args.theme,
             current_task_status=args.task_memory_status,
-            summary=args.summary or f"{planned.req_id} 需求已入池，等待人工审核",
+            summary=(args.summary or f"{planned.req_id} 需求已入池，等待人工审核") + f"；{legacy_context['summary']}",
             blockers=warnings,
+            evidence_refs=legacy_context["evidence_refs"],
         )
         preview_path = write_project_state(project_paths.workspace_root, preview_state, dry_run=True)
         print(f"- action: update project-state preview at `{preview_path}`")
@@ -474,8 +480,9 @@ def main() -> int:
         current_task_id=planned.task_id,
         current_task_title=task_memory_title,
         current_task_status=args.task_memory_status,
-        summary=args.summary or f"{planned.req_id} 需求已入池，等待人工审核",
+        summary=(args.summary or f"{planned.req_id} 需求已入池，等待人工审核") + f"；{legacy_context['summary']}",
         blockers=warnings,
+        evidence_refs=legacy_context["evidence_refs"],
     )
     state_path = write_project_state(project_paths.workspace_root, state, dry_run=False)
     print(f"- project_state: {state_path}")
