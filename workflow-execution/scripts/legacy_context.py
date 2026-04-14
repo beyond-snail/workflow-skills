@@ -59,6 +59,10 @@ def match_legacy_context(scan: dict[str, Any], *queries: str) -> dict[str, Any]:
     domains = []
     for domain in scan.get("business_domains", []):
         score = score_text(domain.get("name", "")) + score_text(domain.get("summary", ""))
+        for keyword in domain.get("keywords", []):
+            score += score_text(keyword) * 2
+        for alias in domain.get("aliases", []):
+            score += score_text(alias) * 2
         for evidence in domain.get("evidence", []):
             score += score_text(evidence)
         for evidence in domain.get("doc_evidence", []):

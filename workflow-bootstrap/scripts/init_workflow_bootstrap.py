@@ -239,6 +239,8 @@ class BusinessDomain:
     evidence: list[str]
     doc_evidence: list[str]
     code_locations: list[str]
+    keywords: list[str]
+    aliases: list[str]
 
 
 @dataclass
@@ -455,7 +457,7 @@ def iter_markdown_files(root: Path) -> list[Path]:
     ignored = {".git", ".idea", ".vscode", "node_modules", "target", "build", ".ai"}
     files: list[Path] = []
     for path in root.rglob("*.md"):
-        if any(part in ignored for part in path.parts):
+        if any(part in ignored or part.startswith(".") for part in path.parts):
             continue
         files.append(path)
     return sorted(files)
@@ -495,63 +497,95 @@ def tokenize_name(value: str) -> set[str]:
     return {token for token in tokens if len(token) >= 3}
 
 
+def split_identifier(value: str) -> list[str]:
+    text = value.replace("-", " ").replace("_", " ")
+    expanded: list[str] = []
+    current = []
+    for ch in text:
+        if ch.isupper() and current and current[-1].islower():
+            expanded.append("".join(current))
+            current = [ch]
+        elif ch.isspace():
+            if current:
+                expanded.append("".join(current))
+                current = []
+        else:
+            current.append(ch)
+    if current:
+        expanded.append("".join(current))
+    tokens: list[str] = []
+    for item in expanded:
+        compact = "".join(ch for ch in item if ch.isalnum())
+        if compact:
+            tokens.append(compact.lower())
+    return tokens
+
+
 def normalize_domain_name(name: str) -> str:
-    aliases = {
-        "salescostreport": "sales-cost-report",
-        "salescost": "sales-cost-report",
-        "acsalescosttransfer": "sales-cost-transfer",
-        "acsalescostsummary": "sales-cost-transfer",
-        "monthlysettlement": "monthly-settlement",
-        "settlement": "monthly-settlement",
-        "invoice": "invoice-billing",
-        "bill": "invoice-billing",
-        "oractb": "trade-finance",
-        "ortctb": "trade-finance",
-        "trade": "trade-finance",
-        "risk": "risk-control",
-        "exception": "risk-control",
-        "org": "org-config",
-        "account": "org-config",
-        "config": "org-config",
+    stop_words = {
+        "controller",
+        "service",
+        "impl",
+        "mapper",
+        "entity",
+        "model",
+        "dto",
+        "vo",
+        "feign",
+        "client",
+        "convert",
     }
-    lowered = "".join(ch.lower() for ch in name if ch.isalnum())
-    for needle, target in aliases.items():
-        if needle in lowered:
-            return target
-    if lowered:
-        return lowered
-    return "project-overview"
+    tokens = [token for token in split_identifier(name) if token not in stop_words]
+    if not tokens:
+        lowered = "".join(ch.lower() for ch in name if ch.isalnum())
+        return lowered or "project-overview"
+    return "-".join(tokens[:6])
+
+
+def humanize_domain_name(raw_name: str) -> str:
+    tokens = [token for token in raw_name.split("-") if token]
+    if not tokens:
+        return "project overview"
+    return " ".join(tokens[:6])
 
 
 def summarize_domain(raw_name: str) -> str:
-    lowered = raw_name.lower()
-    if lowered == "sales-cost-report":
-        return "销售成本结转、汇总查询、报表导出相关能力"
-    if lowered == "sales-cost-transfer":
-        return "销售成本结转落库、汇总与状态推进能力"
-    if lowered == "monthly-settlement":
-        return "月结、结算周期、往来汇总相关能力"
-    if lowered == "invoice-billing":
-        return "发票、票据、账单回退与更新能力"
-    if lowered == "trade-finance":
-        return "订单、交易、财务单据联动能力"
-    if lowered == "risk-control":
-        return "风险校验、异常处理与修复复核能力"
-    if lowered == "org-config":
-        return "组织、账套、配置与通用参数能力"
-    if "salescost" in lowered or "cost" in lowered:
-        return "成本/报表相关能力"
-    if "settlement" in lowered:
-        return "月结/结算相关能力"
-    if "invoice" in lowered or "bill" in lowered or "kp" in lowered:
-        return "发票/票据相关能力"
-    if "trade" in lowered or "order" in lowered or "oractb" in lowered or "ortctb" in lowered:
-        return "订单/交易财务相关能力"
-    if "risk" in lowered or "exception" in lowered:
-        return "风险/异常处理能力"
-    if "org" in lowered or "account" in lowered or "config" in lowered:
-        return "组织/账套/配置能力"
-    return "待人工补充的业务能力"
+    return f"围绕 `{humanize_domain_name(raw_name)}` 相关代码与文档自动聚合出的候选业务域。"
+
+
+def build_domain_terms(key: str, evidence: dict[str, list[str]], doc_titles: list[tuple[str, str]]) -> tuple[list[str], list[str]]:
+    keyword_candidates: list[str] = []
+    alias_candidates: list[str] = [key, key.replace("-", ""), humanize_domain_name(key)]
+
+    for source in (*evidence["controller"], *evidence["service"], *evidence["model"]):
+        stem = Path(source).stem
+        alias_candidates.append(stem)
+        alias_candidates.extend(split_identifier(stem))
+    for rel in evidence["docs"]:
+        alias_candidates.append(rel)
+        title = next((title for path, title in doc_titles if path == rel), "")
+        if title:
+            keyword_candidates.append(title)
+            alias_candidates.extend(split_identifier(title))
+        alias_candidates.extend(split_identifier(Path(rel).stem))
+
+    for token in split_identifier(key):
+        keyword_candidates.append(token)
+    keyword_candidates.extend(evidence["docs"])
+
+    def unique(items: list[str]) -> list[str]:
+        seen: set[str] = set()
+        result: list[str] = []
+        for item in items:
+            cleaned = item.strip()
+            compact = "".join(ch for ch in cleaned.lower() if ch.isalnum())
+            if not cleaned or len(compact) < 2 or compact in seen:
+                continue
+            seen.add(compact)
+            result.append(cleaned)
+        return result
+
+    return unique(keyword_candidates)[:12], unique(alias_candidates)[:12]
 
 
 def infer_business_domains(root: Path) -> list[BusinessDomain]:
@@ -602,6 +636,7 @@ def infer_business_domains(root: Path) -> list[BusinessDomain]:
         score = len(evidence["controller"]) * 4 + len(evidence["service"]) * 3 + len(evidence["model"]) + len(evidence["docs"]) * 2
         confidence = "high" if score >= 8 else "medium" if score >= 4 else "low"
         merged_evidence = evidence["controller"][:2] + evidence["service"][:2] + evidence["model"][:2]
+        keywords, aliases = build_domain_terms(key, evidence, doc_titles)
         domains.append(
             BusinessDomain(
                 name=key,
@@ -610,6 +645,8 @@ def infer_business_domains(root: Path) -> list[BusinessDomain]:
                 evidence=merged_evidence[:6],
                 doc_evidence=evidence["docs"][:4],
                 code_locations=(evidence["controller"][:2] + evidence["service"][:2] + evidence["model"][:2])[:6],
+                keywords=keywords,
+                aliases=aliases,
             )
         )
     if not domains:
@@ -621,6 +658,8 @@ def infer_business_domains(root: Path) -> list[BusinessDomain]:
                 evidence=[],
                 doc_evidence=[item[0] for item in doc_titles[:4]],
                 code_locations=[],
+                keywords=["项目概览", "系统概览"],
+                aliases=["projectoverview", "project-overview"],
             )
         )
     return domains
