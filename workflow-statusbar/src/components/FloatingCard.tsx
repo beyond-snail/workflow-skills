@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { RuntimeState } from "../lib/types";
 import { codexStatusLabels } from "../lib/codex-labels";
+import { projectOtherHostSummary, projectPrimaryHostLabel, runtimePrimaryHostLabel } from "../lib/host-utils";
 import { isWorkflowLinked, parseTaskProgress } from "../lib/progress";
 
 type FloatingCardProps = {
@@ -18,6 +19,8 @@ export function FloatingCard({ state }: FloatingCardProps) {
         : "未接入 workflow"
     : "等待关联项目";
   const progressRatio = workflowLinked ? parseTaskProgress(project?.progress_label) : null;
+  const hostLabel = project ? projectPrimaryHostLabel(project) : runtimePrimaryHostLabel(state);
+  const otherHostSummary = projectOtherHostSummary(project);
 
   return (
     <section className="card card--floating">
@@ -25,7 +28,7 @@ export function FloatingCard({ state }: FloatingCardProps) {
         <div className="agent-card__brand">
           <div className="agent-avatar">X</div>
           <div className="agent-title">
-            <h2>Codex</h2>
+            <h2>{hostLabel}</h2>
             <p>{project?.name ?? "等待关联项目"}</p>
           </div>
         </div>
@@ -49,7 +52,7 @@ export function FloatingCard({ state }: FloatingCardProps) {
       </div>
 
       <div className="agent-card__subrow">
-        <span>最近心跳 {project?.codex_heartbeat_at ?? state.codex.heartbeat_at} · {autoResumeCopy}</span>
+        <span>最近心跳 {project?.codex_heartbeat_at ?? state.codex.heartbeat_at}{otherHostSummary ? ` · ${otherHostSummary}` : ""} · {autoResumeCopy}</span>
         <button className="inline-link-button" type="button" onClick={() => invoke("set_floating_visibility", { visible: false })}>
           隐藏
         </button>

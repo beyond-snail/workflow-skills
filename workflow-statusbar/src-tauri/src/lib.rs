@@ -1803,6 +1803,55 @@ fn build_codex_global_host_session(state: &CodexState, updated_at: i64) -> HostS
     }
 }
 
+fn host_priority(status: &CodexStatus) -> i32 {
+    match status {
+        CodexStatus::Running => 5,
+        CodexStatus::WaitingInput => 4,
+        CodexStatus::Stalled => 3,
+        CodexStatus::Idle => 2,
+        CodexStatus::Offline => 1,
+    }
+}
+
+fn select_active_host_session<'a>(hosts: &'a [HostSession]) -> Option<&'a HostSession> {
+    hosts.iter().max_by(|left, right| {
+        host_priority(&left.status)
+            .cmp(&host_priority(&right.status))
+            .then_with(|| left.updated_at.cmp(&right.updated_at))
+            .then_with(|| {
+                if matches!(left.host, HostKind::Codex) && !matches!(right.host, HostKind::Codex) {
+                    std::cmp::Ordering::Greater
+                } else if !matches!(left.host, HostKind::Codex) && matches!(right.host, HostKind::Codex) {
+                    std::cmp::Ordering::Less
+                } else {
+                    std::cmp::Ordering::Equal
+                }
+            })
+    })
+}
+
+fn other_host_summary_for(hosts: &[HostSession], active_host: Option<&HostKind>) -> String {
+    let Some(active_host) = active_host else {
+        return String::new();
+    };
+    let other_hosts = hosts
+        .iter()
+        .filter(|host| &host.host != active_host)
+        .map(|host| match host.host {
+            HostKind::Codex => "Codex".to_string(),
+            HostKind::Claude => "Claude".to_string(),
+        })
+        .collect::<Vec<_>>();
+
+    if other_hosts.is_empty() {
+        String::new()
+    } else if other_hosts.len() == 1 {
+        format!("另有 {} 会话", other_hosts[0])
+    } else {
+        format!("另有 {} 个 Host 会话", other_hosts.len())
+    }
+}
+
 fn apply_legacy_codex_fields_from_hosts(project: &mut ProjectSnapshot) {
     let Some(primary) = project
         .hosts
@@ -1836,11 +1885,14 @@ fn apply_runtime_host_compatibility(state: &mut RuntimeState, now: i64) {
         state.hosts.push(build_codex_global_host_session(&state.codex, now));
     }
 
-    if state.active_host.is_none() {
-        state.active_host = Some(HostKind::Codex);
-    }
+    let active_session = select_active_host_session(&state.hosts);
+    state.active_host = active_session.map(|session| session.host.clone());
+    state.other_host_summary = other_host_summary_for(&state.hosts, state.active_host.as_ref());
 
     for project in &mut state.projects {
+        let project_active_session = select_active_host_session(&project.hosts);
+        project.active_host = project_active_session.map(|session| session.host.clone());
+        project.other_host_summary = other_host_summary_for(&project.hosts, project.active_host.as_ref());
         apply_legacy_codex_fields_from_hosts(project);
     }
 }
@@ -2530,11 +2582,13 @@ fn collect_runtime_state() -> RuntimeState {
         auto_resume_project,
     );
     let hosts = vec![build_codex_global_host_session(&codex_state, now)];
+    let active_host = select_active_host_session(&hosts).map(|session| session.host.clone());
+    let other_host_summary = other_host_summary_for(&hosts, active_host.as_ref());
 
     let mut runtime = RuntimeState {
         codex: codex_state,
-        active_host: Some(HostKind::Codex),
-        other_host_summary: String::new(),
+        active_host,
+        other_host_summary,
         hosts,
         projects,
         groups,
@@ -3356,5 +3410,101 @@ mod tests {
         assert!(path_matches("/tmp/solo", "/tmp/solo/.ai/runtime/project-state.json"));
         assert!(!path_matches("/tmp/solo", "/tmp"));
         assert!(!path_matches("/tmp/solo", "/tmp/solo-backup"));
+    }
+
+    #[test]
+    fn select_active_host_prefers_running_then_latest() {
+        let hosts = vec![
+            HostSession {
+                host: HostKind::Codex,
+                status: CodexStatus::WaitingInput,
+                heartbeat_at: "30 秒前".into(),
+                thread_id: "codex-1".into(),
+                thread_name: "codex".into(),
+                project_path: "/tmp/solo".into(),
+                last_message_role: String::new(),
+                last_message_text: String::new(),
+                process_running: true,
+                source: "test".into(),
+                confidence: "high".into(),
+                token_total: 0,
+                token_input: 0,
+                token_output: 0,
+                token_reasoning: 0,
+                auto_resume_enabled: false,
+                follow_up_prompted: false,
+                updated_at: 100,
+            },
+            HostSession {
+                host: HostKind::Claude,
+                status: CodexStatus::Running,
+                heartbeat_at: "10 秒前".into(),
+                thread_id: "claude-1".into(),
+                thread_name: "claude".into(),
+                project_path: "/tmp/solo".into(),
+                last_message_role: String::new(),
+                last_message_text: String::new(),
+                process_running: true,
+                source: "test".into(),
+                confidence: "high".into(),
+                token_total: 0,
+                token_input: 0,
+                token_output: 0,
+                token_reasoning: 0,
+                auto_resume_enabled: false,
+                follow_up_prompted: false,
+                updated_at: 99,
+            },
+        ];
+        let selected = select_active_host_session(&hosts).expect("active host should exist");
+        assert!(matches!(selected.host, HostKind::Claude));
+    }
+
+    #[test]
+    fn select_active_host_prefers_codex_on_full_tie() {
+        let hosts = vec![
+            HostSession {
+                host: HostKind::Codex,
+                status: CodexStatus::Idle,
+                heartbeat_at: "1 分钟前".into(),
+                thread_id: "codex-1".into(),
+                thread_name: "codex".into(),
+                project_path: "/tmp/solo".into(),
+                last_message_role: String::new(),
+                last_message_text: String::new(),
+                process_running: false,
+                source: "test".into(),
+                confidence: "high".into(),
+                token_total: 0,
+                token_input: 0,
+                token_output: 0,
+                token_reasoning: 0,
+                auto_resume_enabled: false,
+                follow_up_prompted: false,
+                updated_at: 50,
+            },
+            HostSession {
+                host: HostKind::Claude,
+                status: CodexStatus::Idle,
+                heartbeat_at: "1 分钟前".into(),
+                thread_id: "claude-1".into(),
+                thread_name: "claude".into(),
+                project_path: "/tmp/solo".into(),
+                last_message_role: String::new(),
+                last_message_text: String::new(),
+                process_running: false,
+                source: "test".into(),
+                confidence: "high".into(),
+                token_total: 0,
+                token_input: 0,
+                token_output: 0,
+                token_reasoning: 0,
+                auto_resume_enabled: false,
+                follow_up_prompted: false,
+                updated_at: 50,
+            },
+        ];
+        let selected = select_active_host_session(&hosts).expect("active host should exist");
+        assert!(matches!(selected.host, HostKind::Codex));
     }
 }

@@ -1,5 +1,6 @@
 import type { ProjectSnapshot, RuntimeState } from "../lib/types";
 import { codexStatusLabels } from "../lib/codex-labels";
+import { projectOtherHostSummary, projectPrimaryHostLabel, runtimeOtherHostSummary, runtimePrimaryHostLabel } from "../lib/host-utils";
 import { isWorkflowLinked, parseTaskProgress } from "../lib/progress";
 
 type StatusCardProps = {
@@ -76,10 +77,12 @@ export function StatusCard({ state, project, compact = false }: StatusCardProps)
       ? "Token 未采集"
       : "打开项目后采集 Token";
   const headerTitle = projectLine || "未检测到打开的 IDE 项目";
+  const primaryHostLabel = project ? projectPrimaryHostLabel(project) : runtimePrimaryHostLabel(state);
+  const otherHostSummary = project ? projectOtherHostSummary(project) : runtimeOtherHostSummary(state);
   const headerCaption = compact
     ? project?.gate_status || "未接入 workflow"
     : projectLine
-      ? "Codex 监控"
+      ? `${primaryHostLabel} 监控${otherHostSummary ? ` · ${otherHostSummary}` : ""}`
       : "打开项目后自动开始监控";
   const progressRatio = project && workflowLinked ? parseTaskProgress(project.progress_label) : null;
 

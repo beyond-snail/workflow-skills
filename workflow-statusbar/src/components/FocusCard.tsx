@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { ProjectSnapshot } from "../lib/types";
 import { codexStatusLabels } from "../lib/codex-labels";
+import { projectOtherHostSummary, projectPrimaryHostLabel } from "../lib/host-utils";
 import { isWorkflowLinked, parseTaskProgress } from "../lib/progress";
 
 type FocusCardProps = {
@@ -15,6 +16,8 @@ export function FocusCard({ project }: FocusCardProps) {
       ? "自动续跑未开启"
       : "未接入 workflow";
   const progressRatio = workflowLinked ? parseTaskProgress(project.progress_label) : null;
+  const hostLabel = projectPrimaryHostLabel(project);
+  const otherHostSummary = projectOtherHostSummary(project);
 
   return (
     <section className="card card--focus">
@@ -48,7 +51,12 @@ export function FocusCard({ project }: FocusCardProps) {
       </div>
 
       <div className="agent-card__subrow">
-        <span>Codex {codexStatusLabels[project.codex_status]} · {project.codex_heartbeat_at} · {autoResumeCopy}</span>
+        <span>
+          {hostLabel} {codexStatusLabels[project.codex_status]} · {project.codex_heartbeat_at}
+          {otherHostSummary ? ` · ${otherHostSummary}` : ""}
+          {" · "}
+          {autoResumeCopy}
+        </span>
         <button className="inline-link-button" type="button" onClick={() => invoke("open_path", { path: project.path })}>
           打开目录
         </button>

@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { LogicalSize, getCurrentWindow } from "@tauri-apps/api/window";
 import type { ProjectGroup } from "../lib/types";
 import { codexStatusLabels } from "../lib/codex-labels";
+import { projectOtherHostSummary, projectPrimaryHostLabel } from "../lib/host-utils";
 import { isWorkflowLinked, parseTaskProgress } from "../lib/progress";
 
 type ProjectGroupsProps = {
@@ -58,6 +59,8 @@ export function ProjectGroups({ groups, spotlightPath }: ProjectGroupsProps) {
             {visibleProjects.map((project) => {
               const workflowLinked = isWorkflowLinked(project);
               const progressRatio = workflowLinked ? parseTaskProgress(project.progress_label) : null;
+              const hostLabel = projectPrimaryHostLabel(project);
+              const otherHostSummary = projectOtherHostSummary(project);
 
               return (
                 <button className="card card--group-project" key={project.path} type="button" onClick={() => invoke("open_path", { path: project.path })}>
@@ -91,7 +94,10 @@ export function ProjectGroups({ groups, spotlightPath }: ProjectGroupsProps) {
                   </div>
 
                   <div className="agent-card__subrow">
-                    <span>Codex {codexStatusLabels[project.codex_status]} · {project.codex_heartbeat_at}</span>
+                    <span>
+                      {hostLabel} {codexStatusLabels[project.codex_status]} · {project.codex_heartbeat_at}
+                      {otherHostSummary ? ` · ${otherHostSummary}` : ""}
+                    </span>
                     <span>{project.auto_resume_enabled ? "自动续跑已开启" : workflowLinked ? project.current_task_status || project.health || "待同步" : "未接入 workflow"}</span>
                   </div>
 
