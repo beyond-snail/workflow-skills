@@ -23,8 +23,11 @@
 ### 它做什么
 
 - 自动识别语言、构建工具、测试命令、PRD 目录、源码目录
-- 生成 `AGENTS.md`、`PROJECT_CONTEXT.md`
+- 自动识别新项目 / 老项目状态
+- 生成 `AGENTS.md`、`docs/workflow/PROJECT_CONTEXT.md`
 - 创建 `.ai/governance/`、`.ai/memory/`、`.ai/runtime/profile/`
+- 生成 `.ai/runtime/project-state.json` 最小骨架
+- 生成 `docs/workflow/legacy-analysis.md` 与 `.ai/runtime/cache/legacy-scan.json`
 - 提供 workflow 的统一命令入口
 - 做健康检查，找出缺失项和 legacy 残留
 
@@ -34,12 +37,16 @@
 - 项目上下文
 - 任务记忆骨架
 - profile 配置
-- `doc/requirements/` 的治理骨架
+- `docs/workflow/requirements/` 的治理骨架
+- 老项目画像与接口链路初稿
+- 统一运行态骨架 `project-state.json`
 
 ### 典型判断点
 
 - 项目是不是刚接入 workflow
+- 当前仓库是 `fresh / legacy_bootstrap / current / partial_current / mixed_legacy_current` 哪一类
 - 旧仓库有没有残留 `doc/tasks`、`doc/knowledge`
+- 老项目里能不能自动提炼业务域、关键接口链路和历史文档证据
 - `project-profile.yml` 是否能正确推导 build/test 命令
 
 ### 边界
@@ -86,7 +93,9 @@ PRD 如果不先治理，就会直接滑向实现，导致需求边界、任务�
 - 生成 `REQ-ID`、`TASK-ID`
 - 创建 dated 需求包
 - 填充需求池、任务看板、设计文档、PRD 追溯和测试材料
+- 读取 `.ai/runtime/cache/legacy-scan.json` 并命中老项目上下文
 - 初始化 task memory 并同步任务索引
+- 回写 `.ai/runtime/project-state.json`
 - 做交接检查
 
 ### 典型产物
@@ -96,11 +105,14 @@ PRD 如果不先治理，就会直接滑向实现，导致需求边界、任务�
 - 设计目录
 - task memory
 - 交接结论
+- legacy context 命中摘要
+- 更新后的 `project-state.json`
 
 ### 典型判断点
 
 - PRD 是否已经冻结
 - 是否需要轻量模式
+- 是否命中已有业务域、接口链路或历史治理文档
 - 是否已经具备开发前置材料
 
 ### 边界
@@ -148,10 +160,11 @@ PRD 如果不先治理，就会直接滑向实现，导致需求边界、任务�
 
 - 选择当前任务
 - 将任务从 `todo` 推到 `doing`
-- 读取 memory 和 knowledge
+- 读取 memory、knowledge 和 legacy context
 - 跑构建和测试
 - 写入证据和验证记录
 - 回写 issue / decision / knowledge
+- 回写 `.ai/runtime/project-state.json`
 - 提交并推送
 - 跑 release gate
 - 更新任务状态
@@ -163,6 +176,7 @@ PRD 如果不先治理，就会直接滑向实现，导致需求边界、任务�
 - 验证结果
 - 证据记录
 - 任务状态
+- 更新后的 `project-state.json`
 - commit / push
 - release gate 结论
 
@@ -171,6 +185,7 @@ PRD 如果不先治理，就会直接滑向实现，导致需求边界、任务�
 - 是否已显式开工
 - 当前任务是 `doing` 还是 `todo`
 - 是否命中 bugfix / continuation 信号
+- 是否有可复用的老项目业务域、接口链路和历史文档上下文
 - 是否该补 issue / decision / knowledge
 
 ### 边界
@@ -192,8 +207,10 @@ PRD 如果不先治理，就会直接滑向实现，导致需求边界、任务�
 ## 核心依赖
 
 - `AGENTS.md`
-- `PROJECT_CONTEXT.md`
+- `docs/workflow/PROJECT_CONTEXT.md`
 - `.ai/runtime/profile/project-profile.yml`
+- `.ai/runtime/project-state.json`
+- `.ai/runtime/cache/legacy-scan.json`
 - `.ai/memory/tasks/index.md`
-- `doc/requirements/需求池.md`
-- `doc/requirements/任务看板.md`
+- `docs/workflow/requirements/需求池.md`
+- `docs/workflow/requirements/任务看板.md`
