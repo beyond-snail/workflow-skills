@@ -100,6 +100,7 @@ bootstrap 会自动尝试识别：
 10. 老项目业务域初稿
 11. 关键接口链路初稿
 12. 旧底座资产与迁移建议
+13. 文档证据清单（README / PRD / 设计 / 测试 / 历史治理文档）
 
 并把这些结果写入：
 
@@ -109,6 +110,7 @@ bootstrap 会自动尝试识别：
 4. `.ai/runtime/project-state.json`
 5. `docs/workflow/legacy-analysis.md`
 6. `.ai/runtime/cache/legacy-scan.json`
+7. `PROJECT_CONTEXT.md` 中的业务域摘要与关键链路索引
 
 ## 可选参数
 
