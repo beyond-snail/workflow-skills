@@ -6,8 +6,8 @@ from pathlib import Path
 from typing import Any
 
 
-SECTION_RE = re.compile(r"^##\s+(\d+(?:\.\d+)*)\.\s+(.+?)\s*$", re.MULTILINE)
-SUBSECTION_RE = re.compile(r"^###\s+(\d+(?:\.\d+)*)\s+(.+?)\s*$", re.MULTILINE)
+SECTION_RE = re.compile(r"^##\s+(\d+(?:\.\d+)*)\.?\s+(.+?)\s*$", re.MULTILINE)
+SUBSECTION_RE = re.compile(r"^###\s+(\d+(?:\.\d+)*)\.?\s+(.+?)\s*$", re.MULTILINE)
 TABLE_SEPARATOR_RE = re.compile(r"^\|(?:\s*:?-+:?\s*\|)+\s*$")
 LIST_ITEM_RE = re.compile(r"^\s*(?:[-*]|\d+\.)\s+(.+?)\s*$")
 
@@ -35,26 +35,55 @@ class PrdParser:
         result: dict[str, Any] = {
             "path": str(file_path),
             "raw_text": text,
-            "doc_info": sections.get("1. 文档信息", ""),
-            "background": sections.get("2. 背景与目标", ""),
-            "roles": sections.get("3. 角色与使用场景", ""),
-            "terms": sections.get("4. 术语与口径定义", ""),
-            "problems": sections.get("5. 现状问题分析", ""),
-            "dependencies": sections.get("6. 业务范围与依赖", ""),
-            "function_overview": sections.get("7. 功能概述", ""),
-            "data_structures": sections.get("8. 数据结构设计", ""),
-            "process_design": sections.get("9. 核心流程设计", ""),
-            "transfer_rules": sections.get("10. 结转处理规则", ""),
-            "monthly_integration": sections.get("11. 月结集成与回退", ""),
-            "reports": sections.get("12. 报表与查询", ""),
-            "business_rules": sections.get("13. 详细业务规则", ""),
-            "exceptions": sections.get("14. 异常场景与处理策略", ""),
-            "non_functional": sections.get("15. 非功能需求", ""),
-            "acceptance": sections.get("16. 验收标准", ""),
-            "implementation_suggestions": sections.get("17. 研发实现建议", ""),
-            "risks": sections.get("18. 风险与依赖评估", ""),
-            "review_conclusion": sections.get("19. 评审结论", ""),
-            "formulas": sections.get("20. 附录：关键公式汇总", "") or sections.get("20. 附录:关键公式汇总", ""),
+            "doc_info": cls._get_section(sections, [("1", "文档信息")]),
+            "background": cls._get_section(sections, [("2", "背景与目标"), ("2", "背景"), ("2", "项目背景")]),
+            "roles": cls._get_section(sections, [("3", "角色与使用场景"), ("3", "用户与场景"), ("3", "角色"), ("3", "用户场景")]),
+            "terms": cls._get_section(sections, [("4", "术语与口径定义"), ("4", "术语"), ("4", "口径定义")]),
+            "problems": cls._get_section(sections, [("5", "现状问题分析"), ("5", "现状分析"), ("5", "当前代码与数据基线"), ("5", "当前事实基线")]),
+            "dependencies": cls._get_section(sections, [("6", "业务范围与依赖"), ("6", "项目范围"), ("6", "范围定义"), ("6", "依赖与前置")]),
+            "function_overview": cls._get_section(sections, [("7", "功能概述"), ("7", "功能清单"), ("7", "功能详情"), ("7", "详细需求"), ("7", "方案设计")]),
+            "data_structures": cls._get_section(sections, [("8", "数据结构设计"), ("8", "数据模型建议"), ("8", "表结构设计"), ("8", "数据建议")]),
+            "process_design": cls._get_section(sections, [("9", "核心流程设计"), ("9", "流程设计"), ("9", "核心流程"), ("9", "业务流程")]),
+            "business_rules": cls._get_section(
+                sections,
+                [
+                    ("10", "详细业务规则"),
+                    ("10", "核心业务规则"),
+                    ("10", "业务规则"),
+                    ("10", "功能规则"),
+                    ("10", "处理规则"),
+                ],
+            ),
+            "integration": cls._get_section(
+                sections,
+                [
+                    ("11", "系统集成与异常处理"),
+                    ("11", "系统集成"),
+                    ("11", "异常场景与处理策略"),
+                    ("11", "异常处理"),
+                    ("11", "集成与依赖"),
+                ],
+            ),
+            "reports": cls._get_section(sections, [("12", "报表与查询"), ("12", "查询与统计"), ("12", "统计与报表")]),
+            "exceptions": cls._get_section(
+                sections,
+                [
+                    ("13", "异常场景与处理策略"),
+                    ("13", "异常处理策略"),
+                    ("13", "异常场景"),
+                    ("14", "异常场景与处理策略"),
+                    ("14", "异常处理策略"),
+                ],
+            ),
+            "non_functional": cls._get_section(sections, [("14", "非功能需求"), ("15", "非功能需求"), ("14", "性能与安全"), ("15", "性能与安全")]),
+            "acceptance": cls._get_section(sections, [("15", "验收标准"), ("16", "验收标准"), ("15", "验收口径"), ("16", "验收口径")]),
+            "implementation_suggestions": cls._get_section(
+                sections,
+                [("16", "研发实现建议"), ("17", "研发实现建议"), ("16", "实现建议"), ("17", "实现建议")],
+            ),
+            "risks": cls._get_section(sections, [("17", "风险与依赖评估"), ("18", "风险与依赖评估"), ("17", "风险与待确认"), ("18", "风险与待确认")]),
+            "review_conclusion": cls._get_section(sections, [("18", "评审结论"), ("19", "评审结论"), ("18", "结论"), ("19", "结论")]),
+            "formulas": cls._get_section(sections, [("19", "附录：关键公式汇总"), ("19", "附录:关键公式汇总"), ("20", "附录：关键公式汇总"), ("20", "附录:关键公式汇总")]),
         }
 
         result["doc_info_rows"] = cls.extract_tables(result["doc_info"])
@@ -72,6 +101,27 @@ class PrdParser:
         result["core_principles"] = cls._extract_numbered_block(result["background"], "### 2.3 核心原则")
         result["subsections"] = cls._split_subsections(sections)
         return result
+
+    @classmethod
+    def _normalize_section_title(cls, title: str) -> str:
+        return re.sub(r"\s+", "", title).replace("：", ":").strip()
+
+    @classmethod
+    def _get_section(cls, sections: dict[str, str], candidates: list[tuple[str, str]]) -> str:
+        normalized_map = {
+            cls._normalize_section_title(key): value
+            for key, value in sections.items()
+        }
+        for number, name in candidates:
+            exact_key = cls._normalize_section_title(f"{number}. {name}")
+            if exact_key in normalized_map:
+                return normalized_map[exact_key]
+        for key, value in normalized_map.items():
+            for number, name in candidates:
+                normalized_name = cls._normalize_section_title(name)
+                if key.startswith(f"{number}.") and normalized_name in key:
+                    return value
+        return ""
 
     @classmethod
     def _split_sections(cls, text: str) -> dict[str, str]:

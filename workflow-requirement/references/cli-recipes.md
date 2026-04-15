@@ -10,6 +10,13 @@ python3 <skill-dir>/scripts/run_requirement_round.py \
   --summary "一句话需求摘要"
 ```
 
+默认会启用“高质量正文保留”（二次执行不降级覆盖）。
+如需强制覆写已有正文，可追加：
+
+```bash
+  --allow-content-overwrite
+```
+
 如需显式控制任务记忆初始化：
 
 ```bash
@@ -38,6 +45,14 @@ python3 <skill-dir>/scripts/populate_requirement_content.py \
   --date YYYY-MM-DD \
   --bundle-dir docs/workflow/requirements/YYYY-MM-DD-主题 \
   --prd-file docs/workflow/PRD/xxx.md
+```
+
+如需二次执行时保护已有高质量正文：
+
+```bash
+python3 <skill-dir>/scripts/populate_requirement_content.py \
+  ... \
+  --preserve-non-placeholder
 ```
 
 ```bash

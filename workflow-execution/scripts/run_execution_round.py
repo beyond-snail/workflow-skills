@@ -2,11 +2,19 @@
 from __future__ import annotations
 
 import argparse
+import fnmatch
+import json
 import re
 import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+import os
+
+try:
+    import tomllib  # py3.11+
+except ModuleNotFoundError:  # pragma: no cover
+    tomllib = None
 
 from cli_common import add_dry_run_arg, add_profile_arg, load_profile_from_args, print_header
 from legacy_context import load_legacy_scan, match_legacy_context, render_legacy_context_lines
@@ -32,6 +40,14 @@ class RequirementContext:
     prd_trace: Path | None
     acceptance_files: list[Path]
     test_result_files: list[Path]
+
+
+@dataclass
+class LocalConfigGuard:
+    source_file: Path
+    enabled: bool
+    action: str
+    patterns: list[str]
 
 
 def extract_links(cell: str) -> list[str]:
@@ -151,6 +167,160 @@ def build_commit_message(task: TaskRecord, commit_type: str) -> str:
     if task.req_id:
         return f"{commit_type}(task): {task.task_id} {task.title}\n\nRefs: {task.req_id}"
     return f"{commit_type}(task): {task.task_id} {task.title}"
+
+
+def _strip_quotes(value: str) -> str:
+    text = value.strip()
+    if len(text) >= 2 and text[0] == text[-1] and text[0] in {"'", '"'}:
+        return text[1:-1]
+    return text
+
+
+def _parse_simple_yaml_guard(path: Path) -> dict[str, object]:
+    data: dict[str, object] = {}
+    current_list_key: str | None = None
+    lines = path.read_text(encoding="utf-8").splitlines()
+    for raw in lines:
+        line = raw.split("#", 1)[0].rstrip()
+        if not line.strip():
+            continue
+        stripped = line.lstrip()
+        if stripped.startswith("- "):
+            if current_list_key is None:
+                continue
+            item = _strip_quotes(stripped[2:].strip())
+            data.setdefault(current_list_key, [])
+            if isinstance(data[current_list_key], list) and item:
+                data[current_list_key].append(item)
+            continue
+        current_list_key = None
+        if ":" not in stripped:
+            continue
+        key, value = stripped.split(":", 1)
+        key = key.strip()
+        value = value.strip()
+        if not value:
+            data[key] = []
+            current_list_key = key
+            continue
+        lowered = value.lower()
+        if lowered in {"true", "false"}:
+            data[key] = lowered == "true"
+            continue
+        data[key] = _strip_quotes(value)
+    return data
+
+
+def load_local_config_guard(workspace_root: Path, explicit_file: str | None) -> LocalConfigGuard | None:
+    candidates: list[Path] = []
+    if explicit_file:
+        explicit = Path(explicit_file)
+        candidates.append(explicit if explicit.is_absolute() else (workspace_root / explicit))
+    else:
+        candidates.extend(
+            [
+                workspace_root / ".ai/governance/local-config-guard.toml",
+                workspace_root / ".ai/governance/local-config-guard.json",
+                workspace_root / ".ai/governance/local-config-guard.yml",
+                workspace_root / ".ai/governance/local-config-guard.yaml",
+            ]
+        )
+
+    config_file = next((path for path in candidates if path.exists()), None)
+    if config_file is None:
+        return None
+
+    suffix = config_file.suffix.lower()
+    raw: dict[str, object]
+    if suffix == ".toml":
+        if tomllib is None:
+            print(f"[WARN] local-config-guard: tomllib unavailable, skip `{config_file}`")
+            return None
+        raw = tomllib.loads(config_file.read_text(encoding="utf-8"))
+    elif suffix == ".json":
+        raw = json.loads(config_file.read_text(encoding="utf-8"))
+    elif suffix in {".yml", ".yaml"}:
+        raw = _parse_simple_yaml_guard(config_file)
+    else:
+        print(f"[WARN] local-config-guard: unsupported format `{config_file}`")
+        return None
+
+    enabled = bool(raw.get("enabled", True))
+    action = str(raw.get("action", "warn")).strip().lower()
+    if action not in {"warn", "block", "auto-unstage"}:
+        print(f"[WARN] local-config-guard: invalid action `{action}`, fallback to `warn`")
+        action = "warn"
+    patterns = [str(item).strip().replace("\\", "/") for item in (raw.get("patterns") or []) if str(item).strip()]
+    return LocalConfigGuard(
+        source_file=config_file,
+        enabled=enabled,
+        action=action,
+        patterns=patterns,
+    )
+
+
+def _normalize_repo_path(path_text: str, git_root: Path) -> str:
+    text = path_text.strip()
+    if not text:
+        return text
+    if " -> " in text:
+        text = text.split(" -> ", 1)[1]
+    candidate = Path(text)
+    if candidate.is_absolute():
+        try:
+            text = str(candidate.resolve().relative_to(git_root.resolve()))
+        except ValueError:
+            text = str(candidate)
+    normalized = os.path.normpath(text).replace("\\", "/")
+    return normalized
+
+
+def apply_local_config_guard(
+    stage_files: list[str],
+    guard: LocalConfigGuard,
+    git_root: Path,
+) -> tuple[list[str], list[str], list[str]]:
+    logs: list[str] = []
+    blockers: list[str] = []
+    if not stage_files:
+        return stage_files, logs, blockers
+    if not guard.enabled or not guard.patterns:
+        logs.append(
+            f"- local-config-guard: disabled or empty patterns ({guard.source_file})"
+        )
+        return stage_files, logs, blockers
+
+    normalized_map = {path: _normalize_repo_path(path, git_root) for path in stage_files}
+    matched: list[tuple[str, str]] = []
+    for original, normalized in normalized_map.items():
+        for pattern in guard.patterns:
+            if fnmatch.fnmatch(normalized, pattern):
+                matched.append((original, pattern))
+                break
+
+    logs.append(
+        f"- local-config-guard: source={guard.source_file} action={guard.action} patterns={len(guard.patterns)} hits={len(matched)}"
+    )
+    if not matched:
+        return stage_files, logs, blockers
+
+    hits = ", ".join(f"{_normalize_repo_path(path, git_root)} <= {pattern}" for path, pattern in matched)
+    if guard.action == "warn":
+        logs.append(f"[WARN] local-config-guard: protected files detected: {hits}")
+        return stage_files, logs, blockers
+
+    if guard.action == "block":
+        blockers.append(f"命中本地配置保护策略，禁止提交：{hits}")
+        logs.append(f"[BLOCK] local-config-guard: blocked protected files: {hits}")
+        return stage_files, logs, blockers
+
+    # auto-unstage
+    blocked_set = {item[0] for item in matched}
+    filtered = [path for path in stage_files if path not in blocked_set]
+    logs.append(f"[WARN] local-config-guard: auto-unstage protected files: {hits}")
+    if not filtered:
+        blockers.append("本地配置保护过滤后无可提交文件")
+    return filtered, logs, blockers
 
 
 def find_task_memory_dir(project_paths: ProjectPaths, task_id: str) -> Path | None:
@@ -418,6 +588,7 @@ def main() -> int:
     parser.add_argument("--gate-evidence-file", action="append", default=[], help="Evidence file for blocked tests in release gate, repeatable")
     parser.add_argument("--allow-test-blocked", action="store_true", help="Allow test failure when blockers and alternative validation are documented")
     parser.add_argument("--stage-file", action="append", default=[], help="Specific file to stage for git commit, repeatable")
+    parser.add_argument("--local-config-guard-file", help="Repo local config guard file (toml/json/yaml); default auto-detect under .ai/governance/")
     parser.add_argument("--commit-type", default="feat", help="Commit type: feat|fix|docs|refactor|test|chore")
     parser.add_argument("--no-commit", action="store_true", help="Skip git add/commit")
     parser.add_argument("--no-push", action="store_true", help="Skip git push")
@@ -723,11 +894,18 @@ def main() -> int:
             blockers.append("git status --short 执行失败")
         else:
             stage_files = args.stage_file[:] if args.stage_file else parse_git_status_output(output)
+            guard = load_local_config_guard(project_paths.workspace_root, args.local_config_guard_file)
+            if guard:
+                stage_files, guard_logs, guard_blockers = apply_local_config_guard(stage_files, guard, git_root)
+                for line in guard_logs:
+                    print(line)
+                blockers.extend(guard_blockers)
             if not stage_files:
                 print("[BLOCK] 当前没有可提交变更，自动提交已跳过")
                 fatal_failure = True
                 commit_failed = True
-                blockers.append("未检测到可提交变更")
+                if not any("无可提交文件" in item or "未检测到可提交变更" in item for item in blockers):
+                    blockers.append("未检测到可提交变更")
             else:
                 add_cmd = ["git", "add", "--", *stage_files]
                 code, output = run_exec(add_cmd, cwd=git_root)

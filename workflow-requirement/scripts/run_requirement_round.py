@@ -244,7 +244,9 @@ def main() -> int:
     parser.add_argument("--layout", choices=("layered", "flat"), default="layered")
     parser.add_argument("--export-html", action="store_true", help="Also export 需求看板.html after governance sync")
     parser.add_argument("--skip-content-population", action="store_true", help="Skip PRD-driven正文填充 and only keep generated skeletons")
+    parser.add_argument("--allow-content-overwrite", action="store_true", help="Allow wf-req rerun to overwrite existing detailed docs")
     parser.add_argument("--skip-handoff-check", action="store_true", help="Skip readiness check at the end")
+    parser.add_argument("--strict-handoff-check", action="store_true", help="Run handoff readiness in strict mode (warnings become blockers)")
     parser.add_argument("--skip-task-memory-init", action="store_true", help="Skip initializing .ai/memory/tasks memory directory")
     parser.add_argument("--task-memory-type", default="feature", help="Task memory type: feature|bugfix|continuation|ops")
     parser.add_argument("--task-memory-status", default="todo", help="Initial task memory status")
@@ -297,7 +299,10 @@ def main() -> int:
         if args.skip_handoff_check:
             print("- action: skip handoff readiness check")
         else:
-            print("- action: run handoff readiness check and stop at manual review gate")
+            if args.strict_handoff_check:
+                print("- action: run strict handoff readiness check and stop at manual review gate")
+            else:
+                print("- action: run handoff readiness check and stop at manual review gate")
         infos, warnings = requirement_self_check(
             project_paths,
             planned,
@@ -429,6 +434,8 @@ def main() -> int:
             "--prd-file",
             str(prd_file),
         ]
+        if not args.allow_content_overwrite:
+            populate_args.append("--preserve-non-placeholder")
         if args.profile:
             populate_args = ["--profile", args.profile, *populate_args]
         if run_python("populate_requirement_content.py", populate_args, dry_run=False) != 0:
@@ -455,6 +462,8 @@ def main() -> int:
             "--docs-root",
             str(project_paths.workspace_root),
         ]
+        if args.strict_handoff_check:
+            handoff_args.append("--strict")
         if args.profile:
             handoff_args = ["--profile", args.profile, *handoff_args]
         if run_python("check_handoff_readiness.py", handoff_args, dry_run=False) != 0:

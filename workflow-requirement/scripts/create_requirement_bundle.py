@@ -11,10 +11,17 @@ from sync_requirement_pool import sync_requirement_pool_entry
 from sync_task_board import sync_task_board_entry
 
 
-def build_names(doc_date: str, theme: str, design_prefix: str, breakdown_prefix: str) -> tuple[str, str]:
+def build_names(
+    doc_date: str,
+    theme: str,
+    design_prefix: str,
+    breakdown_prefix: str,
+    design_order: str,
+    breakdown_order: str,
+) -> tuple[str, str]:
     return (
-        f"{doc_date}-{design_prefix}-{theme}.md",
-        f"{doc_date}-{breakdown_prefix}-{theme}.md",
+        f"{doc_date}-{design_order}-{design_prefix}-{theme}.md",
+        f"{doc_date}-{breakdown_order}-{breakdown_prefix}-{theme}.md",
     )
 
 
@@ -102,7 +109,7 @@ def detailed_design_body(doc_date: str, theme: str) -> str:
 
 ## 6. SQL 与数据落库设计
 
-## 7. 异常处理与回退策略
+## 7. 异常处理策略
 
 ## 8. 测试与验证设计
 """
@@ -246,14 +253,16 @@ def impl_alignment_body(doc_date: str, theme: str, prd_rel: str) -> str:
 
 - 业务规则与口径：统一以 `{prd_rel}` 为准
 - 核心开发：待补充
-- 报表/异常视图/导出：待补充
+- 页面/接口/异常视图：待补充
 - 最终业务验收：待补充
 
-## 2. 月结主流程图
+## 2. 核心流程图
 
 ```mermaid
 flowchart TD
-    A[入口] --> B[待补充]
+    A[入口] --> B[读取配置与前置数据]
+    B --> C[执行核心业务逻辑]
+    C --> D[输出结果并记录追溯]
 ```
 
 ## 3. 方法与需求对齐表
@@ -264,8 +273,115 @@ flowchart TD
 
 
 def sql_template_body(doc_date: str, theme: str, title: str) -> str:
+    if title == "DDL":
+        return f"""-- {doc_date} {title} - {theme}
+-- 目的：新增本需求涉及的数据表或约束
+-- 说明：请先在测试环境验证，再进入正式环境
+
+START TRANSACTION;
+
+-- 示例：新增业务主表
+-- CREATE TABLE IF NOT EXISTS `xxx_main` (
+--   `id` BIGINT NOT NULL AUTO_INCREMENT,
+--   `biz_code` VARCHAR(64) NOT NULL,
+--   `status` VARCHAR(32) NOT NULL DEFAULT 'INIT',
+--   `created_at` DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+--   `updated_at` DATETIME(6) DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+--   PRIMARY KEY (`id`),
+--   UNIQUE KEY `uk_xxx_main_biz_code` (`biz_code`)
+-- ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='业务主表';
+
+COMMIT;
+"""
+
+    if title == "DDL-字段修正":
+        return f"""-- {doc_date} {title} - {theme}
+-- 目的：对新增/现有表执行字段兼容修正
+-- 建议：只做向前兼容修改，避免破坏历史逻辑
+
+-- 示例：字段类型或默认值修正
+-- ALTER TABLE `xxx_main`
+--   MODIFY COLUMN `status` VARCHAR(32) NOT NULL DEFAULT 'INIT' COMMENT '状态';
+"""
+
+    if title == "DDL-索引修正":
+        return f"""-- {doc_date} {title} - {theme}
+-- 目的：补充高频查询索引
+-- 建议：优先用 IF NOT EXISTS 保证幂等
+
+-- 示例：按用户+时间检索
+-- CREATE INDEX IF NOT EXISTS `idx_xxx_user_created`
+--   ON `xxx_main` (`user_id`, `created_at`);
+"""
+
+    if title == "DDL-精简字段":
+        return f"""-- {doc_date} {title} - {theme}
+-- 目的：记录字段收敛建议（默认不直接删除）
+-- 建议：评审确认后再执行 DROP/迁移
+
+-- 示例：观察性查询
+-- SELECT COUNT(*) AS total_count FROM `xxx_main`;
+"""
+
+    if title == "DDL-主键序列":
+        return f"""-- {doc_date} {title} - {theme}
+-- 目的：统一主键策略检查（MySQL 通常使用 AUTO_INCREMENT）
+
+-- 示例：核对目标表主键定义
+-- SHOW CREATE TABLE `xxx_main`;
+"""
+
+    if title == "SQL-历史补全":
+        return f"""-- {doc_date} {title} - {theme}
+-- 目的：为历史数据补齐新字段或新表数据
+-- 说明：建议先备份，再在低峰期执行
+
+START TRANSACTION;
+
+-- 示例：从历史主数据回填新表
+-- INSERT INTO `xxx_main` (`biz_code`, `status`, `created_at`)
+-- SELECT s.`biz_code`, 'INIT', NOW(6)
+-- FROM `source_table` s
+-- LEFT JOIN `xxx_main` t ON t.`biz_code` = s.`biz_code`
+-- WHERE t.`id` IS NULL;
+
+COMMIT;
+"""
+
+    if title == "SQL-人工映射模板":
+        return f"""-- {doc_date} {title} - {theme}
+-- 目的：给人工映射和临时修复留标准入口
+-- 使用：将 TODO 替换为真实值后执行
+
+-- 示例：人工补录
+-- INSERT INTO `xxx_main` (`biz_code`, `status`, `created_at`)
+-- VALUES ('TODO_BIZ_CODE', 'INIT', NOW(6));
+
+-- 示例：人工修正
+-- UPDATE `xxx_main`
+-- SET `status` = 'DONE', `updated_at` = NOW(6)
+-- WHERE `id` = TODO_ID;
+"""
+
+    if title == "SQL-测试样本":
+        return f"""-- {doc_date} {title} - {theme}
+-- 目的：构造联调最小样本数据
+-- 说明：请先替换变量区，再执行
+
+START TRANSACTION;
+
+-- 变量区（手工替换）
+-- SET @biz_code := 'TODO_BIZ_CODE';
+
+-- 示例：插入测试样本
+-- INSERT INTO `xxx_main` (`biz_code`, `status`, `created_at`)
+-- VALUES (@biz_code, 'INIT', NOW(6));
+
+COMMIT;
+"""
+
     return f"""-- {doc_date} {title} - {theme}
--- 按实际需求补充 SQL
+-- 目的：补充本需求 SQL 脚本
 """
 
 
@@ -317,32 +433,32 @@ def directory_note_body() -> str:
 
 放结构类 SQL：
 
-1. 初始 DDL
-2. 字段修正
-3. 索引修正
-4. 主键序列补充
+1. 01-DDL（初始结构）
+2. 02-DDL-字段修正
+3. 03-DDL-索引修正
+4. 04-DDL-精简字段
+5. 05-DDL-主键序列
 
 ### sql/fix
 
 放历史数据修复和补全脚本：
 
-1. 自动回填脚本
-2. 人工映射模板
+1. 01-SQL-历史补全
+2. 02-SQL-人工映射模板
 
 ### sql/testdata
 
 放测试样本装载 SQL：
 
-1. 测试样本初始化
+1. 01-SQL-测试样本
 
 ## testing
 
 放联调与测试结果：
 
-1. 联调验收记录
-2. 测试数据方案
-3. 自动化测试结果
-4. UAT测试用例
+1. 01-联调验收记录
+2. 02-测试结果
+3. 03-UAT测试用例
 
 ## scripts
 
@@ -404,40 +520,40 @@ def create_layered_bundle(
 
     directory_note_rel = f"{rel_root}/00-目录说明.md"
     design_rel = f"{rel_root}/design/{design_name}"
-    detailed_design_name = f"{doc_date}-详细开发设计-{theme}.md"
+    detailed_design_name = f"{doc_date}-02-详细开发设计-{theme}.md"
     detailed_design_rel = f"{rel_root}/design/{detailed_design_name}"
     breakdown_rel = f"{rel_root}/design/{breakdown_name}"
-    physical_design_name = f"{doc_date}-物理表设计-{theme}.md"
+    physical_design_name = f"{doc_date}-04-物理表设计-{theme}.md"
     physical_design_rel = f"{rel_root}/design/{physical_design_name}"
-    table_mapping_name = f"{doc_date}-表名对照表-{theme}.md"
+    table_mapping_name = f"{doc_date}-05-表名对照表-{theme}.md"
     table_mapping_rel = f"{rel_root}/design/{table_mapping_name}"
-    prd_trace_name = f"{doc_date}-PRD追溯-{theme}.md"
+    prd_trace_name = f"{doc_date}-06-PRD追溯-{theme}.md"
     prd_trace_rel = f"{rel_root}/design/{prd_trace_name}"
-    product_confirm_name = f"{doc_date}-产品确认清单-{theme}.md"
+    product_confirm_name = f"{doc_date}-07-产品确认清单-{theme}.md"
     product_confirm_rel = f"{rel_root}/design/{product_confirm_name}"
-    impl_alignment_name = f"{doc_date}-流程图与实现对齐-{theme}.md"
+    impl_alignment_name = f"{doc_date}-08-流程图与实现对齐-{theme}.md"
     impl_alignment_rel = f"{rel_root}/design/{impl_alignment_name}"
-    ddl_name = f"{doc_date}-DDL-{theme}.sql"
+    ddl_name = f"{doc_date}-01-DDL-{theme}.sql"
     ddl_rel = f"{rel_root}/sql/ddl/{ddl_name}"
-    ddl_field_fix_name = f"{doc_date}-DDL-字段修正-{theme}.sql"
+    ddl_field_fix_name = f"{doc_date}-02-DDL-字段修正-{theme}.sql"
     ddl_field_fix_rel = f"{rel_root}/sql/ddl/{ddl_field_fix_name}"
-    ddl_index_fix_name = f"{doc_date}-DDL-索引修正-{theme}.sql"
+    ddl_index_fix_name = f"{doc_date}-03-DDL-索引修正-{theme}.sql"
     ddl_index_fix_rel = f"{rel_root}/sql/ddl/{ddl_index_fix_name}"
-    ddl_slim_name = f"{doc_date}-DDL-精简字段-{theme}.sql"
+    ddl_slim_name = f"{doc_date}-04-DDL-精简字段-{theme}.sql"
     ddl_slim_rel = f"{rel_root}/sql/ddl/{ddl_slim_name}"
-    ddl_sequence_name = f"{doc_date}-DDL-主键序列-{theme}.sql"
+    ddl_sequence_name = f"{doc_date}-05-DDL-主键序列-{theme}.sql"
     ddl_sequence_rel = f"{rel_root}/sql/ddl/{ddl_sequence_name}"
-    fix_auto_name = f"{doc_date}-SQL-历史补全-{theme}.sql"
+    fix_auto_name = f"{doc_date}-01-SQL-历史补全-{theme}.sql"
     fix_auto_rel = f"{rel_root}/sql/fix/{fix_auto_name}"
-    fix_manual_name = f"{doc_date}-SQL-人工映射模板-{theme}.sql"
+    fix_manual_name = f"{doc_date}-02-SQL-人工映射模板-{theme}.sql"
     fix_manual_rel = f"{rel_root}/sql/fix/{fix_manual_name}"
-    testdata_name = f"{doc_date}-SQL-测试样本-{theme}.sql"
+    testdata_name = f"{doc_date}-01-SQL-测试样本-{theme}.sql"
     testdata_rel = f"{rel_root}/sql/testdata/{testdata_name}"
-    acceptance_name = f"{doc_date}-联调验收记录-{theme}.md"
+    acceptance_name = f"{doc_date}-01-联调验收记录-{theme}.md"
     acceptance_rel = f"{rel_root}/testing/{acceptance_name}"
-    test_result_name = f"{doc_date}-测试结果-{theme}.md"
+    test_result_name = f"{doc_date}-02-测试结果-{theme}.md"
     test_result_rel = f"{rel_root}/testing/{test_result_name}"
-    uat_case_name = f"{doc_date}-UAT测试用例-{theme}.md"
+    uat_case_name = f"{doc_date}-03-UAT测试用例-{theme}.md"
     uat_case_rel = f"{rel_root}/testing/{uat_case_name}"
     scripts_readme_rel = f"{rel_root}/scripts/README.md"
 
@@ -563,11 +679,14 @@ def main() -> int:
     req_root = docs_root / args.req_root
     req_root.mkdir(parents=True, exist_ok=True)
 
+    design_order, breakdown_order = ("01", "03") if args.layout == "layered" else ("01", "02")
     design_name, breakdown_name = build_names(
         args.date,
         args.theme,
         args.design_prefix,
         args.breakdown_prefix,
+        design_order,
+        breakdown_order,
     )
 
     if args.per_demand_folder:
@@ -617,7 +736,7 @@ def main() -> int:
         design_docs = [
             f"[{bundle_link_root}/design/{design_name}]({bundle_link_root}/design/{design_name})",
             f"[{bundle_link_root}/design/{breakdown_name}]({bundle_link_root}/design/{breakdown_name})",
-            f"[{bundle_link_root}/design/{args.date}-PRD追溯-{args.theme}.md]({bundle_link_root}/design/{args.date}-PRD追溯-{args.theme}.md)",
+            f"[{bundle_link_root}/design/{args.date}-06-PRD追溯-{args.theme}.md]({bundle_link_root}/design/{args.date}-06-PRD追溯-{args.theme}.md)",
         ]
         source_link = f"[{args.prd_rel}]({args.prd_rel})"
         task_board_link = f"[{docs_prefix}/{args.req_root}/任务看板.md]({docs_prefix}/{args.req_root}/任务看板.md)"

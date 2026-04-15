@@ -12,7 +12,9 @@
 - **执行材料补齐**：生成开发任务拆解、测试验收标准等执行材料
 - **一句话治理入口**：通过 `run_requirement_round.py` 一次完成建包、入池、拆任务和交接检查
 - **PRD 正文填充**：自动把 PRD 关键内容展开到需求池摘要、设计文档、追溯和测试材料
+- **功能点细化生成**：按 `F001/F002...` 子章节（目标/规则/页面要求/交付要求）自动展开到技术设计、详细设计、任务拆解和测试材料
 - **多任务拆解**：不再只生成一条启动任务，而是按 PRD 模块细化到任务看板
+- **防降级覆盖**：`wf-req` 重跑默认保留高质量正文，避免被模板文本覆盖；需要时可显式强制覆写
 - **人工审核门**：任务拆解和交接检查通过后，默认停住，等待人工审核再开干
 - **HTML导出**：将需求池和任务看板导出为美观的HTML页面，方便产品查看
 - **任务记忆初始化**：优先初始化 `.ai/memory/tasks/<task>/` 并同步 `.ai/memory/tasks/index.md`，老仓库兼容回退 `.ai/memory/tasks/`
@@ -51,8 +53,17 @@
 
 ```bash
 python3 <skill-dir>/scripts/run_requirement_round.py \
-  --theme "订单销售成本结转" \
+  --theme "通用需求主题" \
   --summary "一句话整理需求并自动拆任务"
+```
+
+默认会启用“高质量正文保留”策略。若希望强制覆写现有正文，追加：
+
+```bash
+python3 <skill-dir>/scripts/run_requirement_round.py \
+  --theme "通用需求主题" \
+  --summary "一句话整理需求并自动拆任务" \
+  --allow-content-overwrite
 ```
 
 如需顺带生成给产品查看的总览页，可追加：
@@ -91,7 +102,7 @@ python3 <skill-dir>/scripts/sync_requirement_pool.py \
 python3 <skill-dir>/scripts/create_requirement_bundle.py \
   --docs-root doc \
   --date 2026-03-19 \
-  --theme "订单销售成本结转"
+  --theme "通用需求主题"
 ```
 
 默认会：
@@ -104,32 +115,32 @@ python3 <skill-dir>/scripts/create_requirement_bundle.py \
 6. 若治理文件不存在，则按默认模板自动初始化
 
 默认会创建以下结构：
-- `doc/requirements/2026-03-19-订单销售成本结转/`
-- `doc/requirements/2026-03-19-订单销售成本结转/00-目录说明.md`
-- `doc/requirements/2026-03-19-订单销售成本结转/design/2026-03-19-技术设计-订单销售成本结转.md`
-- `doc/requirements/2026-03-19-订单销售成本结转/design/2026-03-19-详细开发设计-订单销售成本结转.md`
-- `doc/requirements/2026-03-19-订单销售成本结转/design/2026-03-19-开发任务拆解-订单销售成本结转.md`
-- `doc/requirements/2026-03-19-订单销售成本结转/design/2026-03-19-物理表设计-订单销售成本结转.md`
-- `doc/requirements/2026-03-19-订单销售成本结转/design/2026-03-19-表名对照表-订单销售成本结转.md`
-- `doc/requirements/2026-03-19-订单销售成本结转/design/2026-03-19-PRD追溯-订单销售成本结转.md`
-- `doc/requirements/2026-03-19-订单销售成本结转/design/2026-03-19-产品确认清单-订单销售成本结转.md`
-- `doc/requirements/2026-03-19-订单销售成本结转/design/2026-03-19-流程图与实现对齐-订单销售成本结转.md`
-- `doc/requirements/2026-03-19-订单销售成本结转/sql/ddl/2026-03-19-DDL-订单销售成本结转.sql`
-- `doc/requirements/2026-03-19-订单销售成本结转/sql/ddl/2026-03-19-DDL-字段修正-订单销售成本结转.sql`
-- `doc/requirements/2026-03-19-订单销售成本结转/sql/ddl/2026-03-19-DDL-索引修正-订单销售成本结转.sql`
-- `doc/requirements/2026-03-19-订单销售成本结转/sql/ddl/2026-03-19-DDL-精简字段-订单销售成本结转.sql`
-- `doc/requirements/2026-03-19-订单销售成本结转/sql/ddl/2026-03-19-DDL-主键序列-订单销售成本结转.sql`
-- `doc/requirements/2026-03-19-订单销售成本结转/sql/fix/2026-03-19-SQL-历史补全-订单销售成本结转.sql`
-- `doc/requirements/2026-03-19-订单销售成本结转/sql/fix/2026-03-19-SQL-人工映射模板-订单销售成本结转.sql`
-- `doc/requirements/2026-03-19-订单销售成本结转/sql/testdata/2026-03-19-SQL-测试样本-订单销售成本结转.sql`
-- `doc/requirements/2026-03-19-订单销售成本结转/testing/2026-03-19-联调验收记录-订单销售成本结转.md`
-- `doc/requirements/2026-03-19-订单销售成本结转/testing/2026-03-19-测试结果-订单销售成本结转.md`
-- `doc/requirements/2026-03-19-订单销售成本结转/testing/2026-03-19-UAT测试用例-订单销售成本结转.md`
-- `doc/requirements/2026-03-19-订单销售成本结转/sql/ddl/`
-- `doc/requirements/2026-03-19-订单销售成本结转/sql/fix/`
-- `doc/requirements/2026-03-19-订单销售成本结转/sql/testdata/`
-- `doc/requirements/2026-03-19-订单销售成本结转/testing/`
-- `doc/requirements/2026-03-19-订单销售成本结转/scripts/README.md`
+- `doc/requirements/2026-03-19-通用需求主题/`
+- `doc/requirements/2026-03-19-通用需求主题/00-目录说明.md`
+- `doc/requirements/2026-03-19-通用需求主题/design/2026-03-19-技术设计-通用需求主题.md`
+- `doc/requirements/2026-03-19-通用需求主题/design/2026-03-19-详细开发设计-通用需求主题.md`
+- `doc/requirements/2026-03-19-通用需求主题/design/2026-03-19-开发任务拆解-通用需求主题.md`
+- `doc/requirements/2026-03-19-通用需求主题/design/2026-03-19-物理表设计-通用需求主题.md`
+- `doc/requirements/2026-03-19-通用需求主题/design/2026-03-19-表名对照表-通用需求主题.md`
+- `doc/requirements/2026-03-19-通用需求主题/design/2026-03-19-PRD追溯-通用需求主题.md`
+- `doc/requirements/2026-03-19-通用需求主题/design/2026-03-19-产品确认清单-通用需求主题.md`
+- `doc/requirements/2026-03-19-通用需求主题/design/2026-03-19-流程图与实现对齐-通用需求主题.md`
+- `doc/requirements/2026-03-19-通用需求主题/sql/ddl/2026-03-19-DDL-通用需求主题.sql`
+- `doc/requirements/2026-03-19-通用需求主题/sql/ddl/2026-03-19-DDL-字段修正-通用需求主题.sql`
+- `doc/requirements/2026-03-19-通用需求主题/sql/ddl/2026-03-19-DDL-索引修正-通用需求主题.sql`
+- `doc/requirements/2026-03-19-通用需求主题/sql/ddl/2026-03-19-DDL-精简字段-通用需求主题.sql`
+- `doc/requirements/2026-03-19-通用需求主题/sql/ddl/2026-03-19-DDL-主键序列-通用需求主题.sql`
+- `doc/requirements/2026-03-19-通用需求主题/sql/fix/2026-03-19-SQL-历史补全-通用需求主题.sql`
+- `doc/requirements/2026-03-19-通用需求主题/sql/fix/2026-03-19-SQL-人工映射模板-通用需求主题.sql`
+- `doc/requirements/2026-03-19-通用需求主题/sql/testdata/2026-03-19-SQL-测试样本-通用需求主题.sql`
+- `doc/requirements/2026-03-19-通用需求主题/testing/2026-03-19-联调验收记录-通用需求主题.md`
+- `doc/requirements/2026-03-19-通用需求主题/testing/2026-03-19-测试结果-通用需求主题.md`
+- `doc/requirements/2026-03-19-通用需求主题/testing/2026-03-19-UAT测试用例-通用需求主题.md`
+- `doc/requirements/2026-03-19-通用需求主题/sql/ddl/`
+- `doc/requirements/2026-03-19-通用需求主题/sql/fix/`
+- `doc/requirements/2026-03-19-通用需求主题/sql/testdata/`
+- `doc/requirements/2026-03-19-通用需求主题/testing/`
+- `doc/requirements/2026-03-19-通用需求主题/scripts/README.md`
 
 如需兼容旧项目的平铺结构，可改用：
 
@@ -137,7 +148,7 @@ python3 <skill-dir>/scripts/create_requirement_bundle.py \
 python3 <skill-dir>/scripts/create_requirement_bundle.py \
   --docs-root doc \
   --date 2026-03-19 \
-  --theme "订单销售成本结转" \
+  --theme "通用需求主题" \
   --layout flat
 ```
 
@@ -147,7 +158,7 @@ python3 <skill-dir>/scripts/create_requirement_bundle.py \
 python3 <skill-dir>/scripts/create_requirement_bundle.py \
   --docs-root doc \
   --date 2026-03-19 \
-  --theme "订单销售成本结转" \
+  --theme "通用需求主题" \
   --skip-governance-sync
 ```
 
