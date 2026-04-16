@@ -42,6 +42,7 @@ Mandatory rules:
 
 - `wf-init` -> `workflow-bootstrap`
 - `wf-doctor` -> `workflow-bootstrap` health check
+- `wf-cons` -> `workflow-bootstrap` consistency check
 - `wf-req` -> `workflow-requirement`
 - `wf-exec` -> `workflow-execution`
 - `wf-arc` -> `workflow-execution` archive
@@ -1331,6 +1332,7 @@ def main() -> int:
         ".ai/bin/workflow": WORKFLOW_BIN,
         ".ai/bin/wf-init": render_short_bin("init"),
         ".ai/bin/wf-doctor": render_short_bin("doctor"),
+        ".ai/bin/wf-cons": render_short_bin("cons"),
         ".ai/bin/wf-req": render_short_bin("req"),
         ".ai/bin/wf-exec": render_short_bin("exec"),
         ".ai/bin/wf-arc": render_short_bin("arc"),

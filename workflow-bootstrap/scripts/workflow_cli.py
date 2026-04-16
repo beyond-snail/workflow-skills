@@ -17,6 +17,7 @@ EXECUTION_DIR = ROOT_DIR / "workflow-execution" / "scripts"
 COMMAND_ALIASES = {
     "bootstrap": "init",
     "health": "doctor",
+    "consistency": "cons",
     "requirement": "req",
     "execution": "exec",
     "archive": "arc",
@@ -40,6 +41,10 @@ def main() -> int:
 
     p_health = subparsers.add_parser("health", aliases=["doctor"], help="Run workflow health check")
     p_health.add_argument("--workspace-root", default=".")
+
+    p_consistency = subparsers.add_parser("consistency", aliases=["cons"], help="Run cross-skill consistency check")
+    p_consistency.add_argument("--workspace-root", default=".")
+    p_consistency.add_argument("--fail-on-warn", action="store_true")
 
     p_requirement = subparsers.add_parser("requirement", aliases=["req"], help="Run requirement round")
     p_requirement.add_argument("--workspace-root", default=".")
@@ -92,6 +97,17 @@ def main() -> int:
             ],
             f"{COMMAND_ALIASES['health']} health",
         )
+
+    if args.command in {"consistency", "cons"}:
+        cmd = [
+            sys.executable,
+            str(BOOTSTRAP_DIR / "check_workflow_consistency.py"),
+            "--workspace-root",
+            args.workspace_root,
+        ]
+        if args.fail_on_warn:
+            cmd.append("--fail-on-warn")
+        return run(cmd, f"{COMMAND_ALIASES['consistency']} consistency")
 
     if args.command in {"requirement", "req"}:
         cmd = [

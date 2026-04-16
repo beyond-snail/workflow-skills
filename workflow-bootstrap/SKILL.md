@@ -62,6 +62,7 @@ description: 当需要给一个新仓库或旧仓库补齐 workflow + memory 协
    - `workflow`
    - `wf-init`
    - `wf-doctor`
+   - `wf-cons`
    - `wf-req`
    - `wf-exec`
    - `wf-arc`
@@ -155,6 +156,7 @@ python3 <skill-dir>/scripts/init_workflow_bootstrap.py --host codex --host claud
 
 ```bash
 python3 <skill-dir>/scripts/check_workflow_health.py --workspace-root .
+python3 <skill-dir>/scripts/check_workflow_consistency.py --workspace-root .
 ```
 
 统一短命令入口：
@@ -162,6 +164,8 @@ python3 <skill-dir>/scripts/check_workflow_health.py --workspace-root .
 ```bash
 python3 <skill-dir>/scripts/workflow_cli.py health --workspace-root .
 python3 <skill-dir>/scripts/workflow_cli.py doctor --workspace-root .
+python3 <skill-dir>/scripts/workflow_cli.py consistency --workspace-root .
+python3 <skill-dir>/scripts/workflow_cli.py cons --workspace-root .
 python3 <skill-dir>/scripts/workflow_cli.py bootstrap --workspace-root . --host codex --host claude
 python3 <skill-dir>/scripts/workflow_cli.py init --workspace-root . --host codex --host claude
 python3 <skill-dir>/scripts/workflow_cli.py requirement --workspace-root . --theme "主题" --dry-run
@@ -178,6 +182,7 @@ python3 <skill-dir>/scripts/workflow_cli.py arc --workspace-root . --task-id TAS
 
 ```bash
 .ai/bin/workflow doctor --workspace-root .
+.ai/bin/workflow cons --workspace-root .
 .ai/bin/workflow init --workspace-root . --host codex --host claude
 .ai/bin/workflow req --workspace-root . --theme "主题" --dry-run
 .ai/bin/workflow exec --workspace-root . --req-id REQ-xxxx --task-id TASK-xxxx --dry-run
@@ -188,6 +193,7 @@ python3 <skill-dir>/scripts/workflow_cli.py arc --workspace-root . --task-id TAS
 
 ```bash
 .ai/bin/wf-doctor --workspace-root .
+.ai/bin/wf-cons --workspace-root .
 .ai/bin/wf-init --workspace-root . --host codex --host claude
 .ai/bin/wf-req --workspace-root . --theme "主题" --dry-run
 .ai/bin/wf-exec --workspace-root . --req-id REQ-xxxx --task-id TASK-xxxx --dry-run
@@ -196,7 +202,7 @@ python3 <skill-dir>/scripts/workflow_cli.py arc --workspace-root . --task-id TAS
 
 ## 维护说明
 
-1. 版本：`v1.1.0`
+1. 版本：`v2.6.0`
 2. 这是 workflow 家族的仓库初始化入口
 3. 生成的 profile 默认把 `.ai/memory` 作为任务记忆和知识主路径
 4. bootstrap 同时生成 `.ai/runtime/project-state.json` 的最小骨架，后续由 requirement / execution 增量回写
