@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type { RuntimeState } from "../lib/types";
 import { codexStatusLabels } from "../lib/codex-labels";
 import { projectOtherHostSummary, projectPrimaryHostLabel, runtimePrimaryHostLabel } from "../lib/host-utils";
+import { selectDisplayHostSession } from "../lib/host-session";
 import { isWorkflowLinked, parseTaskProgress } from "../lib/progress";
 
 type FloatingCardProps = {
@@ -10,9 +11,10 @@ type FloatingCardProps = {
 
 export function FloatingCard({ state }: FloatingCardProps) {
   const project = state.spotlight_project;
+  const displayHostSession = selectDisplayHostSession(project);
   const workflowLinked = isWorkflowLinked(project);
   const autoResumeCopy = project
-    ? project.auto_resume_enabled
+    ? (displayHostSession?.auto_resume_enabled ?? project.auto_resume_enabled)
       ? "自动续跑开启"
       : workflowLinked
         ? "自动续跑关闭"
@@ -33,8 +35,8 @@ export function FloatingCard({ state }: FloatingCardProps) {
           </div>
         </div>
         <div className="agent-card__status">
-          <span className={`status-dot status-dot--${state.codex.status}`} />
-          <strong>{codexStatusLabels[state.codex.status]}</strong>
+          <span className={`status-dot status-dot--${displayHostSession?.status ?? state.codex.status}`} />
+          <strong>{codexStatusLabels[displayHostSession?.status ?? state.codex.status]}</strong>
         </div>
       </header>
 
@@ -47,12 +49,12 @@ export function FloatingCard({ state }: FloatingCardProps) {
         </div>
         <div className="agent-card__meta">
           <span>{project ? workflowLinked ? project.current_task_id || project.current_req_id || "待同步" : "未接入 workflow，暂无任务同步" : state.codex.active_thread_name}</span>
-          <strong>{project ? codexStatusLabels[project.codex_status] : "--"}</strong>
+          <strong>{project ? codexStatusLabels[displayHostSession?.status ?? "offline"] : "--"}</strong>
         </div>
       </div>
 
       <div className="agent-card__subrow">
-        <span>最近心跳 {project?.codex_heartbeat_at ?? state.codex.heartbeat_at}{otherHostSummary ? ` · ${otherHostSummary}` : ""} · {autoResumeCopy}</span>
+        <span>最近心跳 {project ? (displayHostSession?.heartbeat_at ?? "暂无") : state.codex.heartbeat_at}{otherHostSummary ? ` · ${otherHostSummary}` : ""} · {autoResumeCopy}</span>
         <button className="inline-link-button" type="button" onClick={() => invoke("set_floating_visibility", { visible: false })}>
           隐藏
         </button>

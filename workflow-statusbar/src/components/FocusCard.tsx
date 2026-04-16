@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type { ProjectSnapshot } from "../lib/types";
 import { codexStatusLabels } from "../lib/codex-labels";
 import { projectOtherHostSummary, projectPrimaryHostLabel } from "../lib/host-utils";
+import { selectDisplayHostSession } from "../lib/host-session";
 import { isWorkflowLinked, parseTaskProgress } from "../lib/progress";
 
 type FocusCardProps = {
@@ -9,8 +10,9 @@ type FocusCardProps = {
 };
 
 export function FocusCard({ project }: FocusCardProps) {
+  const displayHostSession = selectDisplayHostSession(project);
   const workflowLinked = isWorkflowLinked(project);
-  const autoResumeCopy = project.auto_resume_enabled
+  const autoResumeCopy = (displayHostSession?.auto_resume_enabled ?? project.auto_resume_enabled)
     ? "自动续跑已开启"
     : workflowLinked
       ? "自动续跑未开启"
@@ -52,7 +54,7 @@ export function FocusCard({ project }: FocusCardProps) {
 
       <div className="agent-card__subrow">
         <span>
-          {hostLabel} {codexStatusLabels[project.codex_status]} · {project.codex_heartbeat_at}
+          {hostLabel} {codexStatusLabels[displayHostSession?.status ?? "offline"]} · {displayHostSession?.heartbeat_at ?? "暂无"}
           {otherHostSummary ? ` · ${otherHostSummary}` : ""}
           {" · "}
           {autoResumeCopy}

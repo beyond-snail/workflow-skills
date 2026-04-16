@@ -23,6 +23,7 @@ use tauri_plugin_notification::NotificationExt;
 const MAX_GROUP_ITEMS: usize = 5;
 const PROJECT_ROTATION_SECONDS: i64 = 8;
 const AUTO_RESUME_COOLDOWN_SECONDS: i64 = 90;
+const OTHER_HOST_SUMMARY_FRESH_WINDOW_SECONDS: i64 = 2 * 60 * 60;
 const POLL_INTERVAL_SECONDS: u64 = 8;
 const TRAY_MENU_OPEN_DASHBOARD: &str = "open_dashboard";
 const TRAY_MENU_OPEN_ALERT_SETTINGS: &str = "open_alert_settings";
@@ -311,14 +312,26 @@ struct RemoteAlertPayload {
 }
 
 #[derive(Serialize)]
-struct DebugProjectEntry<'a> {
-    name: &'a str,
-    path: &'a str,
+struct DebugHostEntry {
+    host: HostKind,
+    thread_id: String,
+    project_path: String,
+    status: CodexStatus,
+    updated_at: i64,
+}
+
+#[derive(Serialize)]
+struct DebugProjectEntry {
+    name: String,
+    path: String,
     is_open_in_ide: bool,
-    thread_name: &'a str,
-    workflow_stage: &'a WorkflowStage,
-    active_host: &'a Option<HostKind>,
-    other_host_summary: &'a str,
+    thread_name: String,
+    workflow_stage: WorkflowStage,
+    active_host_before_apply: Option<HostKind>,
+    active_host_after_apply: Option<HostKind>,
+    other_host_summary: String,
+    hosts_count: usize,
+    hosts: Vec<DebugHostEntry>,
 }
 
 #[derive(Serialize)]
@@ -328,7 +341,13 @@ struct RuntimeDebugSnapshot<'a> {
     known_paths: &'a [String],
     frontmost_project_paths: &'a [String],
     open_project_paths: &'a [String],
-    projects: Vec<DebugProjectEntry<'a>>,
+    claude_threads: &'a [ClaudeThreadDebugEntry],
+    claude_probe: Option<ClaudeProbeSnapshot>,
+    spotlight_before_apply_path: String,
+    spotlight_before_apply_host: Option<HostKind>,
+    spotlight_after_apply_path: String,
+    spotlight_after_apply_host: Option<HostKind>,
+    projects: Vec<DebugProjectEntry>,
 }
 
 #[derive(Deserialize)]
@@ -469,6 +488,59 @@ struct ClaudeThread {
     last_message_text: String,
 }
 
+#[derive(Clone, Serialize)]
+struct ClaudeThreadDebugEntry {
+    id: String,
+    project_path: String,
+    updated_at: i64,
+    file_path: String,
+    discovery_status: String,
+    matched_project_path: String,
+    match_status: String,
+    matched_project_name: String,
+}
+
+#[derive(Clone, Serialize)]
+struct ClaudeProbeSnapshot {
+    home: String,
+    projects_root_exists: bool,
+    project_dir_count: usize,
+    project_jsonl_count: usize,
+    history_session_count: usize,
+    session_file_count: usize,
+    discovered_threads_count: usize,
+}
+
+impl ClaudeThreadDebugEntry {
+    fn discovered(thread: &ClaudeThread, file_path: &Path) -> Self {
+        Self {
+            id: thread.id.clone(),
+            project_path: thread.project_path.clone(),
+            updated_at: thread.updated_at,
+            file_path: file_path.to_string_lossy().to_string(),
+            discovery_status: "discovered".into(),
+            matched_project_path: String::new(),
+            match_status: "pending_match".into(),
+            matched_project_name: String::new(),
+        }
+    }
+
+    fn skipped(session_id: &str, project_path: &str, file_path: Option<&Path>, reason: &str) -> Self {
+        Self {
+            id: session_id.into(),
+            project_path: project_path.into(),
+            updated_at: 0,
+            file_path: file_path
+                .map(|path| path.to_string_lossy().to_string())
+                .unwrap_or_default(),
+            discovery_status: reason.into(),
+            matched_project_path: String::new(),
+            match_status: "not_applicable".into(),
+            matched_project_name: String::new(),
+        }
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize, Default)]
 struct TokenUsage {
     input: i64,
@@ -593,6 +665,11 @@ fn write_runtime_debug_snapshot(
     code_titles: &[String],
     known_paths: &[String],
     ide_signal: &IdeSignal,
+    claude_threads: &[ClaudeThreadDebugEntry],
+    claude_probe: Option<ClaudeProbeSnapshot>,
+    projects_before_apply: &[ProjectSnapshot],
+    spotlight_before_apply: Option<&ProjectSnapshot>,
+    spotlight_after_apply: Option<&ProjectSnapshot>,
     projects: &[ProjectSnapshot],
 ) {
     let Some(path) = debug_log_path() else {
@@ -603,22 +680,55 @@ fn write_runtime_debug_snapshot(
         let _ = fs::create_dir_all(parent);
     }
 
+    let before_active_host_by_path: HashMap<String, Option<HostKind>> = projects_before_apply
+        .iter()
+        .map(|project| (project.path.clone(), project.active_host.clone()))
+        .collect();
+
     let snapshot = RuntimeDebugSnapshot {
         updated_at: Local::now().to_rfc3339(),
         code_titles,
         known_paths,
         frontmost_project_paths: &ide_signal.frontmost_project_paths,
         open_project_paths: &ide_signal.open_project_paths,
+        claude_threads,
+        claude_probe,
+        spotlight_before_apply_path: spotlight_before_apply
+            .map(|item| item.path.clone())
+            .unwrap_or_default(),
+        spotlight_before_apply_host: spotlight_before_apply
+            .and_then(|item| item.active_host.clone()),
+        spotlight_after_apply_path: spotlight_after_apply
+            .map(|item| item.path.clone())
+            .unwrap_or_default(),
+        spotlight_after_apply_host: spotlight_after_apply
+            .and_then(|item| item.active_host.clone()),
         projects: projects
             .iter()
             .map(|project| DebugProjectEntry {
-                name: &project.name,
-                path: &project.path,
+                name: project.name.clone(),
+                path: project.path.clone(),
                 is_open_in_ide: project.is_open_in_ide,
-                thread_name: &project.codex_thread_name,
-                workflow_stage: &project.workflow_stage,
-                active_host: &project.active_host,
-                other_host_summary: &project.other_host_summary,
+                thread_name: project.codex_thread_name.clone(),
+                workflow_stage: project.workflow_stage.clone(),
+                active_host_before_apply: before_active_host_by_path
+                    .get(&project.path)
+                    .cloned()
+                    .flatten(),
+                active_host_after_apply: project.active_host.clone(),
+                other_host_summary: project.other_host_summary.clone(),
+                hosts_count: project.hosts.len(),
+                hosts: project
+                    .hosts
+                    .iter()
+                    .map(|host| DebugHostEntry {
+                        host: host.host.clone(),
+                        thread_id: host.thread_id.clone(),
+                        project_path: host.project_path.clone(),
+                        status: host.status.clone(),
+                        updated_at: host.updated_at,
+                    })
+                    .collect(),
             })
             .collect(),
     };
@@ -1114,12 +1224,15 @@ fn claude_process_running() -> bool {
         .unwrap_or(false)
 }
 
-fn read_recent_claude_threads(home: &Path) -> Vec<ClaudeThread> {
+fn read_recent_claude_threads(
+    home: &Path,
+) -> (
+    Vec<ClaudeThread>,
+    Vec<ClaudeThreadDebugEntry>,
+    ClaudeProbeSnapshot,
+) {
     let history_path = home.join(".claude/history.jsonl");
-    let content = match fs::read_to_string(history_path) {
-        Ok(content) => content,
-        Err(_) => return Vec::new(),
-    };
+    let content = fs::read_to_string(history_path).unwrap_or_default();
 
     let mut project_by_session: HashMap<String, (String, i64)> = HashMap::new();
     for line in content.lines() {
@@ -1148,18 +1261,96 @@ fn read_recent_claude_threads(home: &Path) -> Vec<ClaudeThread> {
     }
 
     let projects_root = home.join(".claude/projects");
-    let mut threads = Vec::new();
-    let mut seen = HashSet::new();
-    for (session_id, (project_path, history_ts)) in project_by_session {
+    let now = unix_now();
+    let stale_threshold = 7 * 24 * 3600;
+    let mut session_files: HashMap<String, (PathBuf, i64)> = HashMap::new();
+    let mut debug_entries = Vec::new();
+    let mut project_dir_count = 0usize;
+    let mut project_jsonl_count = 0usize;
+
+    if let Ok(project_dirs) = fs::read_dir(&projects_root) {
+        for project_dir in project_dirs.flatten() {
+            let dir_path = project_dir.path();
+            if !dir_path.is_dir() {
+                continue;
+            }
+            project_dir_count += 1;
+            let Ok(files) = fs::read_dir(dir_path) else {
+                continue;
+            };
+            for file in files.flatten() {
+                let file_path = file.path();
+                if file_path.extension().and_then(|value| value.to_str()) != Some("jsonl") {
+                    continue;
+                }
+                project_jsonl_count += 1;
+                let Some(session_id) = file_path
+                    .file_stem()
+                    .and_then(|value| value.to_str())
+                    .map(|value| value.to_string())
+                else {
+                    continue;
+                };
+                let modified_at = fs::metadata(&file_path)
+                    .ok()
+                    .and_then(|meta| meta.modified().ok())
+                    .and_then(|ts| ts.duration_since(UNIX_EPOCH).ok())
+                    .map(|duration| duration.as_secs() as i64)
+                    .unwrap_or_default();
+
+                let in_history = project_by_session.contains_key(&session_id);
+                if !in_history
+                    && modified_at > 0
+                    && now.saturating_sub(modified_at) > stale_threshold
+                {
+                    continue;
+                }
+
+                let replace = session_files
+                    .get(&session_id)
+                    .map(|(_, existing_ts)| modified_at >= *existing_ts)
+                    .unwrap_or(true);
+                if replace {
+                    session_files.insert(session_id, (file_path, modified_at));
+                }
+            }
+        }
+    }
+
+    for (session_id, (project_path, _)) in &project_by_session {
+        if session_files.contains_key(session_id) {
+            continue;
+        }
         let escaped = project_path.trim_start_matches('/').replace('/', "-");
         let candidate = projects_root.join(format!("-{escaped}/{session_id}.jsonl"));
-        let file_path = if candidate.is_file() {
-            candidate
-        } else {
+        if !candidate.is_file() {
+            debug_entries.push(ClaudeThreadDebugEntry::skipped(
+                session_id,
+                project_path,
+                Some(&candidate),
+                "candidate_missing",
+            ));
             continue;
-        };
+        }
+        let modified_at = fs::metadata(&candidate)
+            .ok()
+            .and_then(|meta| meta.modified().ok())
+            .and_then(|ts| ts.duration_since(UNIX_EPOCH).ok())
+            .map(|duration| duration.as_secs() as i64)
+            .unwrap_or_default();
+        session_files.insert(session_id.clone(), (candidate, modified_at));
+    }
 
-        let mut updated_at = history_ts;
+    let session_file_count = session_files.len();
+    let mut threads = Vec::new();
+    let mut seen = HashSet::new();
+    for (session_id, (file_path, _)) in session_files {
+        let (mut project_path, mut updated_at) = project_by_session
+            .get(&session_id)
+            .cloned()
+            .unwrap_or_else(|| (String::new(), 0));
+        let mut normalized_session_id = session_id.clone();
+
         let mut last_role = String::new();
         let mut last_text = String::new();
         if let Ok(file_content) = fs::read_to_string(&file_path) {
@@ -1167,9 +1358,24 @@ fn read_recent_claude_threads(home: &Path) -> Vec<ClaudeThread> {
                 let Ok(payload) = serde_json::from_str::<serde_json::Value>(line) else {
                     continue;
                 };
+                if let Some(value) = payload.get("sessionId").and_then(|item| item.as_str()) {
+                    if !value.trim().is_empty() {
+                        normalized_session_id = value.to_string();
+                    }
+                }
+                if let Some(cwd) = payload.get("cwd").and_then(|value| value.as_str()) {
+                    if !cwd.trim().is_empty() {
+                        project_path = cwd.trim().to_string();
+                    }
+                }
                 if let Some(ts) = payload.get("timestamp").and_then(|value| value.as_str()) {
                     if let Ok(parsed) = chrono::DateTime::parse_from_rfc3339(ts) {
                         updated_at = updated_at.max(parsed.timestamp());
+                    }
+                }
+                if let Some(ts_ms) = payload.get("timestamp").and_then(|value| value.as_i64()) {
+                    if ts_ms > 0 {
+                        updated_at = updated_at.max(ts_ms / 1000);
                     }
                 }
 
@@ -1196,19 +1402,41 @@ fn read_recent_claude_threads(home: &Path) -> Vec<ClaudeThread> {
             }
         }
 
-        if seen.insert((session_id.clone(), project_path.clone())) {
-            threads.push(ClaudeThread {
-                id: session_id,
+        if project_path.trim().is_empty() {
+            debug_entries.push(ClaudeThreadDebugEntry::skipped(
+                &normalized_session_id,
+                "",
+                Some(&file_path),
+                "missing_project_path",
+            ));
+            continue;
+        }
+
+        if seen.insert((normalized_session_id.clone(), project_path.clone())) {
+            let thread = ClaudeThread {
+                id: normalized_session_id,
                 project_path,
                 updated_at,
                 last_message_role: last_role,
                 last_message_text: last_text,
-            });
+            };
+            debug_entries.push(ClaudeThreadDebugEntry::discovered(&thread, &file_path));
+            threads.push(thread);
         }
     }
 
     threads.sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
-    threads
+    debug_entries.sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
+    let probe = ClaudeProbeSnapshot {
+        home: home.to_string_lossy().to_string(),
+        projects_root_exists: projects_root.exists(),
+        project_dir_count,
+        project_jsonl_count,
+        history_session_count: project_by_session.len(),
+        session_file_count,
+        discovered_threads_count: threads.len(),
+    };
+    (threads, debug_entries, probe)
 }
 
 fn read_frontmost_pid() -> Option<i32> {
@@ -1978,31 +2206,76 @@ fn host_priority(status: &CodexStatus) -> i32 {
     }
 }
 
-fn select_active_host_session<'a>(hosts: &'a [HostSession]) -> Option<&'a HostSession> {
-    hosts.iter().max_by(|left, right| {
-        host_priority(&left.status)
-            .cmp(&host_priority(&right.status))
-            .then_with(|| left.updated_at.cmp(&right.updated_at))
-            .then_with(|| {
-                if matches!(left.host, HostKind::Codex) && !matches!(right.host, HostKind::Codex) {
-                    std::cmp::Ordering::Greater
-                } else if !matches!(left.host, HostKind::Codex) && matches!(right.host, HostKind::Codex) {
-                    std::cmp::Ordering::Less
-                } else {
-                    std::cmp::Ordering::Equal
-                }
-            })
-    })
+fn host_rank_order(left: &HostSession, right: &HostSession) -> std::cmp::Ordering {
+    host_priority(&left.status)
+        .cmp(&host_priority(&right.status))
+        .then_with(|| left.updated_at.cmp(&right.updated_at))
+        .then_with(|| {
+            if matches!(left.host, HostKind::Codex) && !matches!(right.host, HostKind::Codex) {
+                std::cmp::Ordering::Greater
+            } else if !matches!(left.host, HostKind::Codex) && matches!(right.host, HostKind::Codex) {
+                std::cmp::Ordering::Less
+            } else {
+                std::cmp::Ordering::Equal
+            }
+        })
 }
 
-fn other_host_summary_for(hosts: &[HostSession], active_host: Option<&HostKind>) -> String {
+fn select_active_host_session<'a>(
+    hosts: &'a [HostSession],
+    preferred_project_path: Option<&str>,
+) -> Option<&'a HostSession> {
+    if let Some(preferred_project_path) = preferred_project_path {
+        let selected = hosts
+            .iter()
+            .filter(|host| {
+                !host.project_path.trim().is_empty()
+                    && path_matches(preferred_project_path, &host.project_path)
+            })
+            .max_by(|left, right| host_rank_order(left, right));
+        if selected.is_some() {
+            return selected;
+        }
+    }
+
+    hosts.iter().max_by(|left, right| host_rank_order(left, right))
+}
+
+fn should_include_other_host_in_summary(host: &HostSession, now: i64) -> bool {
+    let age = if host.updated_at > 0 {
+        now.saturating_sub(host.updated_at)
+    } else {
+        i64::MAX
+    };
+
+    match host.status {
+        CodexStatus::Running | CodexStatus::WaitingInput => true,
+        CodexStatus::Stalled | CodexStatus::Idle => age <= OTHER_HOST_SUMMARY_FRESH_WINDOW_SECONDS,
+        CodexStatus::Offline => false,
+    }
+}
+
+fn other_host_summary_for(hosts: &[HostSession], active_host: Option<&HostKind>, now: i64) -> String {
     let Some(active_host) = active_host else {
         return String::new();
     };
-    let other_hosts = hosts
+    let mut other_hosts = hosts
         .iter()
         .filter(|host| &host.host != active_host)
-        .map(|host| match host.host {
+        .filter(|host| should_include_other_host_in_summary(host, now))
+        .map(|host| host.host.clone())
+        .collect::<Vec<_>>();
+
+    other_hosts.sort_by(|left, right| match (left, right) {
+        (HostKind::Codex, HostKind::Claude) => std::cmp::Ordering::Less,
+        (HostKind::Claude, HostKind::Codex) => std::cmp::Ordering::Greater,
+        _ => std::cmp::Ordering::Equal,
+    });
+    other_hosts.dedup();
+
+    let other_hosts = other_hosts
+        .iter()
+        .map(|host| match host {
             HostKind::Codex => "Codex".to_string(),
             HostKind::Claude => "Claude".to_string(),
         })
@@ -2050,32 +2323,115 @@ fn apply_runtime_host_compatibility(state: &mut RuntimeState, now: i64) {
         state.hosts.push(build_codex_global_host_session(&state.codex, now));
     }
 
-    let active_session = select_active_host_session(&state.hosts);
+    let active_session = select_active_host_session(&state.hosts, None);
     state.active_host = active_session.map(|session| session.host.clone());
-    state.other_host_summary = other_host_summary_for(&state.hosts, state.active_host.as_ref());
+    state.other_host_summary = other_host_summary_for(&state.hosts, state.active_host.as_ref(), now);
 
     for project in &mut state.projects {
-        let project_active_session = select_active_host_session(&project.hosts);
+        let project_active_session = select_active_host_session(&project.hosts, Some(&project.path));
         project.active_host = project_active_session.map(|session| session.host.clone());
-        project.other_host_summary = other_host_summary_for(&project.hosts, project.active_host.as_ref());
+        project.other_host_summary =
+            other_host_summary_for(&project.hosts, project.active_host.as_ref(), now);
         apply_legacy_codex_fields_from_hosts(project);
     }
 }
 
-fn enrich_projects_with_claude_host(projects: &mut [ProjectSnapshot], claude_threads: &[ClaudeThread], now: i64) {
+fn enrich_projects_with_claude_host(
+    projects: &mut [ProjectSnapshot],
+    claude_threads: &[ClaudeThread],
+    claude_debug_entries: &mut [ClaudeThreadDebugEntry],
+    now: i64,
+) {
+    let process_running = claude_process_running();
     for thread in claude_threads {
-        let Some(project) = projects
+        let matched_project = find_best_project_index(projects, &thread.project_path)
+            .map(|project_index| (project_index, projects[project_index].path.clone()));
+
+        if let Some(debug_entry) = claude_debug_entries
             .iter_mut()
-            .find(|project| path_matches(&project.path, &thread.project_path) || path_matches(&thread.project_path, &project.path))
-        else {
+            .find(|entry| entry.id == thread.id && entry.project_path == thread.project_path)
+        {
+            match &matched_project {
+                Some((project_index, project_path)) => {
+                    debug_entry.matched_project_path = project_path.clone();
+                    debug_entry.matched_project_name = projects[*project_index].name.clone();
+                    debug_entry.match_status = "matched_project".into();
+                }
+                None => {
+                    debug_entry.match_status = "no_project_match".into();
+                }
+            }
+        }
+
+        let Some((project_index, _)) = matched_project else {
             continue;
         };
-        if project.hosts.iter().any(|host| matches!(host.host, HostKind::Claude) && host.thread_id == thread.id) {
+        let project = &mut projects[project_index];
+        if project
+            .hosts
+            .iter()
+            .any(|host| matches!(host.host, HostKind::Claude) && host.thread_id == thread.id)
+        {
             continue;
         }
-        let process_running = claude_process_running();
-        project.hosts.push(build_claude_global_host_session(process_running, Some(thread), now));
+        project
+            .hosts
+            .push(build_claude_global_host_session(process_running, Some(thread), now));
     }
+}
+
+fn project_path_match_score(project_path: &str, thread_project_path: &str) -> Option<(i32, usize)> {
+    let project = project_path.trim_end_matches('/');
+    let thread = thread_project_path.trim_end_matches('/');
+
+    if project.is_empty() || thread.is_empty() {
+        return None;
+    }
+    if project == thread {
+        return Some((4, project.len()));
+    }
+    if path_matches(project, thread) {
+        return Some((3, project.len()));
+    }
+    None
+}
+
+fn preferred_project_match_bonus(project: &ProjectSnapshot, thread_project_path: &str) -> i32 {
+    let thread = thread_project_path.trim_end_matches('/');
+    if thread.is_empty() {
+        return 0;
+    }
+
+    let mut bonus = 0;
+    if !project.path.trim().is_empty() && project.path.trim_end_matches('/') == thread {
+        bonus += 100;
+    }
+    if !project.is_active_by_codex && project.codex_thread_id.is_empty() {
+        bonus += 10;
+    }
+    if matches!(project.workflow_stage, WorkflowStage::Unknown) {
+        bonus += 5;
+    }
+    bonus
+}
+
+fn find_best_project_index(projects: &[ProjectSnapshot], thread_project_path: &str) -> Option<usize> {
+    projects
+        .iter()
+        .enumerate()
+        .filter_map(|(index, project)| {
+            project_path_match_score(&project.path, thread_project_path).map(|score| {
+                (
+                    index,
+                    (
+                        score.0 + preferred_project_match_bonus(project, thread_project_path),
+                        score.1,
+                    ),
+                )
+            })
+        })
+        .max_by(|left, right| left.1.cmp(&right.1))
+        .map(|(index, _)| index)
 }
 
 fn workflow_stage_key(stage: &WorkflowStage) -> &'static str {
@@ -2592,7 +2948,7 @@ fn collect_runtime_state() -> RuntimeState {
         .as_ref()
         .map(|thread| thread.id.as_str())
         .unwrap_or("");
-    let claude_threads = read_recent_claude_threads(&home);
+    let (claude_threads, mut claude_debug_entries, claude_probe) = read_recent_claude_threads(&home);
 
     let mut seen = HashSet::new();
     let mut projects = Vec::new();
@@ -2744,13 +3100,10 @@ fn collect_runtime_state() -> RuntimeState {
     }
 
     save_token_usage_cache(&home, &token_usage_cache);
-    enrich_projects_with_claude_host(&mut projects, &claude_threads, now);
-    write_runtime_debug_snapshot(&code_titles, &known_paths, &ide_signal, &projects);
+    enrich_projects_with_claude_host(&mut projects, &claude_threads, &mut claude_debug_entries, now);
 
-    let spotlight = find_spotlight(&projects, &ide_signal, &active_project_path);
-    let groups = build_groups(&projects);
-    let summary = build_summary(&projects);
-    let auto_resume_project = spotlight
+    let spotlight_before_apply = find_spotlight(&projects, &ide_signal, &active_project_path);
+    let auto_resume_project = spotlight_before_apply
         .as_ref()
         .and_then(|project| find_auto_resume_project(&projects, &project.path));
 
@@ -2759,7 +3112,7 @@ fn collect_runtime_state() -> RuntimeState {
         latest_log_ts,
         latest_thread.as_ref(),
         &last_message,
-        spotlight.as_ref(),
+        spotlight_before_apply.as_ref(),
         &ide_signal,
         &active_project_path,
         process_running,
@@ -2768,21 +3121,44 @@ fn collect_runtime_state() -> RuntimeState {
     let claude_process = claude_process_running();
     let claude_host = build_claude_global_host_session(claude_process, claude_threads.first(), now);
     let hosts = vec![build_codex_global_host_session(&codex_state, now), claude_host];
-    let active_host = select_active_host_session(&hosts).map(|session| session.host.clone());
-    let other_host_summary = other_host_summary_for(&hosts, active_host.as_ref());
+    let active_host = select_active_host_session(&hosts, None).map(|session| session.host.clone());
+    let other_host_summary = other_host_summary_for(&hosts, active_host.as_ref(), now);
 
+    let projects_before_apply = projects.clone();
     let mut runtime = RuntimeState {
         codex: codex_state,
         active_host,
         other_host_summary,
         hosts,
         projects,
-        groups,
-        summary,
-        spotlight_project: spotlight,
+        groups: Vec::new(),
+        summary: Summary {
+            idle: 0,
+            bootstrap: 0,
+            requirement: 0,
+            execution: 0,
+            blocked: 0,
+            done: 0,
+        },
+        spotlight_project: None,
         updated_at: fmt_relative_age(now),
     };
     apply_runtime_host_compatibility(&mut runtime, now);
+    runtime.spotlight_project = find_spotlight(&runtime.projects, &ide_signal, &active_project_path);
+    runtime.groups = build_groups(&runtime.projects);
+    runtime.summary = build_summary(&runtime.projects);
+
+    write_runtime_debug_snapshot(
+        &code_titles,
+        &known_paths,
+        &ide_signal,
+        &claude_debug_entries,
+        Some(claude_probe),
+        &projects_before_apply,
+        spotlight_before_apply.as_ref(),
+        runtime.spotlight_project.as_ref(),
+        &runtime.projects,
+    );
     runtime
 }
 
@@ -3607,7 +3983,7 @@ mod tests {
     }
 
     #[test]
-    fn select_active_host_prefers_running_then_latest() {
+    fn select_active_host_prefers_status_even_if_updated_at_older() {
         let hosts = vec![
             HostSession {
                 host: HostKind::Codex,
@@ -3627,7 +4003,7 @@ mod tests {
                 token_reasoning: 0,
                 auto_resume_enabled: false,
                 follow_up_prompted: false,
-                updated_at: 100,
+                updated_at: 120,
             },
             HostSession {
                 host: HostKind::Claude,
@@ -3647,10 +4023,58 @@ mod tests {
                 token_reasoning: 0,
                 auto_resume_enabled: false,
                 follow_up_prompted: false,
-                updated_at: 99,
+                updated_at: 100,
             },
         ];
-        let selected = select_active_host_session(&hosts).expect("active host should exist");
+        let selected = select_active_host_session(&hosts, None).expect("active host should exist");
+        assert!(matches!(selected.host, HostKind::Claude));
+    }
+
+    #[test]
+    fn select_active_host_prefers_newer_updated_at_when_status_same() {
+        let hosts = vec![
+            HostSession {
+                host: HostKind::Codex,
+                status: CodexStatus::Stalled,
+                heartbeat_at: "1 分钟前".into(),
+                thread_id: "codex-1".into(),
+                thread_name: "codex".into(),
+                project_path: "/tmp/solo".into(),
+                last_message_role: String::new(),
+                last_message_text: String::new(),
+                process_running: true,
+                source: "test".into(),
+                confidence: "high".into(),
+                token_total: 0,
+                token_input: 0,
+                token_output: 0,
+                token_reasoning: 0,
+                auto_resume_enabled: false,
+                follow_up_prompted: false,
+                updated_at: 80,
+            },
+            HostSession {
+                host: HostKind::Claude,
+                status: CodexStatus::Stalled,
+                heartbeat_at: "30 秒前".into(),
+                thread_id: "claude-1".into(),
+                thread_name: "claude".into(),
+                project_path: "/tmp/solo".into(),
+                last_message_role: String::new(),
+                last_message_text: String::new(),
+                process_running: true,
+                source: "test".into(),
+                confidence: "high".into(),
+                token_total: 0,
+                token_input: 0,
+                token_output: 0,
+                token_reasoning: 0,
+                auto_resume_enabled: false,
+                follow_up_prompted: false,
+                updated_at: 100,
+            },
+        ];
+        let selected = select_active_host_session(&hosts, None).expect("active host should exist");
         assert!(matches!(selected.host, HostKind::Claude));
     }
 
@@ -3698,7 +4122,216 @@ mod tests {
                 updated_at: 50,
             },
         ];
-        let selected = select_active_host_session(&hosts).expect("active host should exist");
+        let selected = select_active_host_session(&hosts, None).expect("active host should exist");
         assert!(matches!(selected.host, HostKind::Codex));
+    }
+
+    #[test]
+    fn select_active_host_prefers_matching_project_path() {
+        let hosts = vec![
+            HostSession {
+                host: HostKind::Codex,
+                status: CodexStatus::Idle,
+                heartbeat_at: "1 分钟前".into(),
+                thread_id: "codex-1".into(),
+                thread_name: "codex".into(),
+                project_path: "/tmp/other".into(),
+                last_message_role: String::new(),
+                last_message_text: String::new(),
+                process_running: false,
+                source: "test".into(),
+                confidence: "high".into(),
+                token_total: 0,
+                token_input: 0,
+                token_output: 0,
+                token_reasoning: 0,
+                auto_resume_enabled: false,
+                follow_up_prompted: false,
+                updated_at: 50,
+            },
+            HostSession {
+                host: HostKind::Claude,
+                status: CodexStatus::Idle,
+                heartbeat_at: "2 分钟前".into(),
+                thread_id: "claude-1".into(),
+                thread_name: "claude".into(),
+                project_path: "/tmp/solo".into(),
+                last_message_role: String::new(),
+                last_message_text: String::new(),
+                process_running: false,
+                source: "test".into(),
+                confidence: "high".into(),
+                token_total: 0,
+                token_input: 0,
+                token_output: 0,
+                token_reasoning: 0,
+                auto_resume_enabled: false,
+                follow_up_prompted: false,
+                updated_at: 100,
+            },
+        ];
+        let selected = select_active_host_session(&hosts, Some("/tmp/solo/subdir"))
+            .expect("active host should exist");
+        assert!(matches!(selected.host, HostKind::Claude));
+    }
+
+    #[test]
+    fn other_host_summary_ignores_stale_sessions() {
+        let now = 10_000;
+        let hosts = vec![
+            HostSession {
+                host: HostKind::Codex,
+                status: CodexStatus::Running,
+                heartbeat_at: String::new(),
+                thread_id: "codex-1".into(),
+                thread_name: String::new(),
+                project_path: "/tmp/solo".into(),
+                last_message_role: String::new(),
+                last_message_text: String::new(),
+                process_running: true,
+                source: "test".into(),
+                confidence: "high".into(),
+                token_total: 0,
+                token_input: 0,
+                token_output: 0,
+                token_reasoning: 0,
+                auto_resume_enabled: false,
+                follow_up_prompted: false,
+                updated_at: now - 10,
+            },
+            HostSession {
+                host: HostKind::Claude,
+                status: CodexStatus::Stalled,
+                heartbeat_at: String::new(),
+                thread_id: "claude-old".into(),
+                thread_name: String::new(),
+                project_path: "/tmp/solo".into(),
+                last_message_role: String::new(),
+                last_message_text: String::new(),
+                process_running: true,
+                source: "test".into(),
+                confidence: "high".into(),
+                token_total: 0,
+                token_input: 0,
+                token_output: 0,
+                token_reasoning: 0,
+                auto_resume_enabled: false,
+                follow_up_prompted: false,
+                updated_at: now - (OTHER_HOST_SUMMARY_FRESH_WINDOW_SECONDS + 1),
+            },
+        ];
+
+        let summary = other_host_summary_for(&hosts, Some(&HostKind::Codex), now);
+        assert!(summary.is_empty());
+    }
+
+    #[test]
+    fn other_host_summary_dedups_same_host_kind() {
+        let now = 10_000;
+        let hosts = vec![
+            HostSession {
+                host: HostKind::Codex,
+                status: CodexStatus::WaitingInput,
+                heartbeat_at: String::new(),
+                thread_id: "codex-1".into(),
+                thread_name: String::new(),
+                project_path: "/tmp/skill".into(),
+                last_message_role: String::new(),
+                last_message_text: String::new(),
+                process_running: true,
+                source: "test".into(),
+                confidence: "high".into(),
+                token_total: 0,
+                token_input: 0,
+                token_output: 0,
+                token_reasoning: 0,
+                auto_resume_enabled: false,
+                follow_up_prompted: false,
+                updated_at: now - 20,
+            },
+            HostSession {
+                host: HostKind::Claude,
+                status: CodexStatus::Stalled,
+                heartbeat_at: String::new(),
+                thread_id: "claude-a".into(),
+                thread_name: String::new(),
+                project_path: "/tmp/skill".into(),
+                last_message_role: String::new(),
+                last_message_text: String::new(),
+                process_running: true,
+                source: "test".into(),
+                confidence: "high".into(),
+                token_total: 0,
+                token_input: 0,
+                token_output: 0,
+                token_reasoning: 0,
+                auto_resume_enabled: false,
+                follow_up_prompted: false,
+                updated_at: now - 100,
+            },
+            HostSession {
+                host: HostKind::Claude,
+                status: CodexStatus::Stalled,
+                heartbeat_at: String::new(),
+                thread_id: "claude-b".into(),
+                thread_name: String::new(),
+                project_path: "/tmp/skill".into(),
+                last_message_role: String::new(),
+                last_message_text: String::new(),
+                process_running: true,
+                source: "test".into(),
+                confidence: "high".into(),
+                token_total: 0,
+                token_input: 0,
+                token_output: 0,
+                token_reasoning: 0,
+                auto_resume_enabled: false,
+                follow_up_prompted: false,
+                updated_at: now - 200,
+            },
+        ];
+
+        let summary = other_host_summary_for(&hosts, Some(&HostKind::Codex), now);
+        assert_eq!(summary, "另有 Claude 会话");
+    }
+
+    #[test]
+    fn find_best_project_prefers_exact_path_over_broader_path() {
+        let mut broad = sample_project("/Users/wucongpeng");
+        broad.name = "broad".into();
+        let mut exact = sample_project("/Users/wucongpeng/Documents/ai/skill");
+        exact.name = "exact".into();
+        let projects = vec![broad, exact];
+
+        let index = find_best_project_index(&projects, "/Users/wucongpeng/Documents/ai/skill")
+            .expect("project should match");
+        assert_eq!(projects[index].name, "exact");
+    }
+
+    #[test]
+    fn find_best_project_prefers_longer_prefix_when_both_match() {
+        let mut parent = sample_project("/Users/wucongpeng/Documents/ai");
+        parent.name = "parent".into();
+        let mut child = sample_project("/Users/wucongpeng/Documents/ai/skill");
+        child.name = "child".into();
+        let projects = vec![parent, child];
+
+        let index = find_best_project_index(&projects, "/Users/wucongpeng/Documents/ai/skill/workflow-skills-copy")
+            .expect("project should match");
+        assert_eq!(projects[index].name, "child");
+    }
+
+    #[test]
+    fn find_best_project_does_not_match_parent_thread_path() {
+        let mut broad = sample_project("/Users/wucongpeng");
+        broad.name = "broad".into();
+        let mut exact = sample_project("/Users/wucongpeng/Documents/ai/skill");
+        exact.name = "exact".into();
+        let projects = vec![broad, exact];
+
+        let index = find_best_project_index(&projects, "/Users/wucongpeng")
+            .expect("project should match root only");
+        assert_eq!(projects[index].name, "broad");
+        assert!(find_best_project_index(&projects, "/Users/wucongpeng/Documents").is_some());
     }
 }

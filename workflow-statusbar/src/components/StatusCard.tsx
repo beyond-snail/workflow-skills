@@ -1,6 +1,7 @@
 import type { ProjectSnapshot, RuntimeState } from "../lib/types";
 import { codexStatusLabels } from "../lib/codex-labels";
 import { projectOtherHostSummary, projectPrimaryHostLabel, runtimeOtherHostSummary, runtimePrimaryHostLabel } from "../lib/host-utils";
+import { selectDisplayHostSession } from "../lib/host-session";
 import { isWorkflowLinked, parseTaskProgress } from "../lib/progress";
 
 type StatusCardProps = {
@@ -25,23 +26,24 @@ function formatToken(value: number) {
 export function StatusCard({ state, project, compact = false }: StatusCardProps) {
   const hasProject = Boolean(project);
   const workflowLinked = isWorkflowLinked(project);
-  const activeThreadName = state.codex.active_thread_name || "等待活跃线程";
+  const displayHostSession = selectDisplayHostSession(project);
   let autoResumeCopy = "未接入 workflow";
   if (project) {
-    autoResumeCopy = compact
-      ? project.auto_resume_enabled
-        ? "自动续跑已开启"
-        : !workflowLinked
-          ? "未接入 workflow"
-          : "自动续跑未开启"
-      : state.codex.auto_resume_enabled
-        ? `自动续跑已开启${state.codex.monitored_project_name ? ` · ${state.codex.monitored_project_name}` : ""}`
+    const autoResumeEnabled = displayHostSession?.auto_resume_enabled ?? project.auto_resume_enabled;
+    autoResumeCopy = autoResumeEnabled
+      ? "自动续跑已开启"
+      : !workflowLinked
+        ? "未接入 workflow"
         : "自动续跑未开启";
   } else {
     autoResumeCopy = "等待打开项目";
   }
-  const effectiveLastMessageRole = project?.last_message_role || state.codex.last_message_role;
-  const effectiveLastMessageText = project?.last_message_text || state.codex.last_message_text;
+  const effectiveLastMessageRole =
+    displayHostSession?.last_message_role
+    || (hasProject ? "" : state.codex.last_message_role);
+  const effectiveLastMessageText =
+    displayHostSession?.last_message_text
+    || (hasProject ? "" : state.codex.last_message_text);
   const lastMessageRole =
     effectiveLastMessageRole === "user"
       ? "最后输入"
@@ -58,9 +60,7 @@ export function StatusCard({ state, project, compact = false }: StatusCardProps)
       : "未接入 workflow，暂无任务同步"
     : "";
   const displayThreadName = hasProject
-    ? compact && project
-      ? project.codex_thread_name || activeThreadName
-      : activeThreadName
+    ? displayHostSession?.thread_name || "暂无可展示的最近会话"
     : "等待打开 IDE 项目";
   const compactFallbackMessage = project?.health || project?.gate_status || "未接入 workflow";
   const displayLastMessage =
@@ -71,8 +71,8 @@ export function StatusCard({ state, project, compact = false }: StatusCardProps)
     compact && !effectiveLastMessageText
       ? "最近状态"
       : lastMessageRole;
-  const tokenLine = project && project.token_total > 0
-    ? `Token ${formatToken(project.token_total)} · 输入 ${formatToken(project.token_input)} · 输出 ${formatToken(project.token_output)} · 推理 ${formatToken(project.token_reasoning)}`
+  const tokenLine = project && (displayHostSession?.token_total ?? 0) > 0
+    ? `Token ${formatToken(displayHostSession?.token_total ?? 0)} · 输入 ${formatToken(displayHostSession?.token_input ?? 0)} · 输出 ${formatToken(displayHostSession?.token_output ?? 0)} · 推理 ${formatToken(displayHostSession?.token_reasoning ?? 0)}`
     : hasProject
       ? "Token 未采集"
       : "打开项目后采集 Token";
@@ -86,9 +86,9 @@ export function StatusCard({ state, project, compact = false }: StatusCardProps)
       : "打开项目后自动开始监控";
   const progressRatio = project && workflowLinked ? parseTaskProgress(project.progress_label) : null;
 
-  const displayStatus = compact && project ? project.codex_status : state.codex.status;
+  const displayStatus = displayHostSession?.status || (hasProject ? "offline" : state.codex.status);
   const displayStatusLabel =
-    compact && project && !workflowLinked && project.codex_status === "stalled"
+    project && !workflowLinked && displayStatus === "stalled"
       ? "等待中"
       : codexStatusLabels[displayStatus];
 
@@ -97,7 +97,7 @@ export function StatusCard({ state, project, compact = false }: StatusCardProps)
       <div className="agent-card__head">
         <div className="agent-card__brand">
           <div className={compact ? "agent-avatar agent-avatar--project" : "agent-avatar"}>
-            {compact && project ? project.name.slice(0, 1) : "X"}
+            {project ? project.name.slice(0, 1) : "X"}
           </div>
           <div className="agent-title">
             {compact ? <h2>{headerTitle}</h2> : <h1>{headerTitle}</h1>}
@@ -136,7 +136,7 @@ export function StatusCard({ state, project, compact = false }: StatusCardProps)
       </div>
 
       <div className="agent-card__subrow">
-        <span>心跳 {compact && project ? project.codex_heartbeat_at : state.codex.heartbeat_at}</span>
+        <span>心跳 {project ? (displayHostSession?.heartbeat_at || "暂无") : state.codex.heartbeat_at}</span>
         <span>{autoResumeCopy}</span>
       </div>
 

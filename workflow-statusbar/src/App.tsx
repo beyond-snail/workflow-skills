@@ -227,9 +227,7 @@ function App() {
     };
   }, [panelMode, state, alertSettings]);
 
-  const displayProject = state?.spotlight_project ?? null;
   const openProjects = state?.projects.filter((project) => project.is_open_in_ide) ?? [];
-  const secondaryOpenProjects = openProjects.filter((project) => project.path !== displayProject?.path);
 
   if (!state) {
     return (
@@ -294,15 +292,15 @@ function App() {
   return (
     <AppShell>
       <div className="panel-content panel-content--dashboard" ref={contentRef}>
-        <StatusCard
-          key={`status-${displayProject?.path ?? "empty"}`}
-          state={state}
-          project={displayProject}
-        />
-        {secondaryOpenProjects.map((project) => (
+        {openProjects.length === 0 ? (
           <StatusCard
-            key={`status-secondary-${project.path}`}
-            compact
+            key="status-empty"
+            state={state}
+            project={null}
+          />
+        ) : openProjects.map((project) => (
+          <StatusCard
+            key={`status-${project.path}`}
             state={state}
             project={project}
           />
