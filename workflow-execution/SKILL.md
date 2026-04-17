@@ -60,6 +60,25 @@ python3 <skill-dir>/scripts/workflow_cli.py exec --workspace-root . --req-id REQ
 python3 <skill-dir>/scripts/workflow_cli.py exec --workspace-root . --req-id REQ-xxxx --task-id TASK-xxxx --no-commit --no-push --no-release-gate
 ```
 
+部分需求 + 自测回写（不跑整套）：
+
+```bash
+python3 <skill-dir>/scripts/run_execution_round.py \
+  --confirm-start \
+  --req-id REQ-xxxx \
+  --task-id TASK-xxxx \
+  --summary "单项能力局部自测回写" \
+  --no-default-build-cmd \
+  --no-default-test-cmd \
+  --self-test-note "数据对账通过" \
+  --self-test-note "接口返回符合预期" \
+  --focus-keyword FEATURE-123 \
+  --no-commit --no-push --no-release-gate
+```
+
+说明：默认会在 `测试结果/联调记录` 中同时追加“自动回写记录”并更新对应表格行（`实际/证据/状态`），且会自动生成“步骤级明细表（动作/预期/实际/证据）”。
+默认会自动使用 `task_id + task_title + req_id + req_title + summary` 识别目标行，不传 `--focus-keyword` 也可回写；`--focus-keyword` 仅用于人工纠偏。
+
 ## 输出要求（最小）
 
 1. 完成了哪些任务。

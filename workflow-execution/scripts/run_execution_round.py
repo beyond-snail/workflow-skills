@@ -18,7 +18,14 @@ except ModuleNotFoundError:  # pragma: no cover
 
 from cli_common import add_dry_run_arg, add_profile_arg, load_profile_from_args, print_header
 from legacy_context import load_legacy_scan, match_legacy_context, render_legacy_context_lines
-from md_board_utils import find_requirement_row, get_cell
+from md_board_utils import (
+    find_requirement_row,
+    format_md_row,
+    get_cell,
+    normalize,
+    parse_table_rows,
+    preserve_cell_style,
+)
 from profile_paths import ProjectPaths
 from project_state import build_project_state, write_project_state
 
@@ -30,6 +37,10 @@ LINK_RE = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
 DECISION_SIGNAL_RE = re.compile(r"(根因|决定|最终发现|改成|结论)")
 CONTINUATION_SIGNAL_RE = re.compile(r"(继续|收口|遗留|上次|延续|接着|未完成)")
 BUGFIX_SIGNAL_RE = re.compile(r"(bug|缺陷|测试问题|报错|异常|失败|修复|修一下|问题)", re.IGNORECASE)
+FOCUS_CODE_PATTERNS = (
+    re.compile(r"\b[A-Z]{1,10}-\d{1,8}\b", re.IGNORECASE),
+    re.compile(r"\b[A-Z]{1,6}\d{2,8}\b", re.IGNORECASE),
+)
 
 
 @dataclass
@@ -517,6 +528,7 @@ def append_test_results(
     summary: str,
     commands: list[str],
     results: list[str],
+    steps: list[dict[str, str]],
     conclusions: list[str],
     blockers: list[str],
     alternatives: list[str],
@@ -542,6 +554,8 @@ def append_test_results(
             helper_args.extend(["--command", item])
         for item in results:
             helper_args.extend(["--result", item])
+        for item in steps:
+            helper_args.extend(["--step", json.dumps(item, ensure_ascii=False)])
         for item in conclusions:
             helper_args.extend(["--conclusion", item])
         for item in blockers:
@@ -559,6 +573,180 @@ def append_test_results(
     return 0
 
 
+def derive_focus_keywords(
+    task: TaskRecord,
+    summary: str,
+    extra_keywords: list[str],
+    req_id: str = "",
+    req_title: str = "",
+) -> list[str]:
+    raw_keywords = [item.strip() for item in extra_keywords if item and item.strip()]
+    source_text = " ".join([task.task_id or "", task.title or "", summary or "", req_id or "", req_title or ""])
+
+    detected_codes: list[str] = []
+    for pattern in FOCUS_CODE_PATTERNS:
+        detected_codes.extend(match.group(0).upper() for match in pattern.finditer(source_text))
+    candidates = [*raw_keywords, *detected_codes, task.task_id.strip(), task.title.strip(), req_id.strip(), req_title.strip()]
+
+    keywords: list[str] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        token = re.sub(r"\s+", " ", candidate).strip()
+        if len(token) < 2:
+            continue
+        key = token.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        keywords.append(token)
+    return keywords
+
+
+def _header_index(header_map: dict[str, int], aliases: tuple[str, ...]) -> int | None:
+    for alias in aliases:
+        idx = header_map.get(normalize(alias))
+        if idx is not None:
+            return idx
+    return None
+
+
+def _match_score(text: str, keywords: list[str]) -> int:
+    lowered = text.lower()
+    score = 0
+    for keyword in keywords:
+        token = keyword.lower().strip()
+        if not token:
+            continue
+        if token in lowered:
+            score += max(3, len(token))
+    return score
+
+
+def to_status_cn(status: str) -> str:
+    if status == "pass":
+        return "通过"
+    if status == "blocked":
+        return "阻塞"
+    if status == "fail":
+        return "失败"
+    return status
+
+
+def shorten_text(text: str, limit: int = 120) -> str:
+    compact = re.sub(r"\s+", " ", text).strip()
+    if len(compact) <= limit:
+        return compact
+    return compact[: max(0, limit - 1)] + "…"
+
+
+def summarize_command_output(text: str, limit: int = 96) -> str:
+    if not text.strip():
+        return "命令无输出"
+    first_line = next((line.strip() for line in text.splitlines() if line.strip()), "")
+    if not first_line:
+        first_line = "命令输出为空行"
+    return shorten_text(first_line, limit)
+
+
+def build_row_actual_text(
+    status_cn: str,
+    summary: str,
+    self_test_notes: list[str],
+    override_value: str,
+) -> str:
+    if override_value.strip():
+        return override_value.strip()
+    payload: list[str] = []
+    if summary.strip():
+        payload.append(summary.strip())
+    for note in self_test_notes[:2]:
+        note_text = note.strip()
+        if note_text:
+            payload.append(note_text)
+    if not payload:
+        payload.append("自动执行验证")
+    return f"{status_cn}：{shorten_text('；'.join(payload), 160)}"
+
+
+def build_row_evidence_text(
+    artifacts: list[str],
+    commands: list[str],
+    results: list[str],
+    override_value: str,
+) -> str:
+    if override_value.strip():
+        return override_value.strip()
+    segments: list[str] = []
+    if artifacts:
+        segments.append("产物:" + ", ".join(shorten_text(item, 48) for item in artifacts[:2]))
+    if commands:
+        segments.append("命令:" + " | ".join(shorten_text(item, 48) for item in commands[:2]))
+    if results:
+        segments.append("结果:" + shorten_text(results[0], 72))
+    if not segments:
+        segments.append("自动回写记录")
+    return "；".join(segments)
+
+
+def update_execution_table_rows(
+    files: list[Path],
+    keywords: list[str],
+    actual_text: str,
+    evidence_text: str,
+    status_text: str,
+    dry_run: bool,
+) -> None:
+    if not files:
+        return
+
+    for file in files:
+        if not file.exists():
+            continue
+        rows = parse_table_rows(file)
+        if not rows:
+            continue
+
+        best_row = None
+        best_score = 0
+        for row in rows:
+            actual_idx = _header_index(row.header_map, ("实际", "实际结果"))
+            evidence_idx = _header_index(row.header_map, ("证据",))
+            status_idx = _header_index(row.header_map, ("状态",))
+            if actual_idx is None or evidence_idx is None or status_idx is None:
+                continue
+            row_text = " ".join(cell for cell in row.cells if cell)
+            score = _match_score(row_text, keywords)
+            if score > best_score:
+                best_score = score
+                best_row = (row, actual_idx, evidence_idx, status_idx)
+
+        if best_row is None:
+            print(f"[WARN] table writeback skipped (no eligible row): {file}")
+            continue
+        if best_score <= 0:
+            print(f"[WARN] table writeback skipped (no keyword hit): {file}")
+            continue
+
+        row, actual_idx, evidence_idx, status_idx = best_row
+        lines = file.read_text(encoding="utf-8").splitlines()
+        raw_cells = list(row.raw_cells)
+        target_len = max(actual_idx, evidence_idx, status_idx) + 1
+        if len(raw_cells) < target_len:
+            raw_cells.extend([""] * (target_len - len(raw_cells)))
+
+        raw_cells[actual_idx] = preserve_cell_style(raw_cells[actual_idx], actual_text)
+        raw_cells[evidence_idx] = preserve_cell_style(raw_cells[evidence_idx], evidence_text)
+        raw_cells[status_idx] = preserve_cell_style(raw_cells[status_idx], status_text)
+        lines[row.line_index] = format_md_row(raw_cells)
+
+        if dry_run:
+            print(f"[DRY-RUN] table writeback: {file}:{row.line_index + 1}")
+            continue
+
+        file.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+        print(f"[PASS] table writeback: {file}:{row.line_index + 1}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Explicit execution entrypoint: requires manual review approval, then auto-runs validation, evidence, commit/push, and release gate"
@@ -573,6 +761,13 @@ def main() -> int:
     parser.add_argument("--test-result-file", action="append", default=[], help="Markdown file to append test result into, repeatable")
     parser.add_argument("--build-cmd", action="append", default=[], help="Build/compile command, repeatable")
     parser.add_argument("--test-cmd", action="append", default=[], help="Test command, repeatable")
+    parser.add_argument("--no-default-build-cmd", action="store_true", help="Do not fallback to profile build.compile when --build-cmd is empty")
+    parser.add_argument("--no-default-test-cmd", action="store_true", help="Do not fallback to profile build.test when --test-cmd is empty")
+    parser.add_argument("--self-test-note", action="append", default=[], help="Manual self-test note (for partial execution), repeatable")
+    parser.add_argument("--focus-keyword", action="append", default=[], help="Keyword used to locate target table row for auto writeback, repeatable")
+    parser.add_argument("--row-actual", default="", help="Override value for table '实际/实际结果' cell")
+    parser.add_argument("--row-evidence", default="", help="Override value for table '证据' cell")
+    parser.add_argument("--skip-table-row-writeback", action="store_true", help="Skip updating table row cells; keep appendix-only writeback")
     parser.add_argument("--verification", action="append", default=[], help="Extra verification line for task evidence")
     parser.add_argument("--memory-keyword", action="append", default=[], help="Keyword for memory context lookup, repeatable")
     parser.add_argument("--mode", choices=("auto", "feature", "bugfix", "continuation"), default="auto", help="Execution mode for memory handling; defaults to auto inference")
@@ -633,12 +828,20 @@ def main() -> int:
         test_result_files = req_ctx.test_result_files[:1]
 
     build_commands = [cmd for cmd in args.build_cmd if cmd.strip()]
-    if not build_commands and profile.get("build", {}).get("compile"):
+    if not build_commands and not args.no_default_build_cmd and profile.get("build", {}).get("compile"):
         build_commands.append(profile["build"]["compile"])
 
     test_commands = [cmd for cmd in args.test_cmd if cmd.strip()]
-    if not test_commands and profile.get("build", {}).get("test"):
+    if not test_commands and not args.no_default_test_cmd and profile.get("build", {}).get("test"):
         test_commands.append(profile["build"]["test"])
+    self_test_notes = [item.strip() for item in args.self_test_note if item and item.strip()]
+    focus_keywords = derive_focus_keywords(
+        selected,
+        args.summary,
+        args.focus_keyword,
+        req_id=req_id or "",
+        req_title=req_ctx.title if req_ctx else "",
+    )
 
     gate_doc_files = [Path(p).resolve() for p in args.doc_file]
     if not gate_doc_files:
@@ -723,6 +926,11 @@ def main() -> int:
         print(f"- test_result_files: {', '.join(str(p) for p in test_result_files) or '(none)'}")
         print(f"- build_commands: {', '.join(build_commands) or '(none)'}")
         print(f"- test_commands: {', '.join(test_commands) or '(none)'}")
+        print(f"- default_build_fallback: {'disabled' if args.no_default_build_cmd else 'enabled'}")
+        print(f"- default_test_fallback: {'disabled' if args.no_default_test_cmd else 'enabled'}")
+        print(f"- self_test_notes: {', '.join(self_test_notes) or '(none)'}")
+        print(f"- focus_keywords: {', '.join(focus_keywords) or '(none)'}")
+        print(f"- table_row_writeback: {'disabled' if args.skip_table_row_writeback else 'enabled'}")
         print(f"- gate_doc_files: {', '.join(str(p) for p in gate_doc_files) or '(none)'}")
         print(f"- stage_files: {', '.join(args.stage_file) or '(none)'}")
         print(f"- commit_enabled: {'no' if args.no_commit else 'yes'}")
@@ -824,16 +1032,57 @@ def main() -> int:
 
     verification_lines = list(args.verification)
     result_lines: list[str] = []
+    step_rows: list[dict[str, str]] = []
     blockers = list(args.blocker)
     next_steps = list(args.next_step)
     alternatives = list(args.alternative)
     task_blocked = False
     fatal_failure = False
+    self_step_no = 0
+    build_step_no = 0
+    test_step_no = 0
+
+    for note in self_test_notes:
+        verification_lines.append(f"self-test `{note}` -> PASS")
+        result_lines.append(f"[self-test] {note}")
+        self_step_no += 1
+        step_rows.append(
+            {
+                "id": f"SELF-{self_step_no:02d}",
+                "action": f"手工自测：{shorten_text(note, 72)}",
+                "expected": "自测过程可复核，结论与目标一致",
+                "actual": "PASS（已记录自测结论）",
+                "evidence": "见本次自动回写记录与联调证据",
+            }
+        )
+    if not build_commands and not test_commands and not self_test_notes:
+        blockers.append("未提供构建/测试命令，且缺少 --self-test-note 自测记录")
+        task_blocked = True
+        step_rows.append(
+            {
+                "id": "CHECK-01",
+                "action": "验证入口检查",
+                "expected": "至少存在构建/测试命令或手工自测记录",
+                "actual": "BLOCKED（缺少可复核测试输入）",
+                "evidence": "build/test/self-test 均为空",
+            }
+        )
 
     for cmd in build_commands:
         code, output = run_shell(cmd, git_root)
+        build_step_no += 1
+        build_status = "PASS" if code == 0 else "FAIL"
         verification_lines.append(f"build `{cmd}` -> {'PASS' if code == 0 else 'FAIL'}")
         result_lines.append(f"[build] {cmd}: {output or ('PASS' if code == 0 else 'FAIL')}")
+        step_rows.append(
+            {
+                "id": f"BUILD-{build_step_no:02d}",
+                "action": f"执行构建命令：`{shorten_text(cmd, 64)}`",
+                "expected": "命令执行成功（退出码=0）",
+                "actual": f"{build_status}（exit={code}）",
+                "evidence": summarize_command_output(output),
+            }
+        )
         if code != 0:
             blockers.append(f"构建失败：{cmd}")
             fatal_failure = True
@@ -843,9 +1092,19 @@ def main() -> int:
         for cmd in test_commands:
             code, output = run_shell(cmd, git_root)
             is_blocked = code != 0 and args.allow_test_blocked and (blockers or alternatives or gate_evidence_files)
+            test_step_no += 1
             if code == 0:
                 verification_lines.append(f"test `{cmd}` -> PASS")
                 result_lines.append(f"[test] {cmd}: {output or 'PASS'}")
+                step_rows.append(
+                    {
+                        "id": f"TEST-{test_step_no:02d}",
+                        "action": f"执行测试命令：`{shorten_text(cmd, 64)}`",
+                        "expected": "命令执行成功（退出码=0）",
+                        "actual": "PASS（exit=0）",
+                        "evidence": summarize_command_output(output),
+                    }
+                )
                 continue
 
             if is_blocked:
@@ -853,11 +1112,29 @@ def main() -> int:
                 result_lines.append(f"[test] {cmd}: {output or 'BLOCKED'}")
                 blockers.append(f"测试阻塞：{cmd}")
                 task_blocked = True
+                step_rows.append(
+                    {
+                        "id": f"TEST-{test_step_no:02d}",
+                        "action": f"执行测试命令：`{shorten_text(cmd, 64)}`",
+                        "expected": "命令执行成功；若阻塞需记录阻塞与替代验证",
+                        "actual": f"BLOCKED（exit={code}）",
+                        "evidence": summarize_command_output(output),
+                    }
+                )
                 continue
 
             verification_lines.append(f"test `{cmd}` -> FAIL")
             result_lines.append(f"[test] {cmd}: {output or 'FAIL'}")
             blockers.append(f"测试失败：{cmd}")
+            step_rows.append(
+                {
+                    "id": f"TEST-{test_step_no:02d}",
+                    "action": f"执行测试命令：`{shorten_text(cmd, 64)}`",
+                    "expected": "命令执行成功（退出码=0）",
+                    "actual": f"FAIL（exit={code}）",
+                    "evidence": summarize_command_output(output),
+                }
+            )
             fatal_failure = True
             break
 
@@ -865,6 +1142,8 @@ def main() -> int:
     test_title = f"{selected.task_id} 自动执行"
     test_summary = args.summary or f"{selected.task_id} 自动验证结果"
     conclusions = ["自动执行已完成" if not fatal_failure else "自动执行存在失败项"]
+    if self_test_notes:
+        conclusions.append("包含手工自测记录")
     if task_blocked:
         conclusions = ["自动执行存在测试阻塞，已保留阻塞说明与替代验证"]
 
@@ -875,12 +1154,39 @@ def main() -> int:
         test_summary,
         build_commands + test_commands,
         result_lines,
+        step_rows,
         conclusions,
         blockers,
         alternatives,
         dry_run=False,
     ) != 0:
         return 1
+
+    if not args.skip_table_row_writeback:
+        status_cn = to_status_cn(test_status)
+        row_actual_text = build_row_actual_text(status_cn, test_summary, self_test_notes, args.row_actual)
+        row_evidence_text = build_row_evidence_text(
+            args.artifact,
+            build_commands + test_commands,
+            result_lines,
+            args.row_evidence,
+        )
+        table_files: list[Path] = []
+        seen_files: set[str] = set()
+        for candidate in [*test_result_files, *record_files]:
+            key = str(candidate.resolve())
+            if key in seen_files:
+                continue
+            seen_files.add(key)
+            table_files.append(candidate)
+        update_execution_table_rows(
+            table_files,
+            focus_keywords,
+            row_actual_text,
+            row_evidence_text,
+            status_cn,
+            dry_run=False,
+        )
 
     commit_message = build_commit_message(selected, args.commit_type)
     commit_failed = False
