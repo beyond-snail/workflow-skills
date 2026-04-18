@@ -8,3 +8,5 @@ workflow-statusbar/.tauri/
 __pycache__/
 *.pyc
 .DS_Store
+/docs
+/project-cockpit
