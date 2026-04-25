@@ -16,9 +16,11 @@ use std::{
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    ActivationPolicy, Emitter, Manager, PhysicalPosition, Position, Rect, Size, WebviewWindow,
+    Emitter, Manager, PhysicalPosition, Position, Rect, Size, WebviewWindow,
 };
 use tauri_plugin_notification::NotificationExt;
+#[cfg(target_os = "macos")]
+use tauri::ActivationPolicy;
 
 const MAX_GROUP_ITEMS: usize = 5;
 const PROJECT_ROTATION_SECONDS: i64 = 8;
@@ -3768,6 +3770,7 @@ pub fn run() {
         .setup(move |app| {
             let alert_settings: SharedAlertSettings = Arc::new(Mutex::new(read_alert_settings(app.handle())));
             app.manage(alert_settings.clone());
+            #[cfg(target_os = "macos")]
             app.set_activation_policy(ActivationPolicy::Accessory);
 
             let main_window = app.get_webview_window("main").expect("main window should exist");
