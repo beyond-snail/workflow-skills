@@ -21,9 +21,6 @@ export function AppShell({ compact = false, children }: AppShellProps) {
   return (
     <main className={shellClass}>
       <section className={surfaceClass}>
-        {isWindows && !compact ? (
-          <div className="window-dragbar" data-tauri-drag-region aria-hidden="true" />
-        ) : null}
         {children}
       </section>
     </main>

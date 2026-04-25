@@ -118,15 +118,6 @@ button {
   border-radius: 10px;
 }
 
-.window-dragbar {
-  height: 10px;
-  flex: 0 0 auto;
-  cursor: move;
-  user-select: none;
-  border-radius: 10px 10px 0 0;
-  background: transparent;
-}
-
 .card {
   border-radius: var(--radius-xl);
   background: var(--card);
