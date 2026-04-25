@@ -1,6 +1,6 @@
 [package]
 name = "workflow-statusbar"
-version = "0.1.0"
+version = "0.1.1"
 description = "Workflow statusbar for Codex and workflow skills"
 authors = ["wucongpeng"]
 edition = "2021"
