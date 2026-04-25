@@ -13,6 +13,28 @@
 - 执行中小悬浮窗
 - 关键状态变化通知
 
+## 自动知识采集（Personal Knowledgebase）
+
+状态栏会在关键状态变化时自动推送事件到本地知识库服务：
+
+- 默认地址：`http://127.0.0.1:8787/api/events/push`
+- 事件来源：任务完成、项目完成、阻塞、中断、自动续跑失败等状态变化
+- 推送失败不会影响状态栏主功能（忽略错误，继续运行）
+
+可用环境变量：
+
+- `WORKFLOW_STATUSBAR_KB_PUSH`：是否启用推送（默认启用）
+  - 可选：`true/false`、`1/0`
+- `WORKFLOW_STATUSBAR_KB_ENDPOINT`：知识库服务地址（默认 `http://127.0.0.1:8787`）
+
+示例：
+
+```bash
+export WORKFLOW_STATUSBAR_KB_PUSH=true
+export WORKFLOW_STATUSBAR_KB_ENDPOINT=http://127.0.0.1:8787
+npm run tauri dev
+```
+
 ## 开发
 
 ```bash

@@ -31,6 +31,7 @@ const TRAY_HIDE_DELAY_MS: u64 = 260;
 const TRAY_MENU_OPEN_DASHBOARD: &str = "open_dashboard";
 const TRAY_MENU_OPEN_ALERT_SETTINGS: &str = "open_alert_settings";
 const TRAY_MENU_QUIT: &str = "quit";
+const KNOWLEDGEBASE_DEFAULT_ENDPOINT: &str = "http://127.0.0.1:8787";
 
 type SharedRuntimeCache = Arc<Mutex<RuntimeCache>>;
 type SharedAlertSettings = Arc<Mutex<AlertSettings>>;
@@ -2746,6 +2747,61 @@ fn post_remote_alert(config: &AlertDispatchConfig, payload: &RemoteAlertPayload)
     }
 }
 
+fn knowledgebase_auto_push_enabled() -> bool {
+    env::var("WORKFLOW_STATUSBAR_KB_PUSH")
+        .map(|value| matches!(value.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+        .unwrap_or(true)
+}
+
+fn knowledgebase_endpoint() -> String {
+    env::var("WORKFLOW_STATUSBAR_KB_ENDPOINT")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| KNOWLEDGEBASE_DEFAULT_ENDPOINT.to_string())
+}
+
+fn post_knowledgebase_event(project: &ProjectSnapshot, event_type: &str, title: &str, body: &str) -> Result<(), String> {
+    if !knowledgebase_auto_push_enabled() {
+        return Ok(());
+    }
+
+    let endpoint = knowledgebase_endpoint();
+    let url = format!("{}/api/events/push", endpoint.trim_end_matches('/'));
+    let req_id = if project.current_req_id.is_empty() {
+        serde_json::Value::Null
+    } else {
+        serde_json::Value::String(project.current_req_id.clone())
+    };
+    let task_id = if project.current_task_id.is_empty() {
+        serde_json::Value::Null
+    } else {
+        serde_json::Value::String(project.current_task_id.clone())
+    };
+
+    ureq::post(&url)
+        .query("project", &project.path)
+        .query("process_now", "true")
+        .set("Content-Type", "application/json")
+        .send_json(serde_json::json!({
+            "event_type": format!("statusbar.{event_type}"),
+            "summary": body,
+            "title": title,
+            "project_name": project.name,
+            "project_path": project.path,
+            "workflow_stage": workflow_stage_key(&project.workflow_stage),
+            "codex_status": codex_status_key(&project.codex_status),
+            "thread_id": project.codex_thread_id,
+            "host": host_kind_label(project.active_host.as_ref()),
+            "req_id": req_id,
+            "task_id": task_id,
+            "source_path": "workflow-statusbar/runtime",
+            "occurred_at": unix_now(),
+        }))
+        .map(|_| ())
+        .map_err(|err| err.to_string())
+}
+
 fn find_auto_resume_project<'a>(projects: &'a [ProjectSnapshot], project_path: &str) -> Option<&'a ProjectSnapshot> {
     projects.iter().find(|project| {
         project.auto_resume_enabled
@@ -3471,6 +3527,9 @@ fn push_alert<R: tauri::Runtime>(
             };
             let _ = post_remote_alert(&config, &payload);
         }
+    }
+    if let Some(project) = project {
+        let _ = post_knowledgebase_event(project, event_type, title, body);
     }
 }
 
