@@ -9,7 +9,7 @@ use std::{
     io::{Read, Seek, SeekFrom},
     path::{Path, PathBuf},
     process::{Command, Stdio},
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, OnceLock},
     thread,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -164,11 +164,22 @@ struct RuntimeState {
     active_host: Option<HostKind>,
     other_host_summary: String,
     hosts: Vec<HostSession>,
+    knowledgebase_push: KnowledgebasePushStatus,
     projects: Vec<ProjectSnapshot>,
     groups: Vec<ProjectGroup>,
     summary: Summary,
     spotlight_project: Option<ProjectSnapshot>,
     updated_at: String,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+struct KnowledgebasePushStatus {
+    enabled: bool,
+    endpoint: String,
+    connected: bool,
+    last_push_at: String,
+    failure_count: u64,
+    last_error: String,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq, Default)]
@@ -275,6 +286,13 @@ struct RuntimeCache {
     project_signatures: HashMap<String, ProjectRuntimeSignature>,
     last_auto_resume: Option<AutoResumeRecord>,
     startup_resume_checked: bool,
+}
+
+#[derive(Default)]
+struct KnowledgebasePushStateRaw {
+    last_push_ts: i64,
+    failure_count: u64,
+    last_error: String,
 }
 
 #[derive(Clone, Debug)]
@@ -625,6 +643,11 @@ fn format_sync_text(input: &str) -> String {
     } else {
         input.into()
     }
+}
+
+fn knowledgebase_push_state() -> &'static Mutex<KnowledgebasePushStateRaw> {
+    static STATE: OnceLock<Mutex<KnowledgebasePushStateRaw>> = OnceLock::new();
+    STATE.get_or_init(|| Mutex::new(KnowledgebasePushStateRaw::default()))
 }
 
 fn path_matches(project_path: &str, candidate_path: &str) -> bool {
@@ -2779,7 +2802,7 @@ fn post_knowledgebase_event(project: &ProjectSnapshot, event_type: &str, title: 
         serde_json::Value::String(project.current_task_id.clone())
     };
 
-    ureq::post(&url)
+    let result = ureq::post(&url)
         .query("project", &project.path)
         .query("process_now", "true")
         .set("Content-Type", "application/json")
@@ -2799,7 +2822,49 @@ fn post_knowledgebase_event(project: &ProjectSnapshot, event_type: &str, title: 
             "occurred_at": unix_now(),
         }))
         .map(|_| ())
-        .map_err(|err| err.to_string())
+        .map_err(|err| err.to_string());
+
+    if let Ok(mut guard) = knowledgebase_push_state().lock() {
+        match &result {
+            Ok(()) => {
+                guard.last_push_ts = unix_now();
+                guard.last_error.clear();
+            }
+            Err(err) => {
+                guard.failure_count = guard.failure_count.saturating_add(1);
+                guard.last_error = err.clone();
+            }
+        }
+    }
+
+    result
+}
+
+fn snapshot_knowledgebase_push_status() -> KnowledgebasePushStatus {
+    let enabled = knowledgebase_auto_push_enabled();
+    let endpoint = knowledgebase_endpoint();
+    let mut last_push_at = "未上报".to_string();
+    let mut failure_count = 0_u64;
+    let mut last_error = String::new();
+
+    if let Ok(guard) = knowledgebase_push_state().lock() {
+        if guard.last_push_ts > 0 {
+            last_push_at = fmt_relative_age(guard.last_push_ts);
+        }
+        failure_count = guard.failure_count;
+        last_error = guard.last_error.clone();
+    }
+
+    let connected = enabled && last_error.is_empty();
+
+    KnowledgebasePushStatus {
+        enabled,
+        endpoint,
+        connected,
+        last_push_at,
+        failure_count,
+        last_error,
+    }
 }
 
 fn find_auto_resume_project<'a>(projects: &'a [ProjectSnapshot], project_path: &str) -> Option<&'a ProjectSnapshot> {
@@ -2966,6 +3031,7 @@ fn collect_runtime_state() -> RuntimeState {
                 active_host: None,
                 other_host_summary: String::new(),
                 hosts: Vec::new(),
+                knowledgebase_push: snapshot_knowledgebase_push_status(),
                 projects: Vec::new(),
                 groups: Vec::new(),
                 summary: Summary {
@@ -3189,6 +3255,7 @@ fn collect_runtime_state() -> RuntimeState {
         active_host,
         other_host_summary,
         hosts,
+        knowledgebase_push: snapshot_knowledgebase_push_status(),
         projects,
         groups: Vec::new(),
         summary: Summary {

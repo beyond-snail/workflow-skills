@@ -90,11 +90,21 @@ export type Summary = {
   done: number;
 };
 
+export type KnowledgebasePushState = {
+  enabled: boolean;
+  endpoint: string;
+  connected: boolean;
+  last_push_at: string;
+  failure_count: number;
+  last_error: string;
+};
+
 export type RuntimeState = {
   codex: CodexState;
   active_host?: HostKind | null;
   other_host_summary?: string;
   hosts?: HostSession[];
+  knowledgebase_push: KnowledgebasePushState;
   projects: ProjectSnapshot[];
   groups: ProjectGroup[];
   summary: Summary;

@@ -69,6 +69,14 @@ const mockState: RuntimeState = {
     auto_resume_enabled: true,
     monitored_project_name: "solo",
   },
+  knowledgebase_push: {
+    enabled: true,
+    endpoint: "http://127.0.0.1:8787",
+    connected: true,
+    last_push_at: "10 秒前",
+    failure_count: 0,
+    last_error: "",
+  },
   projects: [mockProject],
   groups: [],
   summary: {

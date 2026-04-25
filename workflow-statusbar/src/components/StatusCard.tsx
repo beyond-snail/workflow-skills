@@ -85,6 +85,11 @@ export function StatusCard({ state, project, compact = false }: StatusCardProps)
       ? `${primaryHostLabel} 监控${otherHostSummary ? ` · ${otherHostSummary}` : ""}`
       : "打开项目后自动开始监控";
   const progressRatio = project && workflowLinked ? parseTaskProgress(project.progress_label) : null;
+  const kbPush = state.knowledgebase_push;
+  const kbStatusLine = kbPush.enabled
+    ? `知识库${kbPush.connected ? "已连接" : "连接异常"} · 最近 ${kbPush.last_push_at} · 失败 ${kbPush.failure_count}`
+    : "知识库推送已关闭";
+  const kbHintLine = kbPush.connected ? kbPush.endpoint : (kbPush.last_error || kbPush.endpoint);
 
   const displayStatus = displayHostSession?.status || (hasProject ? "offline" : state.codex.status);
   const displayStatusLabel =
@@ -142,6 +147,10 @@ export function StatusCard({ state, project, compact = false }: StatusCardProps)
 
       <div className="token-line" title={tokenLine}>
         {tokenLine}
+      </div>
+
+      <div className="token-line" title={kbHintLine}>
+        {kbStatusLine}
       </div>
 
       {progressRatio !== null ? (
