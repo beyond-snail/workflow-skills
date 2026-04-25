@@ -67,19 +67,19 @@ flowchart LR
 最简命令版（推荐）：
 
 ```bash
-./.ai/bin/wf-init
-./.ai/bin/wf-req --theme "你的需求主题"
-./.ai/bin/wf-exec
+wf-init
+wf-req --theme "你的需求主题"
+wf-exec
 ```
 
 可选参数（需要时再加）：
 
 ```bash
-./.ai/bin/wf-req --theme "你的需求主题" --summary "一句话描述"
-./.ai/bin/wf-exec --req-id REQ-xxxx --task-id TASK-xxxx --summary "执行收口"
+wf-req --theme "你的需求主题" --summary "一句话描述"
+wf-exec --req-id REQ-xxxx --task-id TASK-xxxx --summary "执行收口"
 ```
 
-说明：若当前仓库尚未生成 `./.ai/bin/wf-*`，再使用下方“快速接入（新项目）”里的冷启动命令完成初始化。
+说明：若提示 `command not found`，先把仓库内 `.ai/bin` 加到 `PATH`，再使用这些短命令；若尚未生成 `wf-*`，先按下方“快速接入（新项目）”完成冷启动初始化。
 
 `workflow-statusbar` 说明见 [workflow-statusbar/README.md](workflow-statusbar/README.md)。
 
@@ -406,12 +406,12 @@ python3 ~/.codex/skills/workflow-bootstrap/scripts/workflow_cli.py doctor --work
 
 有。业务仓库初始化后可用：
 
-- `./.ai/bin/wf-init`
-- `./.ai/bin/wf-doctor`
-- `./.ai/bin/wf-cons`
-- `./.ai/bin/wf-req`
-- `./.ai/bin/wf-exec`
-- `./.ai/bin/wf-arc`
+- `wf-init`
+- `wf-doctor`
+- `wf-cons`
+- `wf-req`
+- `wf-exec`
+- `wf-arc`
 
 ---
 
