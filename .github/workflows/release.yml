@@ -14,7 +14,7 @@ permissions:
 jobs:
   build-macos:
     name: Build macOS (app + dmg)
-    runs-on: macos-latest
+    runs-on: macos-15-intel
     defaults:
       run:
         working-directory: workflow-statusbar
