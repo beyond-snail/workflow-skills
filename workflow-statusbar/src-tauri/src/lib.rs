@@ -3710,18 +3710,35 @@ fn show_main_window<R: tauri::Runtime>(
                 (size.height * scale_factor).round() as i32,
             ),
         };
-        let popup_x = tray_x + (tray_w / 2) - (size.width as i32 / 2);
-        let popup_y = if cfg!(target_os = "windows") {
-            // Windows taskbar is commonly at the bottom; show popup above tray icon.
-            tray_y - size.height as i32 - 8
+        let mut popup_x = tray_x + (tray_w / 2) - (size.width as i32 / 2);
+        let mut popup_y = if cfg!(target_os = "windows") {
+            // Windows tray rect can be unstable on some systems; use cursor as primary anchor.
+            if let Ok(cursor) = app.cursor_position() {
+                popup_x = cursor.x.round() as i32 - (size.width as i32 / 2);
+                cursor.y.round() as i32 - size.height as i32 - 10
+            } else {
+                tray_y - size.height as i32 - 8
+            }
         } else {
             // macOS menu bar icon sits at the top; show popup below tray icon.
             tray_y + tray_h + 2
         };
+
+        if let Some(monitor) = window.current_monitor().map_err(|err| err.to_string())? {
+            let monitor_pos = monitor.position();
+            let monitor_size = monitor.size();
+            let min_x = monitor_pos.x + 12;
+            let min_y = monitor_pos.y + 12;
+            let max_x = (monitor_pos.x + monitor_size.width as i32 - size.width as i32 - 12).max(min_x);
+            let max_y = (monitor_pos.y + monitor_size.height as i32 - size.height as i32 - 12).max(min_y);
+            popup_x = popup_x.clamp(min_x, max_x);
+            popup_y = popup_y.clamp(min_y, max_y);
+        }
+
         window
             .set_position(Position::Physical(PhysicalPosition {
-                x: popup_x.max(12),
-                y: popup_y.max(12),
+                x: popup_x,
+                y: popup_y,
             }))
             .map_err(|err| err.to_string())?;
     } else {
