@@ -271,12 +271,27 @@ function App() {
     await invoke("send_test_alert_command");
   }
 
+  function handlePanelMouseLeave() {
+    if (!isTauriRuntime || windowLabel !== "main") {
+      return;
+    }
+
+    invoke("schedule_hide_main_window").catch(() => {
+      // Ignore hide failures outside the Tauri runtime.
+    });
+  }
+
   if (panelMode === "alert-settings" && alertSettings) {
     const panelMaxHeight = viewport?.mode === "alert-settings" ? viewport.height : undefined;
 
     return (
       <AppShell>
-        <div className="panel-content" ref={contentRef} style={{ maxHeight: panelMaxHeight }}>
+        <div
+          className="panel-content"
+          ref={contentRef}
+          style={{ maxHeight: panelMaxHeight }}
+          onMouseLeave={handlePanelMouseLeave}
+        >
           <AlertSettingsPanel
             settings={alertSettings}
             saving={savingAlertSettings}
@@ -291,7 +306,11 @@ function App() {
 
   return (
     <AppShell>
-      <div className="panel-content panel-content--dashboard" ref={contentRef}>
+      <div
+        className="panel-content panel-content--dashboard"
+        ref={contentRef}
+        onMouseLeave={handlePanelMouseLeave}
+      >
         {openProjects.length === 0 ? (
           <StatusCard
             key="status-empty"

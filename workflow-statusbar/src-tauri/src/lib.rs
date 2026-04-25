@@ -25,6 +25,7 @@ const PROJECT_ROTATION_SECONDS: i64 = 8;
 const AUTO_RESUME_COOLDOWN_SECONDS: i64 = 90;
 const OTHER_HOST_SUMMARY_FRESH_WINDOW_SECONDS: i64 = 2 * 60 * 60;
 const POLL_INTERVAL_SECONDS: u64 = 8;
+const TRAY_HIDE_DELAY_MS: u64 = 260;
 const TRAY_MENU_OPEN_DASHBOARD: &str = "open_dashboard";
 const TRAY_MENU_OPEN_ALERT_SETTINGS: &str = "open_alert_settings";
 const TRAY_MENU_QUIT: &str = "quit";
@@ -3565,6 +3566,12 @@ fn toggle_main_window<R: tauri::Runtime>(app: tauri::AppHandle<R>) -> Result<(),
 }
 
 #[tauri::command]
+fn schedule_hide_main_window<R: tauri::Runtime>(app: tauri::AppHandle<R>) -> Result<(), String> {
+    hide_main_window_with_delay(app, None);
+    Ok(())
+}
+
+#[tauri::command]
 fn open_alert_settings_window<R: tauri::Runtime>(app: tauri::AppHandle<R>) -> Result<(), String> {
     show_main_window(&app, None)?;
     let _ = app.emit("open-alert-settings", true);
@@ -3614,6 +3621,66 @@ fn position_top_center<R: tauri::Runtime>(window: &WebviewWindow<R>) -> Result<(
         window.center().map_err(|err| err.to_string())?;
     }
     Ok(())
+}
+
+fn rect_contains_cursor(rect: &Rect, cursor: &PhysicalPosition<f64>) -> bool {
+    let (x, y) = match rect.position {
+        Position::Physical(position) => (position.x as f64, position.y as f64),
+        Position::Logical(position) => (position.x, position.y),
+    };
+    let (width, height) = match rect.size {
+        Size::Physical(size) => (size.width as f64, size.height as f64),
+        Size::Logical(size) => (size.width, size.height),
+    };
+
+    cursor.x >= x && cursor.x <= x + width && cursor.y >= y && cursor.y <= y + height
+}
+
+fn window_contains_cursor<R: tauri::Runtime>(
+    window: &WebviewWindow<R>,
+    cursor: &PhysicalPosition<f64>,
+) -> bool {
+    let Ok(position) = window.outer_position() else {
+        return false;
+    };
+    let Ok(size) = window.outer_size() else {
+        return false;
+    };
+
+    let x = position.x as f64;
+    let y = position.y as f64;
+    let width = size.width as f64;
+    let height = size.height as f64;
+    cursor.x >= x && cursor.x <= x + width && cursor.y >= y && cursor.y <= y + height
+}
+
+fn hide_main_window_with_delay<R: tauri::Runtime>(app: tauri::AppHandle<R>, tray_rect: Option<Rect>) {
+    thread::spawn(move || {
+        thread::sleep(Duration::from_millis(TRAY_HIDE_DELAY_MS));
+        let Some(window) = app.get_webview_window("main") else {
+            return;
+        };
+        if !window.is_visible().unwrap_or(false) {
+            return;
+        }
+
+        let Ok(cursor) = app.cursor_position() else {
+            let _ = window.hide();
+            return;
+        };
+
+        if let Some(rect) = tray_rect.as_ref() {
+            if rect_contains_cursor(rect, &cursor) {
+                return;
+            }
+        }
+
+        if window_contains_cursor(&window, &cursor) {
+            return;
+        }
+
+        let _ = window.hide();
+    });
 }
 
 fn show_main_window<R: tauri::Runtime>(
@@ -3718,9 +3785,7 @@ pub fn run() {
             let app_handle = app.handle().clone();
             main_window.on_window_event(move |event| {
                 if let tauri::WindowEvent::Focused(false) = event {
-                    if let Some(window) = app_handle.get_webview_window("main") {
-                        let _ = window.hide();
-                    }
+                    hide_main_window_with_delay(app_handle.clone(), None);
                 }
             });
 
@@ -3743,23 +3808,22 @@ pub fn run() {
                     }
                     _ => {}
                 })
-                .on_tray_icon_event(move |_tray, event| {
-                    if let TrayIconEvent::Click {
+                .on_tray_icon_event(move |_tray, event| match event {
+                    TrayIconEvent::Enter { rect, .. } => {
+                        let _ = show_main_window(&tray_handle, Some(rect));
+                    }
+                    TrayIconEvent::Leave { rect, .. } => {
+                        hide_main_window_with_delay(tray_handle.clone(), Some(rect));
+                    }
+                    TrayIconEvent::Click {
                         button: MouseButton::Left,
                         button_state: MouseButtonState::Up,
                         rect,
                         ..
-                    } = event
-                    {
-                        if let Some(window) = tray_handle.get_webview_window("main") {
-                            let is_visible = window.is_visible().unwrap_or(false);
-                            if is_visible {
-                                let _ = window.hide();
-                            } else {
-                                let _ = show_main_window(&tray_handle, Some(rect));
-                            }
-                        }
+                    } => {
+                        let _ = show_main_window(&tray_handle, Some(rect));
                     }
+                    _ => {}
                 })
                 .build(app)?;
 
@@ -3786,6 +3850,7 @@ pub fn run() {
             save_alert_settings_command,
             send_test_alert_command,
             toggle_main_window,
+            schedule_hide_main_window,
             open_alert_settings_window,
             sync_main_window_size,
             set_floating_visibility,
