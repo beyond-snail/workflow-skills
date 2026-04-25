@@ -3704,7 +3704,13 @@ fn show_main_window<R: tauri::Runtime>(
             Size::Logical(size) => (size.width as i32, size.height as i32),
         };
         let popup_x = tray_x + (tray_w / 2) - (size.width as i32 / 2);
-        let popup_y = tray_y + tray_h + 2;
+        let popup_y = if cfg!(target_os = "windows") {
+            // Windows taskbar is commonly at the bottom; show popup above tray icon.
+            tray_y - size.height as i32 - 8
+        } else {
+            // macOS menu bar icon sits at the top; show popup below tray icon.
+            tray_y + tray_h + 2
+        };
         window
             .set_position(Position::Physical(PhysicalPosition {
                 x: popup_x.max(12),
