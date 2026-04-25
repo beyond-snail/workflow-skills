@@ -3718,42 +3718,70 @@ fn show_main_window<R: tauri::Runtime>(
             tray_y + tray_h + 2
         };
 
-        if cfg!(target_os = "windows") {
-            // On Windows, prefer anchoring near the tray area on the current monitor.
-            let mut anchored = false;
-            if let Ok(cursor) = app.cursor_position() {
-                if let Ok(monitors) = window.available_monitors() {
-                    if let Some(monitor) = monitors.into_iter().find(|monitor| {
-                        let pos = monitor.position();
-                        let msize = monitor.size();
-                        cursor.x >= pos.x as f64
-                            && cursor.x <= (pos.x + msize.width as i32) as f64
-                            && cursor.y >= pos.y as f64
-                            && cursor.y <= (pos.y + msize.height as i32) as f64
-                    }) {
-                        let pos = monitor.position();
-                        let msize = monitor.size();
-                        let right_margin = 14;
-                        let bottom_margin = 56;
-                        popup_x = pos.x + msize.width as i32 - size.width as i32 - right_margin;
-                        popup_y = pos.y + msize.height as i32 - size.height as i32 - bottom_margin;
-                        anchored = true;
+        let mut target_bounds: Option<(i32, i32, i32, i32)> = None;
+        if let Ok(monitors) = window.available_monitors() {
+            let pick_monitor_bounds = |px: f64, py: f64| -> Option<(i32, i32, i32, i32)> {
+                monitors.iter().find_map(|monitor| {
+                    let pos = monitor.position();
+                    let msize = monitor.size();
+                    let left = pos.x;
+                    let top = pos.y;
+                    let right = pos.x + msize.width as i32;
+                    let bottom = pos.y + msize.height as i32;
+                    if px >= left as f64 && px <= right as f64 && py >= top as f64 && py <= bottom as f64 {
+                        Some((left, top, msize.width as i32, msize.height as i32))
+                    } else {
+                        None
                     }
+                })
+            };
+
+            if cfg!(target_os = "windows") {
+                if let Ok(cursor) = app.cursor_position() {
+                    target_bounds = pick_monitor_bounds(cursor.x, cursor.y);
                 }
-                if !anchored {
-                    popup_x = cursor.x.round() as i32 - (size.width as i32 / 2);
-                    popup_y = cursor.y.round() as i32 - size.height as i32 - 10;
+            }
+
+            if target_bounds.is_none() {
+                let tray_cx = (tray_x + tray_w / 2) as f64;
+                let tray_cy = (tray_y + tray_h / 2) as f64;
+                target_bounds = pick_monitor_bounds(tray_cx, tray_cy);
+            }
+
+            if target_bounds.is_none() {
+                if let Some(first) = monitors.first() {
+                    let pos = first.position();
+                    let size = first.size();
+                    target_bounds = Some((pos.x, pos.y, size.width as i32, size.height as i32));
                 }
             }
         }
 
-        if let Some(monitor) = window.current_monitor().map_err(|err| err.to_string())? {
-            let monitor_pos = monitor.position();
-            let monitor_size = monitor.size();
-            let min_x = monitor_pos.x + 12;
-            let min_y = monitor_pos.y + 12;
-            let max_x = (monitor_pos.x + monitor_size.width as i32 - size.width as i32 - 12).max(min_x);
-            let max_y = (monitor_pos.y + monitor_size.height as i32 - size.height as i32 - 12).max(min_y);
+        if target_bounds.is_none() {
+            if let Some(monitor) = window.current_monitor().map_err(|err| err.to_string())? {
+                let pos = monitor.position();
+                let size = monitor.size();
+                target_bounds = Some((pos.x, pos.y, size.width as i32, size.height as i32));
+            }
+        }
+
+        if cfg!(target_os = "windows") {
+            if let Some((mx, my, mw, mh)) = target_bounds {
+                let right_margin = 14;
+                let bottom_margin = 56;
+                popup_x = mx + mw - size.width as i32 - right_margin;
+                popup_y = my + mh - size.height as i32 - bottom_margin;
+            } else if let Ok(cursor) = app.cursor_position() {
+                popup_x = cursor.x.round() as i32 - (size.width as i32 / 2);
+                popup_y = cursor.y.round() as i32 - size.height as i32 - 10;
+            }
+        }
+
+        if let Some((mx, my, mw, mh)) = target_bounds {
+            let min_x = mx + 12;
+            let min_y = my + 12;
+            let max_x = (mx + mw - size.width as i32 - 12).max(min_x);
+            let max_y = (my + mh - size.height as i32 - 12).max(min_y);
             popup_x = popup_x.clamp(min_x, max_x);
             popup_y = popup_y.clamp(min_y, max_y);
         }
