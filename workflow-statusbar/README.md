@@ -50,6 +50,18 @@ npm run package:win
 - `package:win`：生成 `nsis` 和 `msi`
 - `Windows` 包通常建议在 `Windows` 机器或 CI 环境中打包；如果当前是 `macOS`，没有额外交叉编译环境时，优先先打 `mac` 包
 
+正式发布（`v*` tag）补充：
+
+- CI 会对 macOS 包执行签名和公证（notarization），用于避免安装时出现“已损坏”
+- 需要在 GitHub 仓库 Secrets 配置以下字段：
+  - `APPLE_DEVELOPER_ID_CERT_P12_BASE64`
+  - `APPLE_DEVELOPER_ID_CERT_PASSWORD`
+  - `APPLE_DEVELOPER_ID_IDENTITY`
+  - `APPLE_ID`
+  - `APPLE_TEAM_ID`
+  - `APPLE_APP_SPECIFIC_PASSWORD`
+- 未配置上述 Secrets 时，`v*` tag 的 macOS 发布任务会直接失败并提示缺失项
+
 ## 目录
 
 - `src/`: React 前端和卡片界面

@@ -69,6 +69,93 @@ jobs:
       - name: Build macOS bundles
         run: npm run package:mac
 
+      - name: Validate macOS signing secrets (tag only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          APPLE_DEVELOPER_ID_CERT_P12_BASE64: ${{ secrets.APPLE_DEVELOPER_ID_CERT_P12_BASE64 }}
+          APPLE_DEVELOPER_ID_CERT_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_CERT_PASSWORD }}
+          APPLE_DEVELOPER_ID_IDENTITY: ${{ secrets.APPLE_DEVELOPER_ID_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        run: |
+          set -euo pipefail
+          for key in \
+            APPLE_DEVELOPER_ID_CERT_P12_BASE64 \
+            APPLE_DEVELOPER_ID_CERT_PASSWORD \
+            APPLE_DEVELOPER_ID_IDENTITY \
+            APPLE_ID \
+            APPLE_TEAM_ID \
+            APPLE_APP_SPECIFIC_PASSWORD; do
+            if [[ -z "${!key}" ]]; then
+              echo "Missing required secret: ${key}"
+              exit 1
+            fi
+          done
+
+      - name: Sign and notarize macOS app (tag only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        id: notarize
+        shell: bash
+        env:
+          APPLE_DEVELOPER_ID_CERT_P12_BASE64: ${{ secrets.APPLE_DEVELOPER_ID_CERT_P12_BASE64 }}
+          APPLE_DEVELOPER_ID_CERT_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_CERT_PASSWORD }}
+          APPLE_DEVELOPER_ID_IDENTITY: ${{ secrets.APPLE_DEVELOPER_ID_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          PRODUCT_NAME="$(node -p "JSON.parse(require('fs').readFileSync('src-tauri/tauri.conf.json', 'utf8')).productName")"
+          VERSION="$(node -p "JSON.parse(require('fs').readFileSync('src-tauri/tauri.conf.json', 'utf8')).version")"
+          ARCH="$(uname -m)"
+
+          APP_PATH="src-tauri/target/release/bundle/macos/${PRODUCT_NAME}.app"
+          DMG_DIR="src-tauri/target/release/bundle/dmg"
+          NOTARIZED_DMG_PATH="${DMG_DIR}/${PRODUCT_NAME}_${VERSION}_${ARCH}-notarized.dmg"
+
+          if [[ ! -d "${APP_PATH}" ]]; then
+            echo "App bundle not found: ${APP_PATH}"
+            exit 1
+          fi
+
+          KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
+          CERT_PATH="$RUNNER_TEMP/developer-id.p12"
+
+          echo "${APPLE_DEVELOPER_ID_CERT_P12_BASE64}" | base64 --decode > "${CERT_PATH}"
+          security create-keychain -p "" "${KEYCHAIN_PATH}"
+          security set-keychain-settings -lut 21600 "${KEYCHAIN_PATH}"
+          security unlock-keychain -p "" "${KEYCHAIN_PATH}"
+          security import "${CERT_PATH}" \
+            -k "${KEYCHAIN_PATH}" \
+            -P "${APPLE_DEVELOPER_ID_CERT_PASSWORD}" \
+            -T /usr/bin/codesign \
+            -T /usr/bin/security
+          security list-keychains -d user -s "${KEYCHAIN_PATH}" login.keychain-db
+          security find-identity -v -p codesigning "${KEYCHAIN_PATH}"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "" "${KEYCHAIN_PATH}"
+
+          codesign --force --deep --options runtime --sign "${APPLE_DEVELOPER_ID_IDENTITY}" "${APP_PATH}"
+          codesign --verify --deep --strict --verbose=2 "${APP_PATH}"
+          xcrun stapler staple "${APP_PATH}"
+
+          mkdir -p "${DMG_DIR}"
+          rm -f "${NOTARIZED_DMG_PATH}"
+          hdiutil create -volname "${PRODUCT_NAME}" -srcfolder "${APP_PATH}" -ov -format UDZO "${NOTARIZED_DMG_PATH}"
+
+          xcrun notarytool submit "${NOTARIZED_DMG_PATH}" \
+            --apple-id "${APPLE_ID}" \
+            --team-id "${APPLE_TEAM_ID}" \
+            --password "${APPLE_APP_SPECIFIC_PASSWORD}" \
+            --wait
+          xcrun stapler staple "${NOTARIZED_DMG_PATH}"
+          xcrun stapler validate "${NOTARIZED_DMG_PATH}"
+
+          echo "app_path=${APP_PATH}" >> "$GITHUB_OUTPUT"
+          echo "dmg_path=${NOTARIZED_DMG_PATH}" >> "$GITHUB_OUTPUT"
+
       - name: Build metadata
         id: meta
         shell: bash
@@ -79,7 +166,18 @@ jobs:
             echo "suffix=dev-${GITHUB_RUN_NUMBER}-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Upload macOS artifacts
+      - name: Upload macOS artifacts (tag release)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@v4
+        with:
+          name: workflow-statusbar-macos-${{ steps.meta.outputs.suffix }}
+          if-no-files-found: error
+          path: |
+            workflow-statusbar/${{ steps.notarize.outputs.app_path }}
+            workflow-statusbar/${{ steps.notarize.outputs.dmg_path }}
+
+      - name: Upload macOS artifacts (dev)
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
         uses: actions/upload-artifact@v4
         with:
           name: workflow-statusbar-macos-${{ steps.meta.outputs.suffix }}
