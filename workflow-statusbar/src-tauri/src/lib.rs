@@ -3712,17 +3712,40 @@ fn show_main_window<R: tauri::Runtime>(
         };
         let mut popup_x = tray_x + (tray_w / 2) - (size.width as i32 / 2);
         let mut popup_y = if cfg!(target_os = "windows") {
-            // Windows tray rect can be unstable on some systems; use cursor as primary anchor.
-            if let Ok(cursor) = app.cursor_position() {
-                popup_x = cursor.x.round() as i32 - (size.width as i32 / 2);
-                cursor.y.round() as i32 - size.height as i32 - 10
-            } else {
-                tray_y - size.height as i32 - 8
-            }
+            tray_y - size.height as i32 - 8
         } else {
             // macOS menu bar icon sits at the top; show popup below tray icon.
             tray_y + tray_h + 2
         };
+
+        if cfg!(target_os = "windows") {
+            // On Windows, prefer anchoring near the tray area on the current monitor.
+            let mut anchored = false;
+            if let Ok(cursor) = app.cursor_position() {
+                if let Ok(monitors) = window.available_monitors() {
+                    if let Some(monitor) = monitors.into_iter().find(|monitor| {
+                        let pos = monitor.position();
+                        let msize = monitor.size();
+                        cursor.x >= pos.x as f64
+                            && cursor.x <= (pos.x + msize.width as i32) as f64
+                            && cursor.y >= pos.y as f64
+                            && cursor.y <= (pos.y + msize.height as i32) as f64
+                    }) {
+                        let pos = monitor.position();
+                        let msize = monitor.size();
+                        let right_margin = 14;
+                        let bottom_margin = 56;
+                        popup_x = pos.x + msize.width as i32 - size.width as i32 - right_margin;
+                        popup_y = pos.y + msize.height as i32 - size.height as i32 - bottom_margin;
+                        anchored = true;
+                    }
+                }
+                if !anchored {
+                    popup_x = cursor.x.round() as i32 - (size.width as i32 / 2);
+                    popup_y = cursor.y.round() as i32 - size.height as i32 - 10;
+                }
+            }
+        }
 
         if let Some(monitor) = window.current_monitor().map_err(|err| err.to_string())? {
             let monitor_pos = monitor.position();
