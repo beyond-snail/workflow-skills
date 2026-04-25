@@ -1,9 +1,21 @@
-# Workflow 三 Skill（统一说明 + 快速接入 + 运维手册）
+<div align="center">
 
-> 面向 AI 协作研发的通用治理链路：`bootstrap -> requirement -> execution`。  
-> Unified workflow skills for AI-assisted engineering: align requirements, tasks, evidence, and project state in one auditable path.
+# Workflow Skills + Statusbar
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+**AI 协作研发治理链路：`bootstrap -> requirement -> execution`**  
+**Unified workflow skills for AI-assisted engineering with optional status monitoring.**
+
+[![GitHub Repo stars](https://img.shields.io/github/stars/beyond-snail/workflow-skills?style=flat-square)](https://github.com/beyond-snail/workflow-skills/stargazers)
+[![GitHub release](https://img.shields.io/github/v/release/beyond-snail/workflow-skills?style=flat-square)](https://github.com/beyond-snail/workflow-skills/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](LICENSE)
+[![Contributing](https://img.shields.io/badge/Contributing-Welcome-1f6feb?style=flat-square)](CONTRIBUTING.md)
+[![Security](https://img.shields.io/badge/Security-Policy-2ea44f?style=flat-square)](SECURITY.md)
+
+[快速开始](#快速开始--quick-start) • [架构草图](docs/可视化草图.md) • [状态看板](workflow-statusbar/README.md) • [开源与贡献](#13-开源与贡献)
+
+</div>
+
+---
 
 ## 项目简介 | Overview
 
@@ -12,6 +24,7 @@
 - `workflow-bootstrap`：初始化协作底座与统一入口
 - `workflow-requirement`：需求入池、任务拆解、交接收口
 - `workflow-execution`：按任务执行、验证回写、发布闸门
+- `workflow-statusbar`（可选）：桌面状态看板，读取 `.ai/runtime/project-state.json` 做常驻监控与提醒
 
 适用团队：
 
@@ -24,14 +37,19 @@
 1. 安装三 Skill 到宿主目录（Codex/Claude）
 2. 在业务仓库执行 `init` 建立底座
 3. 按 `req -> 人工审核 -> exec` 推进
+4. （可选）启动 `workflow-statusbar` 观察项目状态与执行进度
 
-示例（以 Codex 为例）：
+最简命令版（推荐）：
 
 ```bash
-python3 ~/.codex/skills/workflow-bootstrap/scripts/workflow_cli.py init --workspace-root . --host codex --host claude
-python3 ~/.codex/skills/workflow-bootstrap/scripts/workflow_cli.py req --workspace-root . --theme "你的需求主题" --summary "一句话描述"
-python3 ~/.codex/skills/workflow-bootstrap/scripts/workflow_cli.py exec --workspace-root . --req-id REQ-xxxx --task-id TASK-xxxx --summary "执行收口"
+./.ai/bin/wf-init --workspace-root . --host codex --host claude
+./.ai/bin/wf-req --workspace-root . --theme "你的需求主题" --summary "一句话描述"
+./.ai/bin/wf-exec --workspace-root . --req-id REQ-xxxx --task-id TASK-xxxx --summary "执行收口"
 ```
+
+说明：若当前仓库尚未生成 `./.ai/bin/wf-*`，先执行一次 `workflow-bootstrap` 的 `init` 完成初始化。
+
+`workflow-statusbar` 说明见 [workflow-statusbar/README.md](workflow-statusbar/README.md)。
 
 详细说明见下方目录中的第 5/6/7/8 节。
 
@@ -50,6 +68,7 @@ python3 ~/.codex/skills/workflow-bootstrap/scripts/workflow_cli.py exec --worksp
 - [11. 升级与版本一致性](#11-升级与版本一致性)
 - [12. FAQ](#12-faq)
 - [13. 开源与贡献](#13-开源与贡献)
+- [14. workflow-statusbar（可视化监控，可选）](#14-workflow-statusbar可视化监控可选)
 
 ---
 
@@ -111,6 +130,12 @@ python3 ~/.codex/skills/workflow-bootstrap/scripts/workflow_cli.py exec --worksp
 workflow-bootstrap/
 workflow-requirement/
 workflow-execution/
+```
+
+可选可视化子工程：
+
+```text
+workflow-statusbar/
 ```
 
 业务仓库初始化后，关键产物通常包括：
@@ -394,3 +419,23 @@ python3 ~/.codex/skills/workflow-bootstrap/scripts/workflow_cli.py doctor --work
 1. 提交 Issue：反馈 bug、文档缺失、使用建议
 2. 提交 PR：修复问题、补充脚本能力、完善模板与文档
 3. 在 PR 中说明变更动机、适用场景和验证方式，便于快速评审
+
+---
+
+## 14. workflow-statusbar（可视化监控，可选）
+
+`workflow-statusbar` 是本仓库的桌面可视化子工程，不参与阶段门决策，但负责把 workflow 状态更直观地展示出来。
+
+它主要监听：
+
+- `.ai/runtime/project-state.json`（三阶段统一状态源）
+- 本机会话与执行信号（用于显示是否仍在持续执行）
+
+推荐定位：
+
+1. 三个 skill 负责“治理动作与状态回写”
+2. `workflow-statusbar` 负责“状态聚合展示与提醒”
+
+快速入口：
+
+- [workflow-statusbar/README.md](workflow-statusbar/README.md)
