@@ -119,22 +119,12 @@ button {
 }
 
 .window-dragbar {
-  height: 20px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  height: 10px;
+  flex: 0 0 auto;
   cursor: move;
   user-select: none;
   border-radius: 10px 10px 0 0;
-  background: linear-gradient(180deg, rgba(233, 238, 247, 0.9), rgba(244, 246, 250, 0.9));
-  border-bottom: 1px solid rgba(194, 205, 224, 0.65);
-}
-
-.window-dragbar__hint {
-  font-size: 9px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: rgba(73, 88, 116, 0.7);
+  background: transparent;
 }
 
 .card {
