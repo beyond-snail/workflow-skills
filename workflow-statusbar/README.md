@@ -61,7 +61,7 @@ npm run package:win
   - `APPLE_TEAM_ID`
   - `APPLE_APP_SPECIFIC_PASSWORD`
 - 未配置上述 Secrets 时，`v*` tag 的 macOS 发布任务会直接失败并提示缺失项
-- CI 默认在 Intel macOS runner 上打包（`x64`），以兼容 Intel Mac 机器
+- CI 默认并行产出 macOS `x64`（Intel）和 `arm64`（Apple Silicon）两套包
 
 ## 目录
 
