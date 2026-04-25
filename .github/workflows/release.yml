@@ -3,6 +3,8 @@ name: Build workflow-statusbar
 on:
   workflow_dispatch:
   push:
+    branches:
+      - master
     tags:
       - 'v*'
 
