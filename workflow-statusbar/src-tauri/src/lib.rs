@@ -3695,13 +3695,20 @@ fn show_main_window<R: tauri::Runtime>(
 
     if let Some(rect) = tray_rect {
         let size = window.outer_size().map_err(|err| err.to_string())?;
+        let scale_factor = window.scale_factor().map_err(|err| err.to_string())?;
         let (tray_x, tray_y) = match rect.position {
             Position::Physical(position) => (position.x, position.y),
-            Position::Logical(position) => (position.x as i32, position.y as i32),
+            Position::Logical(position) => (
+                (position.x * scale_factor).round() as i32,
+                (position.y * scale_factor).round() as i32,
+            ),
         };
         let (tray_w, tray_h) = match rect.size {
             Size::Physical(size) => (size.width as i32, size.height as i32),
-            Size::Logical(size) => (size.width as i32, size.height as i32),
+            Size::Logical(size) => (
+                (size.width * scale_factor).round() as i32,
+                (size.height * scale_factor).round() as i32,
+            ),
         };
         let popup_x = tray_x + (tray_w / 2) - (size.width as i32 / 2);
         let popup_y = if cfg!(target_os = "windows") {

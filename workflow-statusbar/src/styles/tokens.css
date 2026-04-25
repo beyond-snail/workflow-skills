@@ -77,9 +77,9 @@ button {
 }
 
 .app-shell--windows {
-  background: rgba(244, 246, 250, 0.98);
-  border: 1px solid rgba(194, 205, 224, 0.7);
-  border-radius: 12px;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
 }
 
 .app-shell::-webkit-scrollbar {
@@ -114,8 +114,8 @@ button {
 }
 
 .surface--windows {
-  background: rgba(244, 246, 250, 0.98);
-  border-radius: 10px;
+  background: transparent;
+  border-radius: 0;
 }
 
 .card {
