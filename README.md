@@ -1,7 +1,39 @@
 # Workflow 三 Skill（统一说明 + 快速接入 + 运维手册）
 
-> 一套面向 AI 协作研发的通用治理链路：`bootstrap -> requirement -> execution`。
-> 目标是把“需求、任务、执行证据、状态同步”沉淀到同一套结构中，降低多人协作跑偏、交接断层和复盘成本。
+> 面向 AI 协作研发的通用治理链路：`bootstrap -> requirement -> execution`。  
+> Unified workflow skills for AI-assisted engineering: align requirements, tasks, evidence, and project state in one auditable path.
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+## 项目简介 | Overview
+
+`workflow-skills` 提供一套可复用的工程治理技能，覆盖：
+
+- `workflow-bootstrap`：初始化协作底座与统一入口
+- `workflow-requirement`：需求入池、任务拆解、交接收口
+- `workflow-execution`：按任务执行、验证回写、发布闸门
+
+适用团队：
+
+- 需要让 PRD、任务看板、执行证据保持一致
+- 需要 AI 参与开发但仍保留人工审核阶段门
+- 需要跨项目快速接入同一套流程规范
+
+## 快速开始 | Quick Start
+
+1. 安装三 Skill 到宿主目录（Codex/Claude）
+2. 在业务仓库执行 `init` 建立底座
+3. 按 `req -> 人工审核 -> exec` 推进
+
+示例（以 Codex 为例）：
+
+```bash
+python3 ~/.codex/skills/workflow-bootstrap/scripts/workflow_cli.py init --workspace-root . --host codex --host claude
+python3 ~/.codex/skills/workflow-bootstrap/scripts/workflow_cli.py req --workspace-root . --theme "你的需求主题" --summary "一句话描述"
+python3 ~/.codex/skills/workflow-bootstrap/scripts/workflow_cli.py exec --workspace-root . --req-id REQ-xxxx --task-id TASK-xxxx --summary "执行收口"
+```
+
+详细说明见下方目录中的第 5/6/7/8 节。
 
 ## 目录
 
@@ -17,6 +49,7 @@
 - [10. 排障指南](#10-排障指南)
 - [11. 升级与版本一致性](#11-升级与版本一致性)
 - [12. FAQ](#12-faq)
+- [13. 开源与贡献](#13-开源与贡献)
 
 ---
 
@@ -333,3 +366,31 @@ python3 ~/.codex/skills/workflow-bootstrap/scripts/workflow_cli.py doctor --work
 - `workflow-bootstrap/scripts/check_workflow_consistency.py`
 - `workflow-requirement/scripts/run_requirement_round.py`
 - `workflow-execution/scripts/run_execution_round.py`
+
+---
+
+## 13. 开源与贡献
+
+### 13.1 开源许可
+
+本项目采用 MIT License，允许商用、修改、分发与私有化使用。详情见：
+
+- [LICENSE](LICENSE)
+
+### 13.2 开源项目定位（对外描述）
+
+`workflow-skills` 是一套面向 AI 协作研发的通用工作流技能集，提供从初始化底座、需求治理到执行收口的完整链路，核心目标是让需求、任务、证据与状态保持一致，降低多人协作中的偏航和交接成本。
+
+适合以下场景：
+
+- 需要把 PRD、任务看板、执行证据沉淀为可追溯资产
+- 希望在 AI 参与开发时保留明确的阶段门与人工审核机制
+- 希望以统一脚本入口降低跨项目接入与迁移成本
+
+### 13.3 贡献方式
+
+欢迎通过以下方式参与共建：
+
+1. 提交 Issue：反馈 bug、文档缺失、使用建议
+2. 提交 PR：修复问题、补充脚本能力、完善模板与文档
+3. 在 PR 中说明变更动机、适用场景和验证方式，便于快速评审
