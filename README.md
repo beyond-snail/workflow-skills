@@ -32,6 +32,31 @@
 - 需要 AI 参与开发但仍保留人工审核阶段门
 - 需要跨项目快速接入同一套流程规范
 
+## 架构图 | Architecture
+
+```mermaid
+flowchart LR
+    A[workflow-bootstrap<br/>底座初始化] --> B[workflow-requirement<br/>需求治理]
+    B --> C[workflow-execution<br/>执行收口]
+    C --> D[workflow-statusbar<br/>状态聚合展示 可选]
+
+    A -.回写状态.-> S[(.ai/runtime/project-state.json)]
+    B -.回写状态.-> S
+    C -.回写状态.-> S
+    S -.读取.-> D
+
+    G[人工审核门] --> C
+    B --> G
+
+    style A fill:#E8F4FF,stroke:#3B82F6,stroke-width:2px
+    style B fill:#FFF7E6,stroke:#F59E0B,stroke-width:2px
+    style C fill:#EAF7EF,stroke:#10B981,stroke-width:2px
+    style D fill:#F5F3FF,stroke:#8B5CF6,stroke-width:2px
+    style G fill:#FEE2E2,stroke:#EF4444,stroke-width:2px
+```
+
+完整版可视化草图见 [docs/可视化草图.md](docs/可视化草图.md)。
+
 ## 快速开始 | Quick Start
 
 1. 安装三 Skill 到宿主目录（Codex/Claude）
@@ -42,12 +67,19 @@
 最简命令版（推荐）：
 
 ```bash
-./.ai/bin/wf-init --workspace-root . --host codex --host claude
-./.ai/bin/wf-req --workspace-root . --theme "你的需求主题" --summary "一句话描述"
-./.ai/bin/wf-exec --workspace-root . --req-id REQ-xxxx --task-id TASK-xxxx --summary "执行收口"
+./.ai/bin/wf-init
+./.ai/bin/wf-req --theme "你的需求主题"
+./.ai/bin/wf-exec
 ```
 
-说明：若当前仓库尚未生成 `./.ai/bin/wf-*`，先执行一次 `workflow-bootstrap` 的 `init` 完成初始化。
+可选参数（需要时再加）：
+
+```bash
+./.ai/bin/wf-req --theme "你的需求主题" --summary "一句话描述"
+./.ai/bin/wf-exec --req-id REQ-xxxx --task-id TASK-xxxx --summary "执行收口"
+```
+
+说明：若当前仓库尚未生成 `./.ai/bin/wf-*`，再使用下方“快速接入（新项目）”里的冷启动命令完成初始化。
 
 `workflow-statusbar` 说明见 [workflow-statusbar/README.md](workflow-statusbar/README.md)。
 
