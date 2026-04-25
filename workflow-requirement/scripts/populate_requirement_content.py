@@ -154,7 +154,9 @@ DEFAULT_TABLE_COLUMN_ALIASES: dict[str, dict[str, tuple[str, ...]]] = {
 
 
 def is_tgxsm_project(workspace_root: Path) -> bool:
-    return (workspace_root / "server/src/main/java/com/juanba/tgxsm").exists()
+    # Keep workflow-requirement generic by default.
+    # Industry-specific blueprints must not be auto-injected into arbitrary repos.
+    return False
 
 
 def build_feature_blueprints(workspace_root: Path) -> dict[str, FeatureBlueprint]:
@@ -750,7 +752,7 @@ def extract_architecture(sections: list[Section]) -> tuple[list[str], dict[str, 
     fallback_titles = [
         normalized_title(section.title)
         for section in sections
-        if section.level >= 2 and any(keyword in normalized_title(section.title) for keyword in ("功能", "需求", "链路", "场景", "模块", "限制", "积分", "打卡", "反馈"))
+        if section.level >= 2 and any(keyword in normalized_title(section.title) for keyword in ("功能", "需求", "链路", "场景", "模块"))
     ]
     top_modules = uniq(fallback_titles)[:5]
     return top_modules, {module: [] for module in top_modules}
@@ -926,8 +928,8 @@ def derive_principles(principles: list[str], feature_specs: list[FeatureSpec], t
         return uniq(principles)[:8]
     generated: list[str] = [
         "业务语义与口径以 PRD 为准，不使用历史实现反推需求。",
-        "同一功能点需同时覆盖页面展示、接口能力、数据落库与追溯证据。",
-        "优先复用现有会员与反馈链路，新增能力按最小改动落地。",
+        "同一功能点需同时覆盖能力实现、数据落库与追溯证据。",
+        "优先复用现有通用能力，新增能力按最小改动落地。",
     ]
     if table_specs:
         generated.append(f"新增/改造数据对象以 `{table_specs[0].table_name}` 等目标表为落地基准，DDL 与索引需同步设计。")
@@ -941,13 +943,13 @@ def derive_current_state(current_sections: list[Section], feature_specs: list[Fe
     if existing:
         return existing
     points: list[str] = [
-        "当前代码侧已具备基础下载、会员、题目反馈能力，但未形成本需求范围的完整闭环。",
-        "本次需求涉及下载权益、积分、打卡、意见反馈四条链路，需要跨小程序、后端、后台联动改造。",
+        "当前仓库已具备部分基础能力，但尚未形成本需求范围的完整闭环。",
+        "本次需求需要跨采集、处理、存储、查询与验证链路联动改造。",
     ]
     if table_specs:
         points.append(f"当前数据基线需补齐 {len(table_specs)} 张目标表：{ '、'.join(spec.table_name for spec in table_specs[:6]) }。")
     if feature_specs:
-        points.append("功能点按 F001~F004 管理，需在任务看板和追溯矩阵保持一一对应。")
+        points.append("功能点需在任务看板和追溯矩阵保持一一对应。")
     return uniq(points)[:8]
 
 
@@ -956,9 +958,9 @@ def derive_system_change_points(dependency_sections: list[Section], feature_spec
     if existing:
         return existing
     points = [
-        "小程序侧：补齐下载权益展示、我的积分入口、打卡入口与对应页面交互。",
-        "后端侧：补齐下载权益查询、积分账户与兑换、打卡、意见反馈处理接口。",
-        "后台侧：新增“用户反馈”菜单分层，支持意见反馈单条与批量处理。",
+        "入口层：补齐查询入口与交互展示能力（CLI/Web/API）。",
+        "服务层：补齐核心业务处理、校验、异常与回滚策略。",
+        "数据层：补齐结构化存储、索引与追溯关系落库能力。",
     ]
     if table_specs:
         points.append(f"数据侧：新增/改造表包括 { '、'.join(spec.table_name for spec in table_specs[:6]) }。")
@@ -1405,9 +1407,9 @@ def build_detailed_design(
 ## 3. 数据流与时序
 
 1. 请求进入 Controller，先完成身份与参数校验（含会员开关、手机号与状态校验）。
-2. Service 层执行业务规则判断（权益、积分、打卡、反馈处理），命中异常立即短路返回业务错误码。
+2. Service 层执行业务规则判断，命中异常立即短路返回业务错误码。
 3. 在事务中执行“状态更新 + 明细落库 + 追溯记录”，确保一致性。
-4. 返回页面展示所需的聚合字段（剩余次数、总积分、月历统计、处理状态），便于前端直接渲染。
+4. 返回调用方所需的聚合字段，便于入口层直接渲染或展示。
 
 ## 4. 核心对象设计
 
@@ -1530,78 +1532,23 @@ def build_breakdown(
 
 1. 先完成数据模型、配置和依赖校验。
 2. 再实现核心后端能力与接口。
-3. 再改造小程序与后台页面，最后执行联调和测试验证。
+3. 再实现入口层交互与查询能力，最后执行联调和测试验证。
 """
 
 
 def build_physical_design(doc_date: str, theme: str, objects: list[str], table_names: list[str], table_specs: list[TableSpec]) -> str:
-    table_hint_map: dict[str, tuple[str, str, str, str]] = {
-        "paper_download_records": (
-            "download_id/user_id/phone/paper_id/token/action/download_at/client_type/created_at",
-            "uk_token_action(token, action)；idx_pdr_phone_date(phone, download_at)；idx_pdr_user_paper(user_id, paper_id)",
-            "action 建议枚举(download/view)；client_type 默认 miniapp",
-            "F001 下载限制明细落库",
-        ),
-        "user_points_accounts": (
-            "account_id/user_id/phone/total_points/version/created_at/updated_at",
-            "uk_user_points_accounts_user_id(user_id)",
-            "total_points 默认 0；version 默认 0",
-            "F002 积分账户主表",
-        ),
-        "user_points_details": (
-            "detail_id/user_id/change_type/points_delta/biz_type/biz_id/remark/created_at",
-            "idx_upd_user_created(user_id, created_at)",
-            "change_type 建议枚举(INCOME/EXPENSE)",
-            "F002 积分流水明细",
-        ),
-        "user_points_redemptions": (
-            "redemption_id/user_id/days/points_cost/member_card_id/status/created_at",
-            "idx_upr_user_status(user_id, status)；idx_upr_user_created(user_id, created_at)",
-            "status 建议枚举(PENDING/SUCCESS/FAILED)",
-            "F002 兑换记录",
-        ),
-        "study_checkins": (
-            "checkin_id/user_id/phone/checkin_date/points_reward/created_at",
-            "uk_study_checkins_user_date(user_id, checkin_date)；idx_sc_user_month(user_id, checkin_date)",
-            "points_reward 默认按配置写入",
-            "F003 打卡记录",
-        ),
-        "user_feedbacks": (
-            "feedback_id/user_id/feedback_type/status/is_adopted/content/images/reply/processed_by/processed_at/created_at/updated_at",
-            "idx_uf_status_adopted(status, is_adopted)；idx_uf_status_type(status, feedback_type)；idx_uf_user_created(user_id, created_at)",
-            "reply 可空且长度 <= 100；is_adopted 提交时可空、处理时必填",
-            "F004 意见反馈主表",
-        ),
-        "papers": (
-            "download_count（复用字段）",
-            "复用现有索引，结合 download_count 读写热点评估",
-            "download_count 由下载事务统一维护",
-            "F001 复用现网表",
-        ),
-        "member_cards": (
-            "source/remark（按需要补字段）",
-            "复用现有索引",
-            "source 建议写 POINTS_REDEEM",
-            "F002 兑换后待激活权益复用",
-        ),
-        "question_feedbacks": (
-            "updated_at（向前兼容补充）",
-            "复用现有索引",
-            "保持历史题目反馈链路不破坏",
-            "F004 历史链路兼容",
-        ),
-    }
+    table_hint_map: dict[str, tuple[str, str, str, str]] = {}
 
     purpose_map = {spec.table_name.lower(): (spec.purpose or "承接对应业务数据") for spec in table_specs}
     ordered_tables = uniq([spec.table_name for spec in table_specs] + table_names)
     if not ordered_tables:
         ordered_tables = [
-            "paper_download_records",
-            "user_points_accounts",
-            "user_points_details",
-            "user_points_redemptions",
-            "study_checkins",
-            "user_feedbacks",
+            "projects",
+            "items",
+            "tasks",
+            "decisions",
+            "evidence",
+            "links",
         ]
 
     rows: list[str] = []
@@ -1648,28 +1595,18 @@ def build_physical_design(doc_date: str, theme: str, objects: list[str], table_n
 ## 5. 唯一键与索引核对清单
 
 - 覆盖“唯一性、防重、分页、按时间倒序查询”四类索引场景。
-- 下载、积分、打卡、反馈四条链路均需具备“按 user_id + 时间”查询索引。
+- 关键业务链路均需具备“按实体 ID + 时间”查询索引。
 - 涉及事务幂等的链路必须有唯一约束（例如 token/action、user/date、biz_type/biz_id）。
 
 ## 6. 约束与备注
 
 - 本设计用于开发实现阶段，字段长度和索引前缀需结合现网数据量最终落库。
-- 涉及历史表（`papers`/`member_cards`/`question_feedbacks`）变更时必须做向前兼容评估。
+- 涉及历史表变更时必须做向前兼容评估。
 """
 
 
 def build_table_mapping(doc_date: str, theme: str, objects: list[str], table_names: list[str], table_specs: list[TableSpec]) -> str:
-    module_map = {
-        "paper_download_records": "F001 下载限制",
-        "papers": "F001 下载限制（复用）",
-        "user_points_accounts": "F002 用户积分链路",
-        "user_points_details": "F002 用户积分链路",
-        "user_points_redemptions": "F002 用户积分链路",
-        "member_cards": "F002 用户积分链路（复用）",
-        "study_checkins": "F003 学习打卡",
-        "user_feedbacks": "F004 用户反馈链路",
-        "question_feedbacks": "F004 用户反馈链路（复用）",
-    }
+    module_map: dict[str, str] = {}
     rows = [
         "| PRD对象/术语 | 对应功能 | 目标表 | 映射策略 | 备注 |",
         "| --- | --- | --- | --- | --- |",
@@ -1681,7 +1618,7 @@ def build_table_mapping(doc_date: str, theme: str, objects: list[str], table_nam
             strategy = "新增表" if key in {"paper_download_records", "user_points_accounts", "user_points_details", "user_points_redemptions", "study_checkins", "user_feedbacks"} else "复用现网表"
             rows.append(f"| {spec.purpose or spec.table_name} | {feature} | {spec.table_name} | {strategy} | 需与接口返回字段保持一一映射 |")
     else:
-        candidates = objects[:8] or ["下载权益", "积分账户", "积分流水", "兑换记录", "打卡记录", "意见反馈"]
+        candidates = objects[:8] or ["项目", "知识条目", "任务", "决策", "证据", "实体关联"]
         for index, name in enumerate(candidates):
             table = table_names[index] if index < len(table_names) else "待确认表"
             feature = module_map.get(table.lower(), "待归属功能")
@@ -2375,12 +2312,12 @@ sequenceDiagram
 
 ```mermaid
 flowchart TD
-    A[小程序/后台发起请求] --> B[Controller参数校验 + 鉴权]
+    A[入口层发起请求/任务] --> B[参数校验 + 鉴权]
     B --> C{{功能分支}}
-    C -->|F001 下载限制| D1[权益校验与下载令牌]
-    C -->|F002 用户积分| D2[余额校验与兑换事务]
-    C -->|F003 学习打卡| D3[防重校验与奖励发放]
-    C -->|F004 用户反馈| D4[处理参数校验与状态流转]
+    C -->|能力A| D1[规则校验与资源准备]
+    C -->|能力B| D2[状态计算与事务处理]
+    C -->|能力C| D3[幂等校验与结果落库]
+    C -->|能力D| D4[异步任务与回写处理]
     D1 --> E[Service执行业务规则]
     D2 --> E
     D3 --> E
@@ -2406,10 +2343,10 @@ flowchart TD
 
 def build_acceptance_doc(doc_date: str, theme: str, use_cases: list[str]) -> str:
     rows = ["| 用例ID | 场景 | 前置数据 | 执行步骤 | 预期结果 | 实际结果 | 证据 | 状态 |", "| --- | --- | --- | --- | --- | --- | --- | --- |"]
-    cases = use_cases[:8] or ["F001 下载权益校验", "F002 兑换事务一致性", "F003 每日防重打卡", "F004 反馈处理回写"]
+    cases = use_cases[:8] or ["核心流程可用性", "事务一致性", "幂等与防重", "异常分支回滚"]
     for index, case in enumerate(cases, start=1):
         rows.append(
-            f"| IT-{index:02d} | {case} | 准备对应用户、会员态与配置项 | 按接口/页面主流程执行并覆盖异常分支 | 返回结果、落库结果、页面展示三者一致 | 待执行 | 请求日志/SQL核对/截图 | 待执行 |"
+            f"| IT-{index:02d} | {case} | 准备与场景匹配的输入数据与配置项 | 按接口/流程主链路执行并覆盖异常分支 | 返回结果、落库结果、展示结果三者一致 | 待执行 | 请求日志/SQL核对/截图 | 待执行 |"
         )
     return f"""# {doc_date} 联调验收记录 - {theme}
 
@@ -2420,7 +2357,7 @@ def build_acceptance_doc(doc_date: str, theme: str, use_cases: list[str]) -> str
 ## 2. 环境信息
 
 - 环境：`dev`（功能联调）/`staging`（提测回归）
-- 数据准备：按 UAT 用例准备会员用户、非会员用户、积分账户、反馈样本
+- 数据准备：按 UAT 用例准备输入样本、配置项与权限上下文
 
 ## 3. 执行步骤
 
@@ -2472,7 +2409,7 @@ def build_test_result_doc(doc_date: str, theme: str, use_cases: list[str]) -> st
 
 def build_uat_cases(doc_date: str, theme: str, use_cases: list[str]) -> str:
     rows = ["| 用例ID | 优先级 | 场景 | 前置条件 | 执行步骤 | 期望结果 | 结果记录 |", "| --- | --- | --- | --- | --- | --- | --- |"]
-    cases = use_cases[:10] or ["F001 下载权益", "F002 积分兑换", "F003 学习打卡", "F004 反馈处理"]
+    cases = use_cases[:10] or ["核心能力验证", "数据一致性验证", "异常分支验证", "端到端流程验证"]
     for index, case in enumerate(cases, start=1):
         rows.append(
             f"| UAT-{index:02d} | {'P0' if index <= 4 else 'P1'} | {case} | 准备与场景匹配的用户、配置、权限与样本数据 | 执行业务流程并核对接口、页面、数据和异常提示 | 结果符合 PRD 且可追溯到代码与数据 | 待执行 |"
@@ -2506,97 +2443,35 @@ def build_uat_cases(doc_date: str, theme: str, use_cases: list[str]) -> str:
 
 def build_sql_ddl(doc_date: str, theme: str) -> str:
     return f"""-- {doc_date} DDL - {theme}
--- 目的：新增吴从鹏范围需求的数据模型
+-- 目的：提供通用需求的数据模型骨架（按项目实际替换）
 -- 执行环境：MySQL 8.x
 
 START TRANSACTION;
 
-CREATE TABLE IF NOT EXISTS `paper_download_records` (
-  `download_id` BIGINT NOT NULL AUTO_INCREMENT,
-  `user_id` INT NOT NULL,
-  `phone` VARCHAR(20) NOT NULL,
-  `paper_id` INT NOT NULL,
-  `token` VARCHAR(128) DEFAULT NULL,
-  `action` VARCHAR(32) NOT NULL DEFAULT 'download',
-  `download_at` DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-  `client_type` VARCHAR(32) NOT NULL DEFAULT 'miniapp',
-  `created_at` DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-  PRIMARY KEY (`download_id`),
-  UNIQUE KEY `uk_token_action` (`token`, `action`),
-  KEY `idx_pdr_phone_date` (`phone`, `download_at`),
-  KEY `idx_pdr_user_paper` (`user_id`, `paper_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='试卷下载明细';
-
-CREATE TABLE IF NOT EXISTS `user_points_accounts` (
-  `account_id` BIGINT NOT NULL AUTO_INCREMENT,
-  `user_id` INT NOT NULL,
-  `phone` VARCHAR(20) DEFAULT NULL,
-  `total_points` INT NOT NULL DEFAULT 0,
-  `version` INT NOT NULL DEFAULT 0,
+CREATE TABLE IF NOT EXISTS `domain_entity_main` (
+  `id` BIGINT NOT NULL AUTO_INCREMENT,
+  `entity_key` VARCHAR(128) NOT NULL,
+  `entity_type` VARCHAR(64) NOT NULL,
+  `status` VARCHAR(32) NOT NULL DEFAULT 'ACTIVE',
+  `payload` JSON DEFAULT NULL,
   `created_at` DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   `updated_at` DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
-  PRIMARY KEY (`account_id`),
-  UNIQUE KEY `uk_user_points_accounts_user_id` (`user_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户积分账户';
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_dem_entity_key` (`entity_key`),
+  KEY `idx_dem_type_status` (`entity_type`, `status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='通用主实体表';
 
-CREATE TABLE IF NOT EXISTS `user_points_details` (
-  `detail_id` BIGINT NOT NULL AUTO_INCREMENT,
-  `user_id` INT NOT NULL,
-  `account_id` BIGINT NOT NULL,
-  `change_type` VARCHAR(32) NOT NULL COMMENT 'INCOME/EXPENSE',
-  `biz_type` VARCHAR(64) NOT NULL COMMENT 'checkin_reward/feedback_reward/redeem_cost',
-  `biz_id` VARCHAR(64) DEFAULT NULL,
-  `points_delta` INT NOT NULL,
-  `remark` VARCHAR(255) DEFAULT NULL,
-  `created_at` DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-  PRIMARY KEY (`detail_id`),
-  KEY `idx_upd_user_created` (`user_id`, `created_at`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='积分流水';
-
-CREATE TABLE IF NOT EXISTS `user_points_redemptions` (
-  `redemption_id` BIGINT NOT NULL AUTO_INCREMENT,
-  `user_id` INT NOT NULL,
-  `days` INT NOT NULL,
-  `points_cost` INT NOT NULL,
-  `status` VARCHAR(32) NOT NULL DEFAULT 'PENDING',
-  `member_card_id` BIGINT DEFAULT NULL,
-  `created_at` DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-  `updated_at` DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
-  PRIMARY KEY (`redemption_id`),
-  KEY `idx_upr_user_status` (`user_id`, `status`),
-  KEY `idx_upr_user_created` (`user_id`, `created_at`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='积分兑换记录';
-
-CREATE TABLE IF NOT EXISTS `study_checkins` (
-  `checkin_id` BIGINT NOT NULL AUTO_INCREMENT,
-  `user_id` INT NOT NULL,
-  `phone` VARCHAR(20) DEFAULT NULL,
-  `checkin_date` DATE NOT NULL,
-  `points_reward` INT NOT NULL DEFAULT 0,
-  `created_at` DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-  PRIMARY KEY (`checkin_id`),
-  UNIQUE KEY `uk_study_checkins_user_date` (`user_id`, `checkin_date`),
-  KEY `idx_sc_user_month` (`user_id`, `checkin_date`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='学习打卡记录';
-
-CREATE TABLE IF NOT EXISTS `user_feedbacks` (
-  `feedback_id` BIGINT NOT NULL AUTO_INCREMENT,
-  `user_id` INT NOT NULL,
-  `feedback_type` VARCHAR(32) NOT NULL COMMENT 'SUGGEST/BUG/OTHER',
-  `status` VARCHAR(32) NOT NULL DEFAULT 'PENDING',
-  `is_adopted` TINYINT(1) DEFAULT NULL,
-  `content` TEXT NOT NULL,
-  `images` JSON DEFAULT NULL,
-  `reply` VARCHAR(100) DEFAULT NULL,
-  `processed_by` INT DEFAULT NULL,
-  `processed_at` DATETIME(6) DEFAULT NULL,
-  `created_at` DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-  `updated_at` DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
-  PRIMARY KEY (`feedback_id`),
-  KEY `idx_uf_status_adopted` (`status`, `is_adopted`),
-  KEY `idx_uf_status_type` (`status`, `feedback_type`),
-  KEY `idx_uf_user_created` (`user_id`, `created_at`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户意见反馈';
+CREATE TABLE IF NOT EXISTS `domain_entity_event` (
+  `event_id` BIGINT NOT NULL AUTO_INCREMENT,
+  `entity_id` BIGINT NOT NULL,
+  `event_type` VARCHAR(64) NOT NULL,
+  `event_source` VARCHAR(128) DEFAULT NULL,
+  `event_payload` JSON DEFAULT NULL,
+  `occurred_at` DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  PRIMARY KEY (`event_id`),
+  KEY `idx_dee_entity_time` (`entity_id`, `occurred_at`),
+  KEY `idx_dee_type_time` (`event_type`, `occurred_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='通用事件表';
 
 COMMIT;
 """
@@ -2604,26 +2479,20 @@ COMMIT;
 
 def build_sql_ddl_field_fix(doc_date: str, theme: str) -> str:
     return f"""-- {doc_date} DDL-字段修正 - {theme}
--- 目的：对现有表做向前兼容字段补充
+-- 目的：对现有表做通用向前兼容字段补充
 
-ALTER TABLE `member_cards`
-  ADD COLUMN IF NOT EXISTS `source` VARCHAR(100) DEFAULT NULL COMMENT '来源（POINTS_REDEEM等）' AFTER `plan_start_time`,
-  ADD COLUMN IF NOT EXISTS `remark` VARCHAR(500) DEFAULT NULL COMMENT '备注' AFTER `updated_by`;
+ALTER TABLE `domain_entity_main`
+  ADD COLUMN IF NOT EXISTS `biz_owner` VARCHAR(128) DEFAULT NULL COMMENT '业务归属' AFTER `entity_type`,
+  ADD COLUMN IF NOT EXISTS `remark` VARCHAR(500) DEFAULT NULL COMMENT '备注' AFTER `payload`;
 
-ALTER TABLE `question_feedbacks`
-  ADD COLUMN IF NOT EXISTS `updated_at` DATETIME(6) DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6) COMMENT '更新时间';
+ALTER TABLE `domain_entity_event`
+  ADD COLUMN IF NOT EXISTS `trace_id` VARCHAR(128) DEFAULT NULL COMMENT '链路追踪ID' AFTER `event_source`;
 
 -- 配置项建议（如不存在时补充）
 INSERT INTO `configs` (`config_key`, `config_value`, `config_description`, `updated_at`)
-SELECT 'download_rights_rule', '{{"dailyLimit":3,"memberTotalLimit":9999}}', '下载权益规则配置', NOW(6)
+SELECT 'domain_default_rule', '{{"enabled":true}}', '通用规则配置', NOW(6)
 WHERE NOT EXISTS (
-  SELECT 1 FROM `configs` WHERE `config_key` = 'download_rights_rule'
-);
-
-INSERT INTO `configs` (`config_key`, `config_value`, `config_description`, `updated_at`)
-SELECT 'points_rule', '{{"exchangeRate":100,"checkinReward":2}}', '积分规则配置', NOW(6)
-WHERE NOT EXISTS (
-  SELECT 1 FROM `configs` WHERE `config_key` = 'points_rule'
+  SELECT 1 FROM `configs` WHERE `config_key` = 'domain_default_rule'
 );
 """
 
@@ -2632,29 +2501,17 @@ def build_sql_ddl_index_fix(doc_date: str, theme: str) -> str:
     return f"""-- {doc_date} DDL-索引修正 - {theme}
 -- 目的：补齐高频查询索引
 
-CREATE INDEX IF NOT EXISTS `idx_pdr_phone_date`
-  ON `paper_download_records` (`phone`, `download_at`);
+CREATE INDEX IF NOT EXISTS `idx_dem_type_status`
+  ON `domain_entity_main` (`entity_type`, `status`);
 
-CREATE INDEX IF NOT EXISTS `idx_pdr_user_paper`
-  ON `paper_download_records` (`user_id`, `paper_id`);
+CREATE INDEX IF NOT EXISTS `idx_dem_updated_at`
+  ON `domain_entity_main` (`updated_at`);
 
-CREATE INDEX IF NOT EXISTS `idx_upd_user_created`
-  ON `user_points_details` (`user_id`, `created_at`);
+CREATE INDEX IF NOT EXISTS `idx_dee_entity_time`
+  ON `domain_entity_event` (`entity_id`, `occurred_at`);
 
-CREATE INDEX IF NOT EXISTS `idx_upr_user_status`
-  ON `user_points_redemptions` (`user_id`, `status`);
-
-CREATE INDEX IF NOT EXISTS `idx_upr_user_created`
-  ON `user_points_redemptions` (`user_id`, `created_at`);
-
-CREATE INDEX IF NOT EXISTS `idx_uf_status_adopted`
-  ON `user_feedbacks` (`status`, `is_adopted`);
-
-CREATE INDEX IF NOT EXISTS `idx_uf_status_type`
-  ON `user_feedbacks` (`status`, `feedback_type`);
-
-CREATE INDEX IF NOT EXISTS `idx_uf_user_created`
-  ON `user_feedbacks` (`user_id`, `created_at`);
+CREATE INDEX IF NOT EXISTS `idx_dee_type_time`
+  ON `domain_entity_event` (`event_type`, `occurred_at`);
 """
 
 
@@ -2663,15 +2520,15 @@ def build_sql_ddl_slim_fields(doc_date: str, theme: str) -> str:
 -- 目的：记录字段收敛建议（默认不直接删除）
 -- 建议：评审确认后再执行 DROP/迁移
 
--- 1. question_feedbacks 若后续只保留题目反馈，可评估是否保留 screenshots JSON
--- ALTER TABLE `question_feedbacks` DROP COLUMN `screenshots`;
+-- 1. 若某些 JSON 字段确认长期无使用，可评估降级为普通字符串字段
+-- ALTER TABLE `domain_entity_main` MODIFY COLUMN `payload` VARCHAR(4096);
 
--- 2. member_cards 历史备注字段如确认无业务使用，可评估收敛
--- ALTER TABLE `member_cards` DROP COLUMN `remark`;
+-- 2. 若备注字段无业务使用，可评估收敛
+-- ALTER TABLE `domain_entity_main` DROP COLUMN `remark`;
 
 -- 3. 执行前建议先核对数据量
-SELECT COUNT(*) AS feedback_total FROM `question_feedbacks`;
-SELECT COUNT(*) AS member_card_total FROM `member_cards`;
+SELECT COUNT(*) AS entity_total FROM `domain_entity_main`;
+SELECT COUNT(*) AS event_total FROM `domain_entity_event`;
 """
 
 
@@ -2679,39 +2536,25 @@ def build_sql_ddl_sequence(doc_date: str, theme: str) -> str:
     return f"""-- {doc_date} DDL-主键序列 - {theme}
 -- 目的：统一主键策略检查（MySQL 通常使用 AUTO_INCREMENT）
 
-SHOW CREATE TABLE `paper_download_records`;
-SHOW CREATE TABLE `user_points_accounts`;
-SHOW CREATE TABLE `user_points_details`;
-SHOW CREATE TABLE `user_points_redemptions`;
-SHOW CREATE TABLE `study_checkins`;
-SHOW CREATE TABLE `user_feedbacks`;
+SHOW CREATE TABLE `domain_entity_main`;
+SHOW CREATE TABLE `domain_entity_event`;
 
 -- 示例：如需重置序列请在业务低峰期执行
--- ALTER TABLE `paper_download_records` AUTO_INCREMENT = 100000;
+-- ALTER TABLE `domain_entity_main` AUTO_INCREMENT = 100000;
 """
 
 
 def build_sql_fix_history(doc_date: str, theme: str) -> str:
     return f"""-- {doc_date} SQL-历史补全 - {theme}
--- 目的：为历史用户补齐积分账户和下载明细基线（按需执行）
+-- 目的：为历史实体补齐通用主数据和事件基线（按需执行）
 
 START TRANSACTION;
 
-INSERT INTO `user_points_accounts` (`user_id`, `phone`, `total_points`, `version`, `created_at`, `updated_at`)
-SELECT u.`user_id`, u.`phone`, 0, 0, NOW(6), NOW(6)
-FROM `users` u
-LEFT JOIN `user_points_accounts` a ON a.`user_id` = u.`user_id`
-WHERE a.`account_id` IS NULL;
-
-INSERT INTO `paper_download_records` (`user_id`, `phone`, `paper_id`, `token`, `action`, `download_at`, `client_type`, `created_at`)
-SELECT m.`user_id`, COALESCE(m.`phone`, ''), p.`paper_id`, CONCAT('HIS-', p.`paper_id`, '-', m.`user_id`), 'download', NOW(6), 'history', NOW(6)
-FROM `papers` p
-JOIN `memberships` m ON m.`is_active` = b'1'
-LEFT JOIN `paper_download_records` r
-  ON r.`user_id` = m.`user_id`
- AND r.`paper_id` = p.`paper_id`
- AND r.`action` = 'download'
-WHERE r.`download_id` IS NULL
+INSERT INTO `domain_entity_main` (`entity_key`, `entity_type`, `status`, `payload`, `created_at`, `updated_at`)
+SELECT CONCAT('HIS-', src.`id`), 'legacy', 'ACTIVE', JSON_OBJECT('source', 'history-import'), NOW(6), NOW(6)
+FROM `legacy_source` src
+LEFT JOIN `domain_entity_main` dem ON dem.`entity_key` = CONCAT('HIS-', src.`id`)
+WHERE dem.`id` IS NULL
 LIMIT 200;
 
 COMMIT;
@@ -2723,16 +2566,11 @@ def build_sql_fix_manual(doc_date: str, theme: str) -> str:
 -- 目的：给人工映射和临时修复留标准入口
 -- 使用：将 TODO 替换为真实值后执行
 
-INSERT INTO `paper_download_records` (`user_id`, `phone`, `paper_id`, `token`, `action`, `download_at`, `client_type`, `created_at`)
-VALUES (/* TODO_USER_ID */ 0, 'TODO_PHONE', /* TODO_PAPER_ID */ 0, 'TODO_TOKEN', 'download', NOW(6), 'manual_fix', NOW(6));
+INSERT INTO `domain_entity_main` (`entity_key`, `entity_type`, `status`, `payload`, `created_at`, `updated_at`)
+VALUES ('TODO_ENTITY_KEY', 'TODO_TYPE', 'ACTIVE', JSON_OBJECT('source', 'manual_fix'), NOW(6), NOW(6));
 
-INSERT INTO `user_points_details`
-(`user_id`, `account_id`, `change_type`, `biz_type`, `biz_id`, `points_delta`, `remark`, `created_at`)
-VALUES (/* TODO_USER_ID */ 0, /* TODO_ACCOUNT_ID */ 0, 'INCOME', 'manual_fix', 'TODO_BIZ_ID', /* TODO_DELTA */ 0, 'manual fix', NOW(6));
-
-UPDATE `user_feedbacks`
-SET `status` = 'PROCESSED', `is_adopted` = 1, `reply` = '人工修复回填', `processed_at` = NOW(6), `updated_at` = NOW(6)
-WHERE `feedback_id` = /* TODO_FEEDBACK_ID */ 0;
+INSERT INTO `domain_entity_event` (`entity_id`, `event_type`, `event_source`, `event_payload`, `occurred_at`)
+VALUES (/* TODO_ENTITY_ID */ 0, 'TODO_EVENT_TYPE', 'manual_fix', JSON_OBJECT('remark', 'manual fix'), NOW(6));
 """
 
 
@@ -2742,24 +2580,11 @@ def build_sql_testdata(doc_date: str, theme: str) -> str:
 
 START TRANSACTION;
 
-INSERT INTO `paper_download_records` (`user_id`, `phone`, `paper_id`, `token`, `action`, `download_at`, `client_type`, `created_at`)
-VALUES (10001, '13800000001', 20001, 'TEST-TOKEN-001', 'download', NOW(6), 'test', NOW(6));
+INSERT INTO `domain_entity_main` (`entity_key`, `entity_type`, `status`, `payload`, `created_at`, `updated_at`)
+VALUES ('TEST-ENTITY-001', 'sample', 'ACTIVE', JSON_OBJECT('name', '样本实体'), NOW(6), NOW(6));
 
-INSERT INTO `user_points_accounts`
-(`user_id`, `phone`, `total_points`, `version`, `created_at`, `updated_at`)
-VALUES (10001, '13800000001', 300, 0, NOW(6), NOW(6))
-ON DUPLICATE KEY UPDATE `updated_at` = NOW(6);
-
-INSERT INTO `user_points_details`
-(`user_id`, `account_id`, `change_type`, `biz_type`, `biz_id`, `points_delta`, `remark`, `created_at`)
-VALUES (10001, 1, 'INCOME', 'checkin_reward', 'TEST-CHECKIN-001', 2, 'checkin test', NOW(6));
-
-INSERT INTO `study_checkins` (`user_id`, `phone`, `checkin_date`, `points_reward`, `created_at`)
-VALUES (10001, '13800000001', CURDATE(), 2, NOW(6))
-ON DUPLICATE KEY UPDATE `created_at` = VALUES(`created_at`);
-
-INSERT INTO `user_feedbacks` (`user_id`, `feedback_type`, `status`, `is_adopted`, `content`, `images`, `reply`, `created_at`, `updated_at`)
-VALUES (10001, 'SUGGEST', 'PENDING', NULL, '测试意见反馈样本', JSON_ARRAY(), NULL, NOW(6), NOW(6));
+INSERT INTO `domain_entity_event` (`entity_id`, `event_type`, `event_source`, `event_payload`, `occurred_at`)
+VALUES (1, 'created', 'testdata', JSON_OBJECT('remark', 'test event'), NOW(6));
 
 COMMIT;
 """
@@ -2785,7 +2610,7 @@ def generated_tasks(
 
     feature_items = function_items or [
         FunctionItem(code=f"T{index:03d}", module=module, name=f"{module}实现", description=module, priority="P0", detail_points=child_map.get(module, []), acceptance_points=[])
-        for index, module in enumerate((top_modules[:4] or ["数据模型与配置", "后端核心能力", "前端与后台页面"]), start=1)
+        for index, module in enumerate((top_modules[:4] or ["数据模型与配置", "核心处理能力", "入口与交互能力"]), start=1)
     ]
     tasks: list[GeneratedTask] = []
     for index, item in enumerate(feature_items, start=1):

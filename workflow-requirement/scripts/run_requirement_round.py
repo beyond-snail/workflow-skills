@@ -247,6 +247,7 @@ def main() -> int:
     parser.add_argument("--allow-content-overwrite", action="store_true", help="Allow wf-req rerun to overwrite existing detailed docs")
     parser.add_argument("--skip-handoff-check", action="store_true", help="Skip readiness check at the end")
     parser.add_argument("--strict-handoff-check", action="store_true", help="Run handoff readiness in strict mode (warnings become blockers)")
+    parser.add_argument("--enable-legacy-context", action="store_true", help="Enable legacy-scan context injection (disabled by default for generic output)")
     parser.add_argument("--skip-task-memory-init", action="store_true", help="Skip initializing .ai/memory/tasks memory directory")
     parser.add_argument("--task-memory-type", default="feature", help="Task memory type: feature|bugfix|continuation|ops")
     parser.add_argument("--task-memory-status", default="todo", help="Initial task memory status")
@@ -257,8 +258,17 @@ def main() -> int:
     profile = load_profile_from_args(args)
     project_paths = ProjectPaths.from_profile(profile, Path.cwd())
     planned = plan_round(args, project_paths)
-    legacy_scan = load_legacy_scan(project_paths.workspace_root)
-    legacy_context = match_legacy_context(legacy_scan, args.theme, args.summary, planned.prd_rel)
+    if args.enable_legacy_context:
+        legacy_scan = load_legacy_scan(project_paths.workspace_root)
+        legacy_context = match_legacy_context(legacy_scan, args.theme, args.summary, planned.prd_rel)
+    else:
+        legacy_context = {
+            "matched_domains": [],
+            "matched_chains": [],
+            "matched_docs": [],
+            "summary": "legacy context disabled",
+            "evidence_refs": [],
+        }
 
     print_header(
         "Requirement Round",
