@@ -119,6 +119,24 @@ export type KbStats = {
   links: number;
 };
 
+export type KbProjectStatus = {
+  project: string;
+  path: string;
+  item_count: number;
+  event_count: number;
+  document_count: number;
+  conversation_count: number;
+  last_item_at: string;
+};
+
+export type KbCollectProjectResult = {
+  project: string;
+  events: number;
+  processed_files: number;
+  documents: number;
+  scanned_files: number;
+};
+
 export type KbSearchItem = {
   item_id: string;
   item_type: string;

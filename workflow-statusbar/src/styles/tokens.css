@@ -1215,6 +1215,35 @@ button {
   gap: 6px;
 }
 
+.kb-panel__projects {
+  max-height: 150px;
+  overflow: auto;
+  display: grid;
+  gap: 6px;
+}
+
+.kb-panel__project-item {
+  text-align: left;
+  border: 1px solid #22333b;
+  border-radius: 8px;
+  padding: 8px;
+  background: #122129;
+  color: inherit;
+  display: grid;
+  gap: 3px;
+}
+
+.kb-panel__project-item b {
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.kb-panel__project-item span {
+  font-size: 11px;
+  color: var(--muted);
+  word-break: break-all;
+}
+
 .kb-panel__trace-list .node {
   background: #112028;
   border: 1px solid #29414b;

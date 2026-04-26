@@ -3,311 +3,700 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>个人超级知识库</title>
+  <title>知识中枢</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&family=ZCOOL+XiaoWei&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
   <style>
     :root {
-      --bg: #061418;
-      --panel: #0f2429;
-      --panel-soft: #133239;
-      --text: #e8fff7;
-      --muted: #9bc6bc;
-      --accent: #33e6b8;
-      --accent-2: #5dd3ff;
-      --warn: #ffd577;
-      --ok: #69f2a5;
-      --danger: #ff7f93;
-      --line: rgba(105, 242, 165, 0.18);
-      --radius: 18px;
+      --bg: #f2f6fb;
+      --ink: #1b2a43;
+      --muted: #5b6f8f;
+      --panel: #ffffff;
+      --line: #d6e1ef;
+      --line-strong: #c7d4e6;
+      --brand: #0b7b88;
+      --brand-soft: #e8f8f9;
+      --accent: #235fdb;
+      --accent-soft: #ebf1ff;
+      --warn: #9b5a00;
+      --warn-soft: #fff3dd;
+      --danger: #9d1f39;
+      --danger-soft: #ffe8ee;
+      --ok: #0d7f5b;
+      --ok-soft: #e4f8ef;
+      --radius: 16px;
+      --shadow: 0 10px 30px rgba(22, 41, 73, 0.08);
     }
 
     * { box-sizing: border-box; }
 
+    html, body {
+      height: 100%;
+    }
+
     body {
       margin: 0;
-      font-family: "Plus Jakarta Sans", sans-serif;
-      color: var(--text);
-      background:
-        radial-gradient(circle at 8% 10%, rgba(93,211,255,0.18), transparent 35%),
-        radial-gradient(circle at 92% 85%, rgba(51,230,184,0.16), transparent 35%),
-        linear-gradient(150deg, #041015, #0c1f24 48%, #08171c);
-      min-height: 100vh;
+      font-family: "IBM Plex Sans", "Noto Sans SC", sans-serif;
+      background: linear-gradient(180deg, #f8fbff 0%, var(--bg) 100%);
+      color: var(--ink);
+      overflow: hidden;
     }
 
-    .grain::before {
-      content: "";
-      position: fixed;
-      inset: 0;
-      pointer-events: none;
-      background-image: radial-gradient(rgba(255,255,255,0.04) 0.7px, transparent 0.7px);
-      background-size: 3px 3px;
-      opacity: .22;
-    }
-
-    .wrap {
-      max-width: 1280px;
-      margin: 0 auto;
-      padding: 24px;
+    .app {
+      height: 100vh;
       display: grid;
-      gap: 16px;
-    }
-
-    .hero {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 16px;
-      animation: rise .55s ease both;
-    }
-
-    .card {
-      background: linear-gradient(160deg, rgba(18,49,56,.88), rgba(10,30,35,.85));
-      border: 1px solid var(--line);
-      border-radius: var(--radius);
-      padding: 18px;
-      box-shadow: 0 14px 30px rgba(0,0,0,.26);
-      backdrop-filter: blur(7px);
-    }
-
-    .title {
-      font-family: "ZCOOL XiaoWei", serif;
-      font-size: clamp(22px, 3.4vw, 34px);
-      margin: 0 0 4px;
-      letter-spacing: .4px;
-    }
-
-    .sub {
-      color: var(--muted);
-      margin: 0;
-      line-height: 1.6;
-      font-size: 14px;
-    }
-
-    .metrics {
-      display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 12px;
-      margin-top: 12px;
-    }
-
-    .metric {
-      background: rgba(4, 18, 22, 0.58);
-      border: 1px solid rgba(93,211,255,0.2);
-      border-radius: 14px;
+      grid-template-columns: 296px minmax(0, 1fr);
+      gap: 10px;
       padding: 10px;
     }
 
-    .metric b { font-size: 19px; display: block; }
-    .metric span { color: var(--muted); font-size: 12px; }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+    }
 
-    .collector {
+    .sidebar {
+      padding: 10px;
       display: grid;
-      gap: 10px;
+      grid-template-rows: auto minmax(0, 1fr) auto;
+      gap: 8px;
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    .brand {
+      border: 1px solid #d3e0ef;
+      border-radius: 14px;
+      background: linear-gradient(145deg, #f2f8ff, #fcfdff);
+      padding: 12px;
+    }
+
+    .brand h1 {
+      margin: 0;
+      font-size: 15px;
+      letter-spacing: .2px;
+    }
+
+    .brand p {
+      margin: 6px 0 0;
+      color: var(--muted);
+      font-size: 10px;
+    }
+
+    .section {
+      border: 1px solid var(--line);
+      border-radius: 13px;
+      padding: 11px;
+      background: #fbfdff;
+    }
+
+    .section h3 {
+      margin: 0 0 10px;
+      text-transform: none;
+      letter-spacing: .01em;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--muted);
+    }
+
+    .menu {
+      display: grid;
+      gap: 5px;
+    }
+
+    #spacesMenu {
+      padding-right: 2px;
+      padding-bottom: 4px;
+      min-height: 0;
+      overflow: auto;
+    }
+
+    .spaces-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+
+    .spaces-head h3 {
+      margin: 0;
+    }
+
+    .spaces-meta {
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: 10px;
+    }
+
+    .project-section {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr) auto;
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    .sidebar-footer {
+      display: grid;
+      gap: 8px;
+    }
+
+    .sidebar-footer .section {
+      padding: 8px;
+    }
+
+    .sidebar-footer .section h3 {
+      margin-bottom: 6px;
+      font-size: 11px;
+    }
+
+    .sidebar-footer .menu {
+      gap: 2px;
+    }
+
+    .sidebar-footer .menu button {
+      padding: 4px 6px;
+      font-size: 11px;
+      min-height: 28px;
+      border-radius: 7px;
+    }
+
+    .sidebar-footer .tag {
+      font-size: 8px;
+      padding: 1px 6px;
+    }
+
+    .menu button {
+      border: 1px solid transparent;
+      border-radius: 9px;
+      background: transparent;
+      color: #31435f;
+      text-align: left;
+      padding: 6px 8px;
+      font-size: 12px;
+      line-height: 1.3;
+      cursor: pointer;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .menu button.active {
+      background: #edf3ff;
+      border-color: #cadbfd;
+      color: #1c4fa8;
+      font-weight: 600;
+    }
+
+    .menu button .name {
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
     .tag {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 6px 11px;
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 9px;
       border-radius: 999px;
-      font-size: 12px;
-      background: rgba(105,242,165,.12);
-      border: 1px solid rgba(105,242,165,.35);
+      border: 1px solid transparent;
+      padding: 1px 7px;
+      white-space: nowrap;
+    }
+
+    .t-info { background: var(--accent-soft); border-color: #cfe0ff; color: var(--accent); }
+    .t-ok { background: var(--ok-soft); border-color: #c9eddc; color: var(--ok); }
+    .t-warn { background: var(--warn-soft); border-color: #f4d6a6; color: var(--warn); }
+
+    .kpi {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 6px;
+    }
+
+    .kpi div {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 6px 6px;
+      background: #fff;
+    }
+
+    .kpi b { display: block; font-size: 15px; line-height: 1; margin-bottom: 2px; }
+    .kpi span { color: var(--muted); font-size: 9px; }
+
+    .main {
+      padding: 12px;
+      display: grid;
+      grid-template-rows: auto 1fr;
+      gap: 10px;
+      min-height: 0;
+    }
+
+    .top {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: #fbfdff;
+      padding: 8px 10px;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .tab {
+      border: 1px solid #d1ddee;
+      border-radius: 999px;
+      background: #fff;
+      color: #344761;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 5px 10px;
+      cursor: pointer;
+    }
+
+    .tab.active {
+      background: linear-gradient(120deg, #0ea8a3, #2d6dff);
+      color: #fff;
+      border-color: transparent;
+    }
+
+    .status {
+      display: inline-flex;
+      gap: 8px;
+      align-items: center;
+      border-radius: 999px;
+      border: 1px solid #cbe8e4;
+      background: #ecfaf8;
+      color: #126f67;
+      padding: 5px 9px;
+      font-size: 11px;
+      font-weight: 600;
     }
 
     .dot {
       width: 8px;
       height: 8px;
       border-radius: 50%;
-      background: var(--ok);
-      box-shadow: 0 0 14px var(--ok);
-      animation: pulse 1.5s infinite;
+      background: #16b69c;
+      box-shadow: 0 0 0 4px rgba(22, 182, 156, .15);
     }
 
-    .progress {
-      width: 100%;
-      height: 8px;
-      background: rgba(255,255,255,.1);
-      border-radius: 999px;
-      overflow: hidden;
-    }
-
-    .progress > i {
-      display: block;
+    .workspace {
+      display: none;
       height: 100%;
-      width: 73%;
-      background: linear-gradient(90deg, var(--accent), var(--accent-2));
+      min-height: 0;
     }
 
-    .grid {
+    .workspace.active {
       display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 16px;
+      min-height: 0;
     }
+
+    .search-layout {
+      grid-template-columns: minmax(0, 1.25fr) minmax(320px, 0.75fr);
+      gap: 12px;
+    }
+
+    .collector-layout {
+      grid-template-columns: 1fr;
+      gap: 12px;
+    }
+
+    .card {
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: #fff;
+      padding: 12px;
+      display: grid;
+      gap: 10px;
+      align-content: start;
+    }
+
+    .search-layout > .card:first-child {
+      min-height: 0;
+      grid-template-rows: auto auto auto auto minmax(0, 1fr);
+    }
+
+    .collector-layout > .card:first-child {
+      min-height: 0;
+      grid-template-rows: auto auto auto minmax(0, 1fr);
+    }
+
+    .card h3 { margin: 0; font-size: 13px; font-weight: 600; }
 
     .searchbar {
       display: grid;
       grid-template-columns: 1fr auto;
       gap: 10px;
-      margin-top: 8px;
     }
 
-    input {
+    input, select {
       width: 100%;
-      border: 1px solid rgba(93,211,255,.34);
-      background: rgba(4,18,22,.58);
-      border-radius: 12px;
-      color: var(--text);
-      padding: 12px;
-      font-size: 14px;
+      border: 1px solid #ccd9ec;
+      border-radius: 10px;
+      font-size: 12px;
+      padding: 7px 9px;
       outline: none;
+      color: var(--ink);
+      background: #fff;
+      min-height: 34px;
     }
 
-    button {
+    .btn {
       border: none;
-      border-radius: 12px;
-      background: linear-gradient(120deg, var(--accent), var(--accent-2));
-      color: #032027;
-      font-weight: 700;
-      padding: 0 14px;
+      border-radius: 10px;
+      background: linear-gradient(120deg, #0ea8a3, #2d6dff);
+      color: #fff;
+      font-weight: 600;
+      font-size: 12px;
+      padding: 0 12px;
       cursor: pointer;
+    }
+
+    .btn.subtle {
+      background: #fff;
+      color: #31435f;
+      border: 1px solid #cfdcf0;
+    }
+
+    .facet-row {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .facet-reset {
+      white-space: nowrap;
+      min-height: 42px;
+    }
+
+    .meta {
+      display: flex;
+      justify-content: space-between;
+      color: var(--muted);
+      font-size: 11px;
+      padding: 0 2px;
+    }
+
+    .results {
+      display: grid;
+      gap: 8px;
+      max-height: none;
+      min-height: 0;
+      overflow: auto;
+      padding-right: 4px;
     }
 
     .result {
-      margin-top: 10px;
-      display: grid;
-      gap: 10px;
-    }
-
-    .item {
-      border: 1px solid rgba(255,255,255,.1);
-      border-radius: 12px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
       padding: 10px;
-      background: rgba(0,0,0,.2);
       cursor: pointer;
+      background: #fff;
     }
 
-    .item h4 { margin: 0 0 5px; font-size: 14px; }
-    .item p { margin: 0; color: var(--muted); font-size: 13px; }
+    .result.active {
+      border-color: #9ec1ff;
+      box-shadow: inset 0 0 0 1px #9ec1ff;
+      background: #f8fbff;
+    }
 
-    .section-title {
-      margin: 0 0 8px;
-      font-size: 16px;
+    .result h4 { margin: 0 0 4px; font-size: 12px; font-weight: 600; }
+    .result p { margin: 0; font-size: 11px; color: var(--muted); line-height: 1.4; }
+    .result .meta-line {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .result .snippet-line {
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
     }
 
     .trace {
-      position: relative;
-      padding-left: 20px;
-      margin-top: 8px;
+      border: 1px dashed var(--line-strong);
+      border-radius: 10px;
+      background: #fbfdff;
+      padding: 10px;
+      display: grid;
+      gap: 8px;
+      max-height: 220px;
+      overflow: auto;
     }
 
-    .trace::before {
-      content: "";
-      position: absolute;
-      left: 6px;
-      top: 2px;
-      bottom: 2px;
-      width: 2px;
-      background: linear-gradient(var(--accent-2), transparent);
+    .trace .node {
+      border: 1px solid #d8e2f2;
+      border-radius: 8px;
+      padding: 8px;
+      font-size: 11px;
+      background: #fff;
     }
 
-    .node {
-      position: relative;
-      margin: 10px 0;
-      padding: 8px 10px;
-      border-radius: 11px;
-      border: 1px solid rgba(93,211,255,.22);
-      background: rgba(8,28,33,.7);
-      font-size: 13px;
+    .kv { font-size: 11px; color: var(--muted); }
+    .kv b { color: #1c2b44; }
+
+    .action-row { display: flex; flex-wrap: wrap; gap: 6px; }
+
+    .action {
+      border: 1px solid #d0dced;
+      border-radius: 8px;
+      background: #fff;
+      color: #364761;
+      font-size: 11px;
+      padding: 6px 9px;
+      cursor: pointer;
     }
 
-    .node::before {
-      content: "";
-      position: absolute;
-      left: -18px;
-      top: 12px;
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: var(--accent-2);
-      box-shadow: 0 0 8px rgba(93,211,255,.9);
+    .table-wrap {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      overflow: auto;
+      min-height: 0;
     }
 
-    .muted {
-      color: var(--muted);
-      font-size: 12px;
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 11px;
+      min-width: 980px;
     }
 
-    .footer {
-      font-size: 12px;
-      color: var(--muted);
-      text-align: right;
-      opacity: .9;
+    th, td {
+      border-bottom: 1px solid #e5ecf6;
+      padding: 8px 7px;
+      text-align: left;
+      vertical-align: top;
     }
 
-    @keyframes pulse { 0%,100%{transform:scale(1)} 50%{transform:scale(1.22)} }
-    @keyframes rise { from{opacity:0; transform:translateY(10px)} to{opacity:1; transform:translateY(0)} }
-
-    @media (max-width: 960px) {
-      .hero, .grid { grid-template-columns: 1fr; }
-      .metrics { grid-template-columns: repeat(2, 1fr); }
+    th {
+      background: #f8fbff;
+      color: #51627d;
+      font-weight: 700;
+      position: sticky;
+      top: 0;
+      z-index: 1;
     }
+
+    .ops {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .ops button {
+      border: 1px solid #cfdcf0;
+      border-radius: 7px;
+      background: #fff;
+      color: #30425e;
+      padding: 6px 9px;
+      font-size: 10px;
+      cursor: pointer;
+    }
+
+    .hint {
+      border: 1px solid #d8e4f6;
+      border-radius: 10px;
+      background: #f8fbff;
+      padding: 9px;
+      font-size: 11px;
+      color: #4d5f7d;
+      line-height: 1.6;
+    }
+
+    @media (max-width: 1220px) {
+      .search-layout { grid-template-columns: 1fr; }
+      .facet-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .facet-row .facet-reset { grid-column: span 2; }
+    }
+
+    @media (max-width: 920px) {
+      .app { grid-template-columns: 1fr; }
+      .sidebar { order: 2; }
+      .main { order: 1; }
+      body { overflow: auto; }
+      .app { height: auto; min-height: 100vh; }
+    }
+
+    #spacesMenu,
+    .results,
+    .trace,
+      .table-wrap {
+      scrollbar-width: none;
+      -ms-overflow-style: none;
+    }
+
+    #spacesMenu::-webkit-scrollbar,
+    .results::-webkit-scrollbar,
+    .trace::-webkit-scrollbar,
+    .table-wrap::-webkit-scrollbar {
+      width: 0;
+      height: 0;
+      display: none;
+    }
+
   </style>
 </head>
-<body class="grain">
-  <main class="wrap">
-    <section class="hero">
-      <article class="card">
-        <h1 class="title">个人超级知识库</h1>
-        <p class="sub">本地优先 · 自动采集 · 可检索可追溯</p>
-        <div class="metrics">
-          <div class="metric"><b id="k-items">0</b><span>已收集内容</span></div>
-          <div class="metric"><b id="k-projects">0</b><span>项目数量</span></div>
-          <div class="metric"><b id="k-links">0</b><span>关联关系</span></div>
-          <div class="metric"><b id="k-events">0</b><span>动态记录</span></div>
+<body>
+  <main class="app">
+    <aside class="panel sidebar">
+      <section class="brand">
+        <h1>知识中枢</h1>
+        <p>项目记忆与全局检索</p>
+      </section>
+
+      <section class="section project-section">
+        <div class="spaces-head">
+          <h3>项目列表</h3>
+          <span class="tag t-info" id="spacesCount">0</span>
         </div>
-      </article>
-      <article class="card collector">
-        <div class="tag"><i class="dot"></i> 正在自动采集中</div>
-        <p class="sub" id="collector-meta">等待新数据</p>
-        <div class="progress"><i></i></div>
-        <p class="sub">采集 → 整理 → 建索引</p>
-      </article>
-    </section>
-
-    <section class="grid">
-      <article class="card">
-        <h3 class="section-title">快速搜索</h3>
-        <div class="searchbar">
-          <input id="q" value="TASK" aria-label="query" placeholder="比如：支付重试机制在哪些项目做过？" />
-          <button type="button" onclick="run()">搜索</button>
+        <div class="menu" id="spacesMenu">
+          <button class="active" data-project="all"><span class="name">全部项目</span><span class="tag t-info" id="spaceAllCount">0</span></button>
         </div>
-        <div class="result" id="out"></div>
-      </article>
+        <div class="spaces-meta" id="spacesMeta">显示 0 / 0 个项目</div>
+      </section>
 
-      <article class="card">
-        <h3 class="section-title">来龙去脉</h3>
-        <div class="trace" id="traceOut">
-          <div class="node">这里会展示这条记录相关的上下游信息</div>
+      <div class="sidebar-footer">
+        <section class="section">
+          <h3>内容集合</h3>
+          <div class="menu">
+            <button>事件 <span class="tag t-info" id="colEvents">0</span></button>
+            <button>文档 <span class="tag t-info" id="colDocs">0</span></button>
+            <button>对话 <span class="tag t-info" id="colConvs">0</span></button>
+          </div>
+        </section>
+
+        <section class="section">
+          <h3>统计</h3>
+          <div class="kpi">
+            <div><b id="kProjects">0</b><span>项目数</span></div>
+            <div><b id="kItems">0</b><span>内容数</span></div>
+            <div><b id="kEvents">0</b><span>事件数</span></div>
+            <div><b id="kLinks">0</b><span>关联数</span></div>
+          </div>
+        </section>
+      </div>
+
+    </aside>
+
+    <section class="panel main">
+      <div class="top">
+        <div class="tabs">
+          <button class="tab active" data-target="search">搜索工作台</button>
+          <button class="tab" data-target="collector">采集中心</button>
         </div>
-      </article>
-    </section>
+        <span class="status"><i class="dot"></i>采集服务运行中</span>
+      </div>
 
-    <section class="grid">
-      <article class="card">
-        <h3 class="section-title">你可以做什么</h3>
-        <p class="sub">自动采集 · 关键词检索 · 关系追溯 · 周报复盘 · 图片 OCR</p>
-      </article>
-      <article class="card">
-        <h3 class="section-title">版本路线</h3>
-        <p class="sub">V1 搜得到 → V1.1 讲得清 → V1.2 自动复盘</p>
-      </article>
-    </section>
+      <div class="workspace search-layout active" id="search">
+        <article class="card">
+          <h3>全局搜索</h3>
+          <div class="searchbar">
+            <input id="q" type="text" value="" placeholder="输入任意关键词，例如：支付重试、库存、中断、报表" />
+            <button class="btn" id="searchBtn" type="button">搜索</button>
+          </div>
 
-    <div class="footer">本地优先 · 由 workflow-statusbar 持续采集</div>
+          <div class="facet-row">
+            <select id="fType">
+              <option value="all">类型：全部</option>
+              <option value="event">事件</option>
+              <option value="document">文档</option>
+              <option value="conversation">对话</option>
+            </select>
+            <select id="fTool">
+              <option value="all">工具：全部</option>
+            </select>
+            <select id="fVerify">
+              <option value="all">状态：全部</option>
+              <option value="verified">仅已验证</option>
+              <option value="draft">仅草稿</option>
+            </select>
+            <button class="btn subtle facet-reset" id="resetFiltersBtn" type="button">重置筛选</button>
+          </div>
+
+          <div class="meta">
+            <span id="count">0 条结果</span>
+            <span>排序：相关度 + 新鲜度</span>
+          </div>
+          <div class="results" id="results"></div>
+        </article>
+
+        <aside class="card">
+          <h3>预览与追溯</h3>
+          <div class="kv"><b>标题：</b><span id="dTitle">请选择一条结果</span></div>
+          <div class="kv"><b>摘要：</b><span id="dSnippet">-</span></div>
+          <div class="kv"><b>来源：</b><span id="dSource">-</span></div>
+          <div class="kv"><b>项目：</b><span id="dProject">-</span></div>
+          <div class="kv"><b>工具：</b><span id="dTool">-</span></div>
+          <div class="kv"><b>状态：</b><span id="dVerify">-</span></div>
+          <div class="kv"><b>时间：</b><span id="dTime">-</span></div>
+
+          <div class="trace" id="trace"></div>
+
+          <div class="action-row">
+            <button class="action" type="button">加入收藏</button>
+            <button class="action" type="button">转为决策</button>
+            <button class="action" type="button">建立关联</button>
+            <button class="action" type="button">复制引用</button>
+          </div>
+        </aside>
+      </div>
+
+      <div class="workspace collector-layout" id="collector">
+        <article class="card">
+          <h3>采集状态</h3>
+          <div class="searchbar">
+            <input id="projectPath" type="text" placeholder="输入项目绝对路径，例如 /Users/xxx/Documents/erp-finance" />
+            <button class="btn" id="collectBtn" type="button">采集项目</button>
+          </div>
+          <div class="meta">
+            <span id="collectStatus">等待采集</span>
+            <button class="btn subtle" id="refreshProjectsBtn" type="button">刷新列表</button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>项目</th>
+                  <th>路径</th>
+                  <th>注册</th>
+                  <th>内容条数</th>
+                  <th>事件条数</th>
+                  <th>文档条数</th>
+                  <th>对话条数</th>
+                  <th>上次同步</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody id="projectRows"></tbody>
+            </table>
+          </div>
+        </article>
+
+        <article class="card">
+          <h3>采集策略建议（面向多 AI 工具）</h3>
+          <div class="hint">
+            1) 保留状态事件采集；2) 增加 `.ai/memory` 与 `docs/workflow` 文档扫描；3) 增加会话适配器（Codex/Claude/ChatGPT 导出）统一归一化入库。
+          </div>
+        </article>
+      </div>
+    </section>
   </main>
+
   <script>
     function esc(text) {
       return String(text ?? "")
@@ -318,13 +707,61 @@
         .replaceAll("'", "&#39;");
     }
 
+    const tabs = document.querySelectorAll('.tab');
+    const workspaces = document.querySelectorAll('.workspace');
+    tabs.forEach((tab) => {
+      tab.addEventListener('click', () => {
+        tabs.forEach((item) => item.classList.remove('active'));
+        workspaces.forEach((item) => item.classList.remove('active'));
+        tab.classList.add('active');
+        document.getElementById(tab.dataset.target).classList.add('active');
+      });
+    });
+
+    const state = {
+      allResults: [],
+      selected: null,
+      projects: [],
+      activeProjectId: "all",
+      activeProjectLabel: "全部项目"
+    };
+
+    function inferProject(sourcePath) {
+      const path = String(sourcePath || "");
+      const match = path.match(/\/([^/]+)\/(?:\.ai|docs|knowledge-store)/);
+      if (match && match[1]) return match[1];
+      return path.split('/').filter(Boolean).at(-1) || "unknown";
+    }
+
+    function matchProjectBySelection(item, selectedProjectId) {
+      if (selectedProjectId === 'all') return true;
+      return String(item.project_id || '') === String(selectedProjectId || '');
+    }
+
+    function inferTool(item) {
+      const source = String(item.source_path || "").toLowerCase();
+      const title = String(item.title || "").toLowerCase();
+      if (source.includes("codex") || title.includes("codex")) return "Codex";
+      if (source.includes("claude") || title.includes("claude")) return "Claude";
+      if (source.includes("chatgpt") || title.includes("chatgpt")) return "ChatGPT";
+      return "Unknown";
+    }
+
+    function inferVerified(item) {
+      const title = String(item.title || "").toLowerCase();
+      const snippet = String(item.snippet || "").toLowerCase();
+      return title.includes("verified") || snippet.includes("verified");
+    }
+
     function prettyType(itemType) {
       const map = {
-        event: "动态",
+        event: "事件",
+        document: "文档",
+        conversation: "对话",
         req: "需求",
         task: "任务",
         decision: "决策",
-        evidence: "证据",
+        evidence: "证据"
       };
       return map[itemType] || itemType || "记录";
     }
@@ -334,89 +771,306 @@
       if (sourcePath.includes("workflow-statusbar/runtime")) return "状态栏自动采集";
       if (sourcePath.includes("knowledge-store/inbox")) return "项目 inbox";
       if (sourcePath.includes(".ai/runtime/inbox")) return "AI 运行 inbox";
+      if (sourcePath.includes("knowledge-store/conversations")) return "知识会话";
+      if (sourcePath.includes("/.claude/projects/")) return "Claude 会话文件";
+      if (sourcePath.includes("/.codex/sessions/")) return "Codex 会话文件";
+      if (sourcePath.includes(".ai/memory")) return "项目记忆";
+      if (sourcePath.includes("docs/workflow")) return "项目文档";
       return sourcePath;
     }
 
-    function prettyTitle(raw) {
-      const text = String(raw || "");
-      if (text.includes("statusbar.task_interrupted")) {
-        const parts = text.split("|").map((x) => x.trim()).filter(Boolean);
-        const req = parts.find((x) => x.startsWith("REQ-")) || "";
-        const task = parts.find((x) => x.startsWith("TASK-")) || "";
-        if (req || task) {
-          return `任务被中断（${[req, task].filter(Boolean).join(" / ")}）`;
-        }
-        return "任务被中断";
-      }
-      return text;
+    function projectNameById(projectId) {
+      const id = String(projectId || '');
+      if (!id) return '-';
+      const found = state.projects.find((p) => String(p.project_id || '') === id);
+      return found?.name || id;
+    }
+
+    function formatTime(value) {
+      const raw = String(value || '').trim();
+      if (!raw) return '-';
+      return raw.replace('T', ' ').replace('Z', '');
     }
 
     async function loadStats() {
-      const res = await fetch("/api/stats");
+      const res = await fetch('/api/stats');
       const data = await res.json();
-      document.getElementById("k-items").textContent = data.items ?? 0;
-      document.getElementById("k-projects").textContent = data.projects ?? 0;
-      document.getElementById("k-links").textContent = data.links ?? 0;
-      document.getElementById("k-events").textContent = data.events ?? 0;
-      document.getElementById("collector-meta").textContent = `当前已收集 ${data.items ?? 0} 条内容，建立 ${data.links ?? 0} 条关联`;
+      document.getElementById('kProjects').textContent = data.projects ?? 0;
+      document.getElementById('kItems').textContent = data.items ?? 0;
+      document.getElementById('kEvents').textContent = data.events ?? 0;
+      document.getElementById('kLinks').textContent = data.links ?? 0;
+      document.getElementById('spaceAllCount').textContent = data.items ?? 0;
     }
 
-    async function trace(itemId) {
-      const res = await fetch("/api/trace/" + encodeURIComponent(itemId));
+    function renderSidebarProjects(projects) {
+      const menu = document.getElementById('spacesMenu');
+      const activeProjectId = state.activeProjectId || 'all';
+      const totalItems = projects.reduce((sum, p) => sum + Number(p.item_count || 0), 0);
+      const rows = [
+        '<button data-project-id="all" data-project-name="全部项目" class="' + (activeProjectId === 'all' ? 'active' : '') + '"><span class="name">全部项目</span><span class="tag t-info">' + totalItems + '</span></button>'
+      ];
+      for (const p of projects) {
+        const name = p.name || p.root_path || '-';
+        rows.push(
+          '<button data-project-id="' + esc(p.project_id || '') + '" data-project-name="' + esc(name) + '" title="' + esc(name) + '" class="' + (activeProjectId === (p.project_id || '') ? 'active' : '') + '">' +
+          '<span class="name">' + esc(name) + '</span>' +
+          '<span class="tag ' + ((p.item_count || 0) > 0 ? 't-ok' : 't-warn') + '">' + (p.item_count || 0) + '</span>' +
+          '</button>'
+        );
+      }
+      menu.innerHTML = rows.join('');
+      document.getElementById('spacesCount').textContent = String(projects.length);
+      document.getElementById('spacesMeta').textContent = '共 ' + projects.length + ' 个项目';
+    }
+
+    function renderToolFilter(items) {
+      const select = document.getElementById('fTool');
+      const tools = Array.from(new Set(items.map(inferTool))).filter(Boolean).sort();
+      const options = ['<option value="all">工具：全部</option>'];
+      for (const tool of tools) {
+        options.push('<option value="' + esc(tool) + '">' + esc(tool) + '</option>');
+      }
+      select.innerHTML = options.join('');
+    }
+
+    async function loadProjects() {
+      const res = await fetch('/api/projects');
       const data = await res.json();
-      const out = document.getElementById("traceOut");
-      if (!data.item) {
-        out.innerHTML = '<div class="node">暂时没有可追溯信息</div>';
+      state.projects = Array.isArray(data) ? data : [];
+
+      let eventCount = 0;
+      let docCount = 0;
+      let convCount = 0;
+      const rows = [];
+
+      for (const item of state.projects) {
+        eventCount += Number(item.event_count || 0);
+        docCount += Number(item.document_count || 0);
+        convCount += Number(item.conversation_count || 0);
+
+        rows.push(
+          '<tr>' +
+            '<td>' + esc(item.name || '-') + '</td>' +
+            '<td>' + esc(item.root_path || '-') + '</td>' +
+            '<td><span class="tag t-ok">已注册</span></td>' +
+            '<td>' + Number(item.item_count || 0) + '</td>' +
+            '<td>' + Number(item.event_count || 0) + '</td>' +
+            '<td>' + Number(item.document_count || 0) + '</td>' +
+            '<td>' + Number(item.conversation_count || 0) + '</td>' +
+            '<td>' + esc(item.last_item_at || '-') + '</td>' +
+            '<td class="ops"><button type="button" onclick="quickCollect(\'' + encodeURIComponent(item.root_path || '') + '\')">追加采集</button><button type="button" onclick="useProjectFilterById(\'' + esc(item.project_id || '') + '\', \'' + esc(item.name || item.root_path || '') + '\')">筛选搜索</button></td>' +
+          '</tr>'
+        );
+      }
+
+      document.getElementById('projectRows').innerHTML = rows.join('') || '<tr><td colspan="9">暂无项目，请先采集一个项目路径。</td></tr>';
+      document.getElementById('colEvents').textContent = eventCount;
+      document.getElementById('colDocs').textContent = docCount;
+      document.getElementById('colConvs').textContent = convCount;
+
+      renderSidebarProjects(state.projects);
+    }
+
+    async function collectProject(path) {
+      const status = document.getElementById('collectStatus');
+      if (!path) {
+        status.textContent = '请先输入项目路径。';
         return;
       }
+      status.textContent = '正在采集，请稍候...';
+      const res = await fetch('/api/collect?path=' + encodeURIComponent(path));
+      const data = await res.json();
+      if (!res.ok) {
+        status.textContent = '采集失败：' + (data.error || 'unknown_error');
+        return;
+      }
+      status.textContent = '采集完成：' + data.project + '，新增事件 ' + data.events + '，新增文档 ' + data.documents + '，处理文件 ' + data.processed_files + '。';
+      await Promise.all([loadStats(), loadProjects()]);
+    }
+
+    function applyFilters(items) {
+      const projectId = state.activeProjectId || 'all';
+      const type = document.getElementById('fType').value;
+      const tool = document.getElementById('fTool').value;
+      const verify = document.getElementById('fVerify').value;
+
+      return items.filter((item) => {
+        const t = String(item.item_type || '');
+        const tl = inferTool(item);
+        const verified = inferVerified(item);
+
+        if (!matchProjectBySelection(item, projectId)) return false;
+        if (type !== 'all' && t !== type) return false;
+        if (tool !== 'all' && tl !== tool) return false;
+        if (verify === 'verified' && !verified) return false;
+        if (verify === 'draft' && verified) return false;
+        return true;
+      });
+    }
+
+    function renderResults(items) {
+      const out = document.getElementById('results');
+      document.getElementById('count').textContent = items.length + ' 条结果';
+
+      if (!items.length) {
+        const selectedProject = state.activeProjectId || 'all';
+        const selectedLabel = state.activeProjectLabel || '全部项目';
+        const extra = selectedProject === 'all'
+          ? '请尝试更换关键词，或先在采集中心执行项目采集。'
+          : '当前项目筛选为“' + esc(selectedLabel) + '”，可切换到“全部项目”后重试。';
+        out.innerHTML = '<div class="result"><h4>没有结果</h4><p>' + extra + '</p></div>';
+        renderDetail(null);
+        return;
+      }
+
+      out.innerHTML = items.map((item) => {
+        const selected = state.selected && state.selected.item_id === item.item_id;
+        return '<div class="result ' + (selected ? 'active' : '') + '" data-id="' + esc(item.item_id) + '">' +
+          '<h4>' + esc(item.title || '-') + '</h4>' +
+          '<p class="meta-line">' + esc(prettyType(item.item_type)) + ' · ' + esc(prettySource(item.source_path)) + '</p>' +
+          '<p class="snippet-line">' + esc(item.snippet || '') + '</p>' +
+          '</div>';
+      }).join('');
+
+      out.querySelectorAll('.result[data-id]').forEach((el) => {
+        el.addEventListener('click', async () => {
+          const id = el.getAttribute('data-id');
+          const selected = items.find((x) => x.item_id === id);
+          if (!selected) return;
+          state.selected = selected;
+          renderResults(items);
+          await renderTrace(selected.item_id);
+          renderDetail(selected);
+        });
+      });
+
+      if (!state.selected || !items.some((x) => x.item_id === state.selected.item_id)) {
+        state.selected = items[0];
+      }
+      renderDetail(state.selected);
+      renderTrace(state.selected.item_id);
+    }
+
+    function renderDetail(item) {
+      document.getElementById('dTitle').textContent = item?.title || '请选择一条结果';
+      document.getElementById('dSnippet').textContent = item?.snippet || '-';
+      document.getElementById('dSource').textContent = item ? prettySource(item.source_path) : '-';
+      document.getElementById('dProject').textContent = item ? projectNameById(item.project_id) : '-';
+      document.getElementById('dTool').textContent = item ? inferTool(item) : '-';
+      document.getElementById('dVerify').textContent = item ? (inferVerified(item) ? '已验证' : '草稿') : '-';
+      document.getElementById('dTime').textContent = item ? formatTime(item.updated_at) : '-';
+    }
+
+    async function renderTrace(itemId) {
+      const out = document.getElementById('trace');
+      if (!itemId) {
+        out.innerHTML = '<div class="node">暂无追溯信息</div>';
+        return;
+      }
+      const res = await fetch('/api/trace/' + encodeURIComponent(itemId));
+      const data = await res.json();
+      if (!data.item) {
+        out.innerHTML = '<div class="node">暂无追溯信息</div>';
+        return;
+      }
+
       const lines = [];
-      lines.push(`<div class="node"><b>${esc(prettyTitle(data.item.title))}</b><br><span class="muted">主记录 · ${esc(prettyType(data.item.item_type))} · ${esc(prettySource(data.item.source_path))}</span></div>`);
-      const related = data.related_items || [];
+      lines.push('<div class="node"><b>主记录</b><br>' + esc(data.item.title || '-') + '</div>');
+      const related = Array.isArray(data.related_items) ? data.related_items : [];
       for (const item of related) {
-        lines.push(`<div class="node"><b>${esc(prettyTitle(item.title))}</b><br><span class="muted">关联记录 · ${esc(prettyType(item.item_type))} · ${esc(prettySource(item.source_path))}</span></div>`);
+        lines.push('<div class="node"><b>关联记录</b><br>' + esc(item.title || '-') + '</div>');
       }
       if (!related.length) {
-        lines.push('<div class="node">当前还没有关联记录（后续采集更多需求/任务后会自动连起来）</div>');
+        lines.push('<div class="node">暂无关联节点（后续采集更多需求/任务后会自动连起来）</div>');
       }
-      out.innerHTML = lines.join("");
+      out.innerHTML = lines.join('');
     }
 
-    async function searchWithFallback(primaryQuery) {
-      const candidates = [primaryQuery, "REQ", "TASK", "statusbar", "workflow"]
-        .map((item) => (item || "").trim())
-        .filter((item, idx, arr) => item && arr.indexOf(item) === idx);
-      for (const q of candidates) {
-        const res = await fetch("/api/search?q=" + encodeURIComponent(q));
-        const data = await res.json();
-        const items = data.items || [];
-        if (items.length > 0) {
-          if (q !== primaryQuery) {
-            document.getElementById("q").value = q;
-          }
-          return items;
+    async function runSearch() {
+      const q = document.getElementById('q').value.trim();
+      const res = await fetch('/api/search?q=' + encodeURIComponent(q));
+      const data = await res.json();
+      state.allResults = Array.isArray(data.items) ? data.items : [];
+      renderToolFilter(state.allResults);
+      renderResults(applyFilters(state.allResults));
+      renderSidebarProjects(state.projects);
+    }
+
+    async function selectProjectAndSearch(projectId, projectName) {
+      state.activeProjectId = projectId || 'all';
+      state.activeProjectLabel = projectName || '全部项目';
+      renderSidebarProjects(state.projects);
+      document.querySelector('[data-target="search"]').click();
+      await runSearch();
+    }
+
+    function useProjectFilterById(projectId, projectName) {
+      if (!projectId) return;
+      void selectProjectAndSearch(projectId, projectName || '未命名项目');
+    }
+
+    function quickCollect(pathEncoded) {
+      const path = decodeURIComponent(pathEncoded || '');
+      if (!path) return;
+      document.getElementById('projectPath').value = path;
+      collectProject(path);
+    }
+
+    async function init() {
+      document.getElementById('searchBtn').addEventListener('click', runSearch);
+      document.getElementById('q').addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') runSearch();
+      });
+
+      ['fType', 'fTool', 'fVerify'].forEach((id) => {
+        document.getElementById(id).addEventListener('change', () => {
+          renderResults(applyFilters(state.allResults));
+        });
+      });
+
+      document.getElementById('collectBtn').addEventListener('click', () => {
+        const path = document.getElementById('projectPath').value.trim();
+        collectProject(path);
+      });
+
+      document.getElementById('projectPath').addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') {
+          const path = document.getElementById('projectPath').value.trim();
+          collectProject(path);
         }
-      }
-      return [];
+      });
+
+      document.getElementById('refreshProjectsBtn').addEventListener('click', () => {
+        loadProjects();
+      });
+
+      document.getElementById('resetFiltersBtn').addEventListener('click', () => {
+        document.getElementById('fType').value = 'all';
+        document.getElementById('fTool').value = 'all';
+        document.getElementById('fVerify').value = 'all';
+        state.activeProjectId = 'all';
+        state.activeProjectLabel = '全部项目';
+        renderSidebarProjects(state.projects);
+        renderResults(applyFilters(state.allResults));
+      });
+
+      document.getElementById('spacesMenu').addEventListener('click', async (event) => {
+        if (!(event.target instanceof Element)) return;
+        const btn = event.target.closest('button[data-project-id]');
+        if (!btn) return;
+        const projectId = btn.getAttribute('data-project-id') || 'all';
+        const projectName = btn.getAttribute('data-project-name') || '全部项目';
+        await selectProjectAndSearch(projectId, projectName);
+      });
+
+      await Promise.all([loadStats(), loadProjects()]);
+      document.getElementById('trace').innerHTML = '<div class="node">请选择一条搜索结果查看追溯链</div>';
+
+      setInterval(loadStats, 10000);
+      setInterval(loadProjects, 15000);
     }
 
-    async function run() {
-      const q = document.getElementById("q").value.trim();
-      if (!q) return;
-      const items = await searchWithFallback(q);
-      const out = document.getElementById("out");
-      out.innerHTML = items.map((item) =>
-        `<div class="item" onclick="trace('${esc(item.item_id)}')"><h4>${esc(prettyTitle(item.title))}</h4><p>${esc(prettyType(item.item_type))} · ${esc(prettySource(item.source_path))}</p></div>`
-      ).join("") || '<div class="item"><h4>没找到结果</h4><p>换个关键词再试试，比如：REQ、TASK、项目名</p></div>';
-      if (items.length > 0) {
-        await trace(items[0].item_id);
-      } else {
-        document.getElementById("traceOut").innerHTML = '<div class="node">暂无可追溯数据</div>';
-      }
-    }
-
-    loadStats();
-    run();
-    setInterval(loadStats, 10000);
+    init();
   </script>
 </body>
 </html>

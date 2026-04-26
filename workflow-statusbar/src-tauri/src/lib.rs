@@ -37,6 +37,11 @@ const KB_HEALTHCHECK_INTERVAL_SECONDS: u64 = 20;
 const KB_HEALTHCHECK_CONSECUTIVE_FAILURES: u32 = 3;
 const KB_HEALTHCHECK_ALERT_COOLDOWN_SECONDS: i64 = 5 * 60;
 const KB_HEALTHCHECK_TIMEOUT_MS: u64 = 1_500;
+const KB_COLLECT_MAX_FILE_BYTES: u64 = 512 * 1024;
+const KB_COLLECT_MAX_CONTENT_CHARS: usize = 60_000;
+const KB_AUTO_COLLECT_INTERVAL_SECONDS: i64 = 30;
+const KB_AUTO_COLLECT_MAX_THREADS: usize = 40;
+const KB_AUTO_CONVERSATION_TAIL_BYTES: u64 = 256 * 1024;
 const TRAY_MENU_OPEN_DASHBOARD: &str = "open_dashboard";
 const TRAY_MENU_OPEN_ALERT_SETTINGS: &str = "open_alert_settings";
 const TRAY_MENU_OPEN_KNOWLEDGEBASE: &str = "open_knowledgebase";
@@ -205,16 +210,39 @@ struct KbStats {
 #[derive(Clone, Serialize, Deserialize, Debug)]
 struct KbSearchItem {
     item_id: String,
+    project_id: String,
     item_type: String,
     title: String,
     source_path: String,
     snippet: String,
+    updated_at: String,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 struct KbSearchResponse {
     query: String,
     items: Vec<KbSearchItem>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+struct KbCollectProjectResult {
+    project: String,
+    events: i64,
+    processed_files: i64,
+    documents: i64,
+    scanned_files: i64,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+struct KbProjectStatus {
+    project_id: String,
+    name: String,
+    root_path: String,
+    item_count: i64,
+    event_count: i64,
+    document_count: i64,
+    conversation_count: i64,
+    last_item_at: String,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -562,6 +590,7 @@ struct ThreadLastMessage {
 struct ClaudeThread {
     id: String,
     project_path: String,
+    session_file_path: String,
     updated_at: i64,
     last_message_role: String,
     last_message_text: String,
@@ -1540,6 +1569,7 @@ fn read_recent_claude_threads(
             let thread = ClaudeThread {
                 id: normalized_session_id,
                 project_path,
+                session_file_path: file_path.to_string_lossy().to_string(),
                 updated_at,
                 last_message_role: last_role,
                 last_message_text: last_text,
@@ -2873,10 +2903,9 @@ fn request_feishu_tenant_access_token(app_id: &str, app_secret: &str) -> Result<
         }))
         .map_err(|err: ureq::Error| err.to_string())?;
 
-    let body: FeishuTenantAccessTokenResponse =
-        response
-            .into_json()
-            .map_err(|err: std::io::Error| err.to_string())?;
+    let body: FeishuTenantAccessTokenResponse = response
+        .into_json()
+        .map_err(|err: std::io::Error| err.to_string())?;
     if body.code != 0 || body.tenant_access_token.trim().is_empty() {
         return Err(format!("feishu token error: {} ({})", body.msg, body.code));
     }
@@ -3040,6 +3069,12 @@ fn connect_knowledgebase() -> Result<Connection, String> {
           content_text TEXT NOT NULL,
           source_path TEXT NOT NULL,
           content_hash TEXT NOT NULL,
+          source_type TEXT NOT NULL DEFAULT 'runtime_event',
+          source_tool TEXT NOT NULL DEFAULT 'unknown',
+          session_id TEXT NOT NULL DEFAULT '',
+          speaker TEXT NOT NULL DEFAULT '',
+          verified INTEGER NOT NULL DEFAULT 0,
+          tags TEXT NOT NULL DEFAULT '',
           updated_at TEXT DEFAULT CURRENT_TIMESTAMP
         );
         CREATE TABLE IF NOT EXISTS links (
@@ -3063,7 +3098,95 @@ fn connect_knowledgebase() -> Result<Connection, String> {
         "#,
     )
     .map_err(|err| format!("初始化知识库表失败: {err}"))?;
+    ensure_knowledgebase_schema_migration(&conn)?;
     Ok(conn)
+}
+
+fn table_has_column(conn: &Connection, table: &str, column: &str) -> Result<bool, String> {
+    let mut stmt = conn
+        .prepare(&format!("PRAGMA table_info({table})"))
+        .map_err(|err| err.to_string())?;
+    let rows = stmt
+        .query_map([], |row| row.get::<_, String>(1))
+        .map_err(|err| err.to_string())?;
+    for row in rows {
+        if row.map_err(|err| err.to_string())? == column {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+fn ensure_column(
+    conn: &Connection,
+    table: &str,
+    column: &str,
+    definition: &str,
+) -> Result<(), String> {
+    if table_has_column(conn, table, column)? {
+        return Ok(());
+    }
+    conn.execute(
+        &format!("ALTER TABLE {table} ADD COLUMN {column} {definition}"),
+        [],
+    )
+    .map_err(|err| err.to_string())?;
+    Ok(())
+}
+
+fn ensure_knowledgebase_schema_migration(conn: &Connection) -> Result<(), String> {
+    ensure_column(
+        conn,
+        "items",
+        "source_type",
+        "TEXT NOT NULL DEFAULT 'runtime_event'",
+    )?;
+    ensure_column(
+        conn,
+        "items",
+        "source_tool",
+        "TEXT NOT NULL DEFAULT 'unknown'",
+    )?;
+    ensure_column(conn, "items", "session_id", "TEXT NOT NULL DEFAULT ''")?;
+    ensure_column(conn, "items", "speaker", "TEXT NOT NULL DEFAULT ''")?;
+    ensure_column(conn, "items", "verified", "INTEGER NOT NULL DEFAULT 0")?;
+    ensure_column(conn, "items", "tags", "TEXT NOT NULL DEFAULT ''")?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_items_project_source ON items(project_id, source_type, source_tool)",
+        [],
+    )
+    .map_err(|err| err.to_string())?;
+    Ok(())
+}
+
+#[derive(Clone, Debug)]
+struct KbItemMeta {
+    source_type: String,
+    source_tool: String,
+    session_id: String,
+    speaker: String,
+    verified: i64,
+    tags: String,
+}
+
+impl Default for KbItemMeta {
+    fn default() -> Self {
+        Self {
+            source_type: "runtime_event".into(),
+            source_tool: "unknown".into(),
+            session_id: String::new(),
+            speaker: String::new(),
+            verified: 0,
+            tags: String::new(),
+        }
+    }
+}
+
+#[derive(Default)]
+struct KbAutoCollectCursor {
+    last_run_at: i64,
+    codex_file_mtime: HashMap<String, i64>,
+    claude_file_mtime: HashMap<String, i64>,
 }
 
 fn kb_project_id(project_path: &str) -> String {
@@ -3087,27 +3210,48 @@ fn kb_upsert_project(conn: &Connection, name: &str, root_path: &str) -> Result<S
     Ok(project_id)
 }
 
-fn kb_upsert_item(
+fn kb_upsert_item_with_meta(
     conn: &Connection,
     project_id: &str,
     item_type: &str,
     title: &str,
     content_text: &str,
     source_path: &str,
+    meta: &KbItemMeta,
 ) -> Result<String, String> {
     let content_hash = fnv1a64_hex(content_text);
     let item_id = format!("item-{content_hash}");
     conn.execute(
         r#"
-        INSERT INTO items(item_id, project_id, item_type, title, content_text, source_path, content_hash)
-        VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)
+        INSERT INTO items(item_id, project_id, item_type, title, content_text, source_path, content_hash, source_type, source_tool, session_id, speaker, verified, tags)
+        VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
         ON CONFLICT(item_id) DO UPDATE SET
           title=excluded.title,
           content_text=excluded.content_text,
           source_path=excluded.source_path,
+          source_type=excluded.source_type,
+          source_tool=excluded.source_tool,
+          session_id=excluded.session_id,
+          speaker=excluded.speaker,
+          verified=excluded.verified,
+          tags=excluded.tags,
           updated_at=CURRENT_TIMESTAMP
         "#,
-        params![item_id, project_id, item_type, title, content_text, source_path, content_hash],
+        params![
+            item_id,
+            project_id,
+            item_type,
+            title,
+            content_text,
+            source_path,
+            content_hash,
+            meta.source_type,
+            meta.source_tool,
+            meta.session_id,
+            meta.speaker,
+            meta.verified,
+            meta.tags
+        ],
     )
     .map_err(|err| err.to_string())?;
     conn.execute(
@@ -3239,8 +3383,30 @@ fn kb_process_event_payload(
         },
         content
     );
-    let event_item_id =
-        kb_upsert_item(conn, project_id, "event", &title, &full_text, &source_path)?;
+    let source_tool = {
+        let host = json_text(payload, "host").to_ascii_lowercase();
+        if host.contains("codex") {
+            "codex"
+        } else if host.contains("claude") {
+            "claude"
+        } else {
+            "unknown"
+        }
+    };
+    let event_item_id = kb_upsert_item_with_meta(
+        conn,
+        project_id,
+        "event",
+        &title,
+        &full_text,
+        &source_path,
+        &KbItemMeta {
+            source_type: "runtime_event".into(),
+            source_tool: source_tool.into(),
+            tags: "event,runtime".into(),
+            ..KbItemMeta::default()
+        },
+    )?;
     let tokens_raw = format!("{content}\n{summary}\n{req_id}\n{task_id}");
     let (tokens_req, tokens_task) = extract_req_task_tokens(&tokens_raw);
     for token in tokens_req {
@@ -3310,6 +3476,632 @@ fn ingest_inbox_for_project(
     Ok((events, processed_files))
 }
 
+fn should_collect_text_file(path: &Path) -> bool {
+    matches!(
+        path.extension()
+            .and_then(|value| value.to_str())
+            .map(|value| value.to_ascii_lowercase()),
+        Some(ext)
+            if matches!(
+                ext.as_str(),
+                "md" | "mdx" | "markdown" | "txt" | "json" | "jsonl" | "yml" | "yaml" | "log" | "rst"
+            )
+    )
+}
+
+fn kb_collect_walk(dir: &Path, files: &mut Vec<PathBuf>) -> Result<(), String> {
+    if !dir.exists() {
+        return Ok(());
+    }
+    for entry in fs::read_dir(dir).map_err(|err| err.to_string())? {
+        let entry = entry.map_err(|err| err.to_string())?;
+        let path = entry.path();
+        if path.is_dir() {
+            kb_collect_walk(&path, files)?;
+            continue;
+        }
+        if should_collect_text_file(&path) {
+            files.push(path);
+        }
+    }
+    Ok(())
+}
+
+fn normalize_collected_content(raw: &str) -> String {
+    let mut out = raw.replace('\0', " ");
+    if out.chars().count() > KB_COLLECT_MAX_CONTENT_CHARS {
+        out = out
+            .chars()
+            .take(KB_COLLECT_MAX_CONTENT_CHARS)
+            .collect::<String>();
+    }
+    out
+}
+
+fn extract_messages_from_json(raw: &str) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_str(raw).ok()?;
+
+    fn collect_message_text(msg: &serde_json::Value) -> Option<String> {
+        if let Some(text) = msg.get("text").and_then(|item| item.as_str()) {
+            let t = text.trim();
+            if !t.is_empty() {
+                return Some(t.to_string());
+            }
+        }
+        if let Some(content) = msg.get("content") {
+            if let Some(text) = content.as_str() {
+                let t = text.trim();
+                if !t.is_empty() {
+                    return Some(t.to_string());
+                }
+            }
+            if let Some(parts) = content.get("parts").and_then(|item| item.as_array()) {
+                let merged = parts
+                    .iter()
+                    .filter_map(|item| item.as_str())
+                    .map(str::trim)
+                    .filter(|item| !item.is_empty())
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                if !merged.is_empty() {
+                    return Some(merged);
+                }
+            }
+        }
+        if let Some(message) = msg.get("message") {
+            return collect_message_text(message);
+        }
+        None
+    }
+
+    fn detect_role(msg: &serde_json::Value) -> String {
+        msg.get("role")
+            .and_then(|item| item.as_str())
+            .or_else(|| {
+                msg.get("author")
+                    .and_then(|author| author.get("role"))
+                    .and_then(|item| item.as_str())
+            })
+            .map(|item| item.trim().to_string())
+            .filter(|item| !item.is_empty())
+            .unwrap_or_else(|| "unknown".to_string())
+    }
+
+    let mut lines = Vec::new();
+
+    if let Some(messages) = value.get("messages").and_then(|item| item.as_array()) {
+        for msg in messages {
+            if let Some(text) = collect_message_text(msg) {
+                let role = detect_role(msg);
+                lines.push(format!("[{role}] {text}"));
+            }
+        }
+    } else if let Some(items) = value.as_array() {
+        for msg in items {
+            if let Some(text) = collect_message_text(msg) {
+                let role = detect_role(msg);
+                lines.push(format!("[{role}] {text}"));
+            }
+        }
+    } else if let Some(mapping) = value.get("mapping").and_then(|item| item.as_object()) {
+        for msg in mapping.values() {
+            if let Some(text) = collect_message_text(msg) {
+                let role = detect_role(msg);
+                lines.push(format!("[{role}] {text}"));
+            }
+        }
+    }
+
+    if lines.is_empty() {
+        None
+    } else {
+        Some(lines.join("\n\n"))
+    }
+}
+
+fn extract_messages_from_jsonl(raw: &str) -> Option<String> {
+    let mut lines = Vec::new();
+    for line in raw.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let Ok(payload) = serde_json::from_str::<serde_json::Value>(trimmed) else {
+            continue;
+        };
+
+        let role = payload
+            .get("role")
+            .and_then(|item| item.as_str())
+            .or_else(|| {
+                payload
+                    .get("message")
+                    .and_then(|message| message.get("role"))
+                    .and_then(|item| item.as_str())
+            })
+            .or_else(|| {
+                payload
+                    .get("author")
+                    .and_then(|author| author.get("role"))
+                    .and_then(|item| item.as_str())
+            })
+            .map(str::trim)
+            .filter(|item| !item.is_empty())
+            .unwrap_or("unknown");
+
+        let text = payload
+            .get("text")
+            .and_then(|item| item.as_str())
+            .map(str::to_string)
+            .or_else(|| {
+                payload
+                    .get("message")
+                    .and_then(|message| message.get("content"))
+                    .and_then(|item| item.as_str())
+                    .map(str::to_string)
+            })
+            .or_else(|| {
+                payload
+                    .get("message")
+                    .and_then(|message| message.get("content"))
+                    .and_then(|content| content.as_array())
+                    .map(|parts| {
+                        parts
+                            .iter()
+                            .filter_map(|item| {
+                                item.get("text")
+                                    .and_then(|v| v.as_str())
+                                    .or_else(|| item.as_str())
+                            })
+                            .map(str::trim)
+                            .filter(|item| !item.is_empty())
+                            .collect::<Vec<_>>()
+                            .join("\n")
+                    })
+            })
+            .or_else(|| {
+                payload
+                    .get("content")
+                    .and_then(|content| content.as_array())
+                    .map(|parts| {
+                        parts
+                            .iter()
+                            .filter_map(|item| {
+                                item.get("text")
+                                    .and_then(|v| v.as_str())
+                                    .or_else(|| item.as_str())
+                            })
+                            .map(str::trim)
+                            .filter(|item| !item.is_empty())
+                            .collect::<Vec<_>>()
+                            .join("\n")
+                    })
+            })
+            .unwrap_or_default();
+
+        if text.trim().is_empty() {
+            continue;
+        }
+        lines.push(format!("[{role}] {}", text.trim()));
+    }
+
+    if lines.is_empty() {
+        None
+    } else {
+        Some(lines.join("\n\n"))
+    }
+}
+
+fn looks_like_conversation_file(path: &Path, content: &str) -> bool {
+    let lower_path = path.to_string_lossy().to_ascii_lowercase();
+    if lower_path.contains("conversation")
+        || lower_path.contains("conversations")
+        || lower_path.contains("chat")
+        || lower_path.contains("thread")
+        || lower_path.contains("dialog")
+        || lower_path.contains("session")
+    {
+        return true;
+    }
+    let lower = content.to_ascii_lowercase();
+    lower.contains("\"messages\"")
+        || lower.contains("\"role\"")
+        || lower.contains("assistant")
+        || lower.contains("user")
+        || lower.contains("anthropic")
+        || lower.contains("chat.openai.com")
+}
+
+fn file_modified_unix(path: &Path) -> i64 {
+    fs::metadata(path)
+        .ok()
+        .and_then(|meta| meta.modified().ok())
+        .and_then(|ts| ts.duration_since(UNIX_EPOCH).ok())
+        .map(|duration| duration.as_secs() as i64)
+        .unwrap_or_default()
+}
+
+fn resolve_claude_rollout_path(
+    home: &Path,
+    thread_id: &str,
+    project_path: &str,
+) -> Option<PathBuf> {
+    if thread_id.trim().is_empty() || project_path.trim().is_empty() {
+        return None;
+    }
+    let projects_root = home.join(".claude/projects");
+    let escaped = project_path.trim_start_matches('/').replace('/', "-");
+    let candidate = projects_root.join(format!("-{escaped}/{thread_id}.jsonl"));
+    if candidate.is_file() {
+        return Some(candidate);
+    }
+
+    let dirs = fs::read_dir(&projects_root).ok()?;
+    for dir in dirs.flatten() {
+        let dir_path = dir.path();
+        if !dir_path.is_dir() {
+            continue;
+        }
+        let path = dir_path.join(format!("{thread_id}.jsonl"));
+        if path.is_file() {
+            return Some(path);
+        }
+    }
+    None
+}
+
+fn kb_auto_collect_conversation_file(
+    conn: &Connection,
+    project_path: &str,
+    file_path: &Path,
+    source_tool: &str,
+    session_id: &str,
+) -> Result<bool, String> {
+    if !file_path.is_file() {
+        return Ok(false);
+    }
+    let file_path_str = file_path.to_string_lossy().to_string();
+    let Some(raw_content) = read_file_tail(&file_path_str, KB_AUTO_CONVERSATION_TAIL_BYTES) else {
+        return Ok(false);
+    };
+
+    let extracted = if file_path.extension().and_then(|v| v.to_str()) == Some("jsonl") {
+        extract_messages_from_jsonl(&raw_content)
+    } else if file_path.extension().and_then(|v| v.to_str()) == Some("json") {
+        extract_messages_from_json(&raw_content)
+    } else {
+        None
+    };
+    let content = normalize_collected_content(extracted.as_deref().unwrap_or(raw_content.as_str()));
+    if content.trim().is_empty() {
+        return Ok(false);
+    }
+
+    let project_root = PathBuf::from(project_path)
+        .canonicalize()
+        .unwrap_or_else(|_| PathBuf::from(project_path));
+    let project_path = project_root.to_string_lossy().to_string();
+    let project_name = project_root
+        .file_name()
+        .map(|item| item.to_string_lossy().to_string())
+        .unwrap_or_else(|| "project".to_string());
+    let project_id = kb_upsert_project(conn, &project_name, &project_path)?;
+
+    let title = format!("{source_tool} 会话 {}", session_id.trim());
+    let _ = kb_upsert_item_with_meta(
+        conn,
+        &project_id,
+        "conversation",
+        &title,
+        &content,
+        &file_path_str,
+        &KbItemMeta {
+            source_type: "conversation".into(),
+            source_tool: source_tool.to_string(),
+            session_id: session_id.trim().to_string(),
+            speaker: String::new(),
+            verified: 0,
+            tags: format!("conversation,auto,{source_tool}"),
+        },
+    )?;
+    Ok(true)
+}
+
+fn kb_auto_collect_runtime_conversations(
+    home: &Path,
+    cursor: &mut KbAutoCollectCursor,
+) -> Result<(usize, usize), String> {
+    if !knowledgebase_auto_push_enabled() {
+        return Ok((0, 0));
+    }
+    let now = unix_now();
+    if cursor.last_run_at > 0
+        && now.saturating_sub(cursor.last_run_at) < KB_AUTO_COLLECT_INTERVAL_SECONDS
+    {
+        return Ok((0, 0));
+    }
+    cursor.last_run_at = now;
+
+    let conn = connect_knowledgebase()?;
+    let mut codex_count = 0_usize;
+    let mut claude_count = 0_usize;
+
+    for thread in read_recent_threads(home)
+        .into_iter()
+        .take(KB_AUTO_COLLECT_MAX_THREADS)
+    {
+        if thread.cwd.trim().is_empty() || thread.rollout_path.trim().is_empty() {
+            continue;
+        }
+        let path = PathBuf::from(&thread.rollout_path);
+        let mtime = file_modified_unix(&path);
+        if mtime <= 0 {
+            continue;
+        }
+        let key = path.to_string_lossy().to_string();
+        if cursor
+            .codex_file_mtime
+            .get(&key)
+            .copied()
+            .unwrap_or_default()
+            >= mtime
+        {
+            continue;
+        }
+        if kb_auto_collect_conversation_file(&conn, &thread.cwd, &path, "codex", &thread.id)? {
+            codex_count += 1;
+            cursor.codex_file_mtime.insert(key, mtime);
+        }
+    }
+
+    let (claude_threads, _, _) = read_recent_claude_threads(home);
+    for thread in claude_threads.into_iter().take(KB_AUTO_COLLECT_MAX_THREADS) {
+        let path = if !thread.session_file_path.trim().is_empty() {
+            PathBuf::from(&thread.session_file_path)
+        } else {
+            let Some(path) = resolve_claude_rollout_path(home, &thread.id, &thread.project_path)
+            else {
+                continue;
+            };
+            path
+        };
+        if !path.is_file() {
+            continue;
+        }
+        let mtime = file_modified_unix(&path);
+        if mtime <= 0 {
+            continue;
+        }
+        let key = path.to_string_lossy().to_string();
+        if cursor
+            .claude_file_mtime
+            .get(&key)
+            .copied()
+            .unwrap_or_default()
+            >= mtime
+        {
+            continue;
+        }
+        if kb_auto_collect_conversation_file(
+            &conn,
+            &thread.project_path,
+            &path,
+            "claude",
+            &thread.id,
+        )? {
+            claude_count += 1;
+            cursor.claude_file_mtime.insert(key, mtime);
+        }
+    }
+
+    if codex_count + claude_count > 0 {
+        if let Ok(mut guard) = knowledgebase_push_state().lock() {
+            guard.last_push_ts = now;
+            guard.last_error.clear();
+        }
+    }
+
+    Ok((codex_count, claude_count))
+}
+
+fn kb_detect_source_tool(path: &Path, content: &str) -> &'static str {
+    let lower_path = path.to_string_lossy().to_ascii_lowercase();
+    let lower_content = content.to_ascii_lowercase();
+    if lower_path.contains("codex")
+        || lower_content.contains("\"codex\"")
+        || lower_content.contains("openai codex")
+    {
+        "codex"
+    } else if lower_path.contains("claude")
+        || lower_content.contains("\"claude\"")
+        || lower_content.contains("anthropic")
+    {
+        "claude"
+    } else if lower_path.contains("chatgpt")
+        || lower_content.contains("\"chatgpt\"")
+        || lower_content.contains("chat.openai.com")
+        || lower_content.contains("openai")
+    {
+        "chatgpt"
+    } else if lower_path.contains("gemini") || lower_content.contains("gemini.google.com") {
+        "gemini"
+    } else {
+        "unknown"
+    }
+}
+
+fn kb_collect_documents_for_project(
+    conn: &Connection,
+    project_path: &str,
+    project_name: &str,
+) -> Result<(i64, i64), String> {
+    let project_id = kb_upsert_project(conn, project_name, project_path)?;
+    let root = PathBuf::from(project_path);
+    let roots = vec![
+        (root.join(".ai/memory"), "memory"),
+        (root.join("docs/workflow"), "workflow"),
+        (root.join("knowledge-store/conversations"), "conversation"),
+        (root.join("knowledge-store/chat"), "conversation"),
+        (root.join(".ai/runtime/conversations"), "conversation"),
+        (root.join(".ai/runtime/chat"), "conversation"),
+        (root.join(".ai/memory/conversations"), "conversation"),
+        (root.join(".ai/memory/chat"), "conversation"),
+        (root.join(".codex/conversations"), "conversation"),
+        (root.join(".claude/conversations"), "conversation"),
+        (root.join(".chatgpt/conversations"), "conversation"),
+        (root.join(".gemini/conversations"), "conversation"),
+    ];
+
+    let mut files = Vec::new();
+    for (dir, _) in &roots {
+        kb_collect_walk(dir, &mut files)?;
+    }
+    files.sort();
+    files.dedup();
+
+    let mut documents = 0_i64;
+    let mut scanned_files = 0_i64;
+
+    for file in files {
+        let metadata = match fs::metadata(&file) {
+            Ok(metadata) => metadata,
+            Err(_) => continue,
+        };
+        if metadata.len() > KB_COLLECT_MAX_FILE_BYTES {
+            continue;
+        }
+        let raw_content = match fs::read_to_string(&file) {
+            Ok(content) => content,
+            Err(_) => continue,
+        };
+        let parsed_conversation = extract_messages_from_json(&raw_content);
+        let content = normalize_collected_content(
+            parsed_conversation
+                .as_deref()
+                .unwrap_or(raw_content.as_str()),
+        );
+        if content.trim().is_empty() {
+            continue;
+        }
+        scanned_files += 1;
+        let lower = file.to_string_lossy().to_ascii_lowercase();
+        let source_type = if lower.contains("/.ai/memory/") {
+            "memory"
+        } else if lower.contains("/docs/workflow/") {
+            "workflow"
+        } else if lower.contains("conversation") || looks_like_conversation_file(&file, &content) {
+            "conversation"
+        } else {
+            "document"
+        };
+        let item_type = if source_type == "conversation" {
+            "conversation"
+        } else {
+            "document"
+        };
+        let title = content
+            .lines()
+            .find(|line| !line.trim().is_empty())
+            .map(|line| line.trim().trim_start_matches('#').trim().to_string())
+            .filter(|line| !line.is_empty())
+            .unwrap_or_else(|| {
+                file.file_name()
+                    .map(|value| value.to_string_lossy().to_string())
+                    .unwrap_or_else(|| "document".to_string())
+            });
+        let tags = format!(
+            "{source_type},{}",
+            if item_type == "conversation" {
+                "chat"
+            } else {
+                "doc"
+            }
+        );
+        let _ = kb_upsert_item_with_meta(
+            conn,
+            &project_id,
+            item_type,
+            &title,
+            &content,
+            &file.to_string_lossy(),
+            &KbItemMeta {
+                source_type: source_type.to_string(),
+                source_tool: kb_detect_source_tool(&file, &content).to_string(),
+                verified: 0,
+                tags,
+                ..KbItemMeta::default()
+            },
+        )?;
+        documents += 1;
+    }
+
+    Ok((documents, scanned_files))
+}
+
+fn kb_collect_project_internal(path: &str) -> Result<KbCollectProjectResult, String> {
+    let root = PathBuf::from(path)
+        .canonicalize()
+        .unwrap_or_else(|_| PathBuf::from(path));
+    let project_path = root.to_string_lossy().to_string();
+    let project_name = root
+        .file_name()
+        .map(|value| value.to_string_lossy().to_string())
+        .unwrap_or_else(|| "project".to_string());
+    let conn = connect_knowledgebase()?;
+    let (events, processed_files) = ingest_inbox_for_project(&conn, &project_path, &project_name)?;
+    let (documents, scanned_files) =
+        kb_collect_documents_for_project(&conn, &project_path, &project_name)?;
+    Ok(KbCollectProjectResult {
+        project: project_path,
+        events,
+        processed_files,
+        documents,
+        scanned_files,
+    })
+}
+
+fn kb_list_projects_internal() -> Result<Vec<KbProjectStatus>, String> {
+    let conn = connect_knowledgebase()?;
+    let mut stmt = conn
+        .prepare(
+            r#"
+            SELECT
+                p.project_id,
+                p.name,
+                p.root_path,
+                COUNT(i.item_id) AS item_count,
+                SUM(CASE WHEN i.item_type='event' THEN 1 ELSE 0 END) AS event_count,
+                SUM(CASE WHEN i.item_type='document' THEN 1 ELSE 0 END) AS document_count,
+                SUM(CASE WHEN i.item_type='conversation' THEN 1 ELSE 0 END) AS conversation_count,
+                COALESCE(MAX(i.updated_at), '') AS last_item_at
+            FROM projects p
+            LEFT JOIN items i ON i.project_id = p.project_id
+            GROUP BY p.project_id, p.name, p.root_path
+            ORDER BY p.updated_at DESC
+            "#,
+        )
+        .map_err(|err| err.to_string())?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok(KbProjectStatus {
+                project_id: row.get::<_, String>(0)?,
+                name: row.get::<_, String>(1)?,
+                root_path: row.get::<_, String>(2)?,
+                item_count: row.get::<_, i64>(3)?,
+                event_count: row.get::<_, i64>(4).unwrap_or_default(),
+                document_count: row.get::<_, i64>(5).unwrap_or_default(),
+                conversation_count: row.get::<_, i64>(6).unwrap_or_default(),
+                last_item_at: row.get::<_, String>(7).unwrap_or_default(),
+            })
+        })
+        .map_err(|err| err.to_string())?;
+    let mut out = Vec::new();
+    for row in rows {
+        out.push(row.map_err(|err| err.to_string())?);
+    }
+    Ok(out)
+}
+
 fn kb_get_stats_internal() -> Result<KbStats, String> {
     let conn = connect_knowledgebase()?;
     let projects = conn
@@ -3349,9 +4141,36 @@ fn kb_search_internal(query: &str) -> Result<KbSearchResponse, String> {
         .map(|item| format!("\"{item}\""))
         .collect::<Vec<_>>();
     if raw_query.is_empty() {
+        let mut stmt = conn
+            .prepare(
+                r#"
+                SELECT item_id, project_id, item_type, title, source_path, substr(content_text, 1, 120) AS snippet, COALESCE(updated_at, '') AS updated_at
+                FROM items
+                ORDER BY updated_at DESC
+                LIMIT 1000
+                "#,
+            )
+            .map_err(|err| err.to_string())?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok(KbSearchItem {
+                    item_id: row.get::<_, String>(0)?,
+                    project_id: row.get::<_, String>(1)?,
+                    item_type: row.get::<_, String>(2)?,
+                    title: row.get::<_, String>(3)?,
+                    source_path: row.get::<_, String>(4)?,
+                    snippet: row.get::<_, String>(5).unwrap_or_default(),
+                    updated_at: row.get::<_, String>(6).unwrap_or_default(),
+                })
+            })
+            .map_err(|err| err.to_string())?;
+        let mut items = Vec::new();
+        for row in rows {
+            items.push(row.map_err(|err| err.to_string())?);
+        }
         return Ok(KbSearchResponse {
             query: query.to_string(),
-            items: Vec::new(),
+            items,
         });
     }
     let safe_query = if tokens.is_empty() {
@@ -3364,8 +4183,8 @@ fn kb_search_internal(query: &str) -> Result<KbSearchResponse, String> {
     let mut stmt = conn
         .prepare(
             r#"
-            SELECT i.item_id, i.item_type, i.title, i.source_path,
-                   snippet(items_fts, 2, '[', ']', ' … ', 24) AS snippet
+            SELECT i.item_id, i.project_id, i.item_type, i.title, i.source_path,
+                   snippet(items_fts, 2, '[', ']', ' … ', 24) AS snippet, COALESCE(i.updated_at, '') AS updated_at
             FROM items_fts
             JOIN items i ON i.item_id = items_fts.item_id
             WHERE items_fts MATCH ?1
@@ -3378,10 +4197,12 @@ fn kb_search_internal(query: &str) -> Result<KbSearchResponse, String> {
         .query_map(params![safe_query], |row| {
             Ok(KbSearchItem {
                 item_id: row.get::<_, String>(0)?,
-                item_type: row.get::<_, String>(1)?,
-                title: row.get::<_, String>(2)?,
-                source_path: row.get::<_, String>(3)?,
-                snippet: row.get::<_, String>(4).unwrap_or_default(),
+                project_id: row.get::<_, String>(1)?,
+                item_type: row.get::<_, String>(2)?,
+                title: row.get::<_, String>(3)?,
+                source_path: row.get::<_, String>(4)?,
+                snippet: row.get::<_, String>(5).unwrap_or_default(),
+                updated_at: row.get::<_, String>(6).unwrap_or_default(),
             })
         })
         .map_err(|err| err.to_string())?;
@@ -3397,7 +4218,7 @@ fn kb_search_internal(query: &str) -> Result<KbSearchResponse, String> {
     let mut fallback_stmt = conn
         .prepare(
             r#"
-            SELECT item_id, item_type, title, source_path, substr(content_text, 1, 120) AS snippet
+            SELECT item_id, project_id, item_type, title, source_path, substr(content_text, 1, 120) AS snippet, COALESCE(updated_at, '') AS updated_at
             FROM items
             WHERE title LIKE ?1 OR content_text LIKE ?1 OR source_path LIKE ?1
             ORDER BY updated_at DESC
@@ -3409,10 +4230,12 @@ fn kb_search_internal(query: &str) -> Result<KbSearchResponse, String> {
         .query_map(params![like_pattern], |row| {
             Ok(KbSearchItem {
                 item_id: row.get::<_, String>(0)?,
-                item_type: row.get::<_, String>(1)?,
-                title: row.get::<_, String>(2)?,
-                source_path: row.get::<_, String>(3)?,
-                snippet: row.get::<_, String>(4).unwrap_or_default(),
+                project_id: row.get::<_, String>(1)?,
+                item_type: row.get::<_, String>(2)?,
+                title: row.get::<_, String>(3)?,
+                source_path: row.get::<_, String>(4)?,
+                snippet: row.get::<_, String>(5).unwrap_or_default(),
+                updated_at: row.get::<_, String>(6).unwrap_or_default(),
             })
         })
         .map_err(|err| err.to_string())?;
@@ -3669,6 +4492,41 @@ fn handle_knowledgebase_http_request(request: Request) {
                 ),
             }
         }
+        "/api/projects" => match kb_list_projects_internal() {
+            Ok(data) => http_respond_json(
+                request,
+                200,
+                serde_json::to_string(&data).unwrap_or_else(|_| "[]".to_string()),
+            ),
+            Err(err) => http_respond_json(
+                request,
+                500,
+                serde_json::json!({ "error": err }).to_string(),
+            ),
+        },
+        "/api/collect" => {
+            let path = query_param(query, "path").unwrap_or_default();
+            if path.trim().is_empty() {
+                http_respond_json(
+                    request,
+                    400,
+                    serde_json::json!({ "error": "missing_path" }).to_string(),
+                );
+                return;
+            }
+            match kb_collect_project_internal(path.trim()) {
+                Ok(data) => http_respond_json(
+                    request,
+                    200,
+                    serde_json::to_string(&data).unwrap_or_else(|_| "{}".to_string()),
+                ),
+                Err(err) => http_respond_json(
+                    request,
+                    500,
+                    serde_json::json!({ "error": err }).to_string(),
+                ),
+            }
+        }
         _ if path.starts_with("/api/trace/") => {
             let item_id = url_decode(path.trim_start_matches("/api/trace/"));
             match kb_trace_internal(&item_id) {
@@ -3706,9 +4564,7 @@ fn is_knowledgebase_http_healthy() -> bool {
     };
     let _ = stream.set_read_timeout(Some(timeout));
     let _ = stream.set_write_timeout(Some(timeout));
-    let req = format!(
-        "GET /api/stats HTTP/1.1\r\nHost: {bind_addr}\r\nConnection: close\r\n\r\n"
-    );
+    let req = format!("GET /api/stats HTTP/1.1\r\nHost: {bind_addr}\r\nConnection: close\r\n\r\n");
     if stream.write_all(req.as_bytes()).is_err() {
         return false;
     }
@@ -5074,6 +5930,16 @@ fn kb_push_event(
     kb_push_event_internal(&path, &event, process_now.unwrap_or(true))
 }
 
+#[tauri::command]
+fn kb_collect_project(path: String) -> Result<KbCollectProjectResult, String> {
+    kb_collect_project_internal(&path)
+}
+
+#[tauri::command]
+fn kb_list_projects() -> Result<Vec<KbProjectStatus>, String> {
+    kb_list_projects_internal()
+}
+
 fn build_tray_menu<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<Menu<R>, String> {
     let open_dashboard = MenuItem::with_id(
         app,
@@ -5196,9 +6062,16 @@ pub fn run() {
             let poller_app = app.handle().clone();
             let poller_cache = runtime_cache.clone();
             let poller_alert_settings = alert_settings.clone();
-            thread::spawn(move || loop {
-                emit_runtime_state(&poller_app, &poller_cache, &poller_alert_settings);
-                thread::sleep(Duration::from_secs(POLL_INTERVAL_SECONDS));
+            thread::spawn(move || {
+                let home = home_dir();
+                let mut kb_auto_cursor = KbAutoCollectCursor::default();
+                loop {
+                    if let Some(home) = home.as_ref() {
+                        let _ = kb_auto_collect_runtime_conversations(home, &mut kb_auto_cursor);
+                    }
+                    emit_runtime_state(&poller_app, &poller_cache, &poller_alert_settings);
+                    thread::sleep(Duration::from_secs(POLL_INTERVAL_SECONDS));
+                }
             });
             spawn_knowledgebase_health_watchdog(app.handle().clone(), alert_settings.clone());
 
@@ -5226,7 +6099,9 @@ pub fn run() {
             kb_trace,
             kb_register_project,
             kb_ingest_inbox,
-            kb_push_event
+            kb_push_event,
+            kb_collect_project,
+            kb_list_projects
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
