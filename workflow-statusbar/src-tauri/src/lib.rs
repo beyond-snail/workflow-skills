@@ -3320,7 +3320,10 @@ fn knowledgebase_web_url() -> String {
 }
 
 fn open_knowledgebase_internal() -> Result<(), String> {
-    open_url(&knowledgebase_web_url())
+    let base = knowledgebase_web_url();
+    let sep = if base.contains('?') { "&" } else { "?" };
+    let url = format!("{base}{sep}t={}", unix_now());
+    open_url(&url)
 }
 
 fn post_knowledgebase_event(project: &ProjectSnapshot, event_type: &str, title: &str, body: &str) -> Result<(), String> {
@@ -4477,7 +4480,9 @@ fn open_path(path: String) -> Result<(), String> {
 #[tauri::command]
 fn open_knowledgebase<R: tauri::Runtime>(app: tauri::AppHandle<R>) -> Result<(), String> {
     open_knowledgebase_internal()?;
-    hide_main_window_with_delay(app, None);
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.hide();
+    }
     Ok(())
 }
 
