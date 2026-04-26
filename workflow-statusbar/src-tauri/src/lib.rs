@@ -4,8 +4,7 @@ use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
-    env,
-    fs,
+    env, fs,
     io::{Read, Seek, SeekFrom},
     path::{Path, PathBuf},
     process::{Command, Stdio},
@@ -13,14 +12,15 @@ use std::{
     thread,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
+#[cfg(target_os = "macos")]
+use tauri::ActivationPolicy;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Emitter, Manager, PhysicalPosition, Position, Rect, Size, WebviewWindow,
 };
 use tauri_plugin_notification::NotificationExt;
-#[cfg(target_os = "macos")]
-use tauri::ActivationPolicy;
+use tiny_http::{Header, Method, Request, Response, Server, StatusCode};
 
 const MAX_GROUP_ITEMS: usize = 5;
 const PROJECT_ROTATION_SECONDS: i64 = 8;
@@ -32,7 +32,9 @@ const TRAY_MENU_OPEN_DASHBOARD: &str = "open_dashboard";
 const TRAY_MENU_OPEN_ALERT_SETTINGS: &str = "open_alert_settings";
 const TRAY_MENU_OPEN_KNOWLEDGEBASE: &str = "open_knowledgebase";
 const TRAY_MENU_QUIT: &str = "quit";
-const KNOWLEDGEBASE_DEFAULT_WEB_URL: &str = "http://127.0.0.1:8787";
+const KNOWLEDGEBASE_DEFAULT_WEB_URL: &str = "http://127.0.0.1:8788";
+const KNOWLEDGEBASE_DEFAULT_BIND_ADDR: &str = "127.0.0.1:8788";
+const KNOWLEDGEBASE_WEB_HTML: &str = include_str!("../resources/knowledgebase/index.html");
 
 type SharedRuntimeCache = Arc<Mutex<RuntimeCache>>;
 type SharedAlertSettings = Arc<Mutex<AlertSettings>>;
@@ -593,7 +595,12 @@ impl ClaudeThreadDebugEntry {
         }
     }
 
-    fn skipped(session_id: &str, project_path: &str, file_path: Option<&Path>, reason: &str) -> Self {
+    fn skipped(
+        session_id: &str,
+        project_path: &str,
+        file_path: Option<&Path>,
+        reason: &str,
+    ) -> Self {
         Self {
             id: session_id.into(),
             project_path: project_path.into(),
@@ -696,6 +703,11 @@ fn knowledgebase_push_state() -> &'static Mutex<KnowledgebasePushStateRaw> {
     STATE.get_or_init(|| Mutex::new(KnowledgebasePushStateRaw::default()))
 }
 
+fn knowledgebase_web_server_state() -> &'static OnceLock<Result<(), String>> {
+    static STATE: OnceLock<Result<(), String>> = OnceLock::new();
+    &STATE
+}
+
 fn path_matches(project_path: &str, candidate_path: &str) -> bool {
     let project = project_path.trim_end_matches('/');
     let candidate = candidate_path.trim_end_matches('/');
@@ -774,8 +786,7 @@ fn write_runtime_debug_snapshot(
         spotlight_after_apply_path: spotlight_after_apply
             .map(|item| item.path.clone())
             .unwrap_or_default(),
-        spotlight_after_apply_host: spotlight_after_apply
-            .and_then(|item| item.active_host.clone()),
+        spotlight_after_apply_host: spotlight_after_apply.and_then(|item| item.active_host.clone()),
         projects: projects
             .iter()
             .map(|project| DebugProjectEntry {
@@ -896,7 +907,10 @@ fn detect_follow_up_prompt(rollout_path: &str) -> bool {
         Ok(file) => file,
         Err(_) => return false,
     };
-    let file_len = file.metadata().map(|metadata| metadata.len()).unwrap_or_default();
+    let file_len = file
+        .metadata()
+        .map(|metadata| metadata.len())
+        .unwrap_or_default();
     let start = file_len.saturating_sub(256 * 1024);
     if file.seek(SeekFrom::Start(start)).is_err() {
         return false;
@@ -943,7 +957,10 @@ fn read_last_thread_message(rollout_path: &str) -> ThreadLastMessage {
         Ok(file) => file,
         Err(_) => return ThreadLastMessage::default(),
     };
-    let file_len = file.metadata().map(|metadata| metadata.len()).unwrap_or_default();
+    let file_len = file
+        .metadata()
+        .map(|metadata| metadata.len())
+        .unwrap_or_default();
     let start = file_len.saturating_sub(512 * 1024);
     if file.seek(SeekFrom::Start(start)).is_err() {
         return ThreadLastMessage::default();
@@ -1098,7 +1115,9 @@ fn read_latest_log_ts(home: &Path) -> Option<i64> {
     let db_path = home.join(".codex/logs_2.sqlite");
     let connection = Connection::open(db_path).ok()?;
     connection
-        .query_row("select max(ts) from logs", [], |row| row.get::<_, Option<i64>>(0))
+        .query_row("select max(ts) from logs", [], |row| {
+            row.get::<_, Option<i64>>(0)
+        })
         .ok()
         .flatten()
 }
@@ -1168,10 +1187,7 @@ fn build_project_token_usage(
             continue;
         }
 
-        let entry = cache
-            .threads
-            .entry(runtime.thread.id.clone())
-            .or_default();
+        let entry = cache.threads.entry(runtime.thread.id.clone()).or_default();
         if entry.day_key != day_key {
             *entry = TokenThreadCacheEntry {
                 day_key: day_key.clone(),
@@ -1197,15 +1213,28 @@ fn build_project_token_usage(
                 continue;
             }
 
-            let total = extract_json_number_after(&line, "\"total_token_usage\"", "\"total_tokens\"");
+            let total =
+                extract_json_number_after(&line, "\"total_token_usage\"", "\"total_tokens\"");
             if total <= 0 {
                 continue;
             }
 
             let current = TokenUsage {
-                input: extract_json_number_after(&line, "\"total_token_usage\"", "\"input_tokens\""),
-                output: extract_json_number_after(&line, "\"total_token_usage\"", "\"output_tokens\""),
-                reasoning: extract_json_number_after(&line, "\"total_token_usage\"", "\"reasoning_output_tokens\""),
+                input: extract_json_number_after(
+                    &line,
+                    "\"total_token_usage\"",
+                    "\"input_tokens\"",
+                ),
+                output: extract_json_number_after(
+                    &line,
+                    "\"total_token_usage\"",
+                    "\"output_tokens\"",
+                ),
+                reasoning: extract_json_number_after(
+                    &line,
+                    "\"total_token_usage\"",
+                    "\"reasoning_output_tokens\"",
+                ),
             };
 
             if first_today.is_none() {
@@ -1215,10 +1244,12 @@ fn build_project_token_usage(
         }
 
         if let Some(first) = first_today {
-            let baseline_empty =
-                entry.baseline.input == 0 && entry.baseline.output == 0 && entry.baseline.reasoning == 0;
+            let baseline_empty = entry.baseline.input == 0
+                && entry.baseline.output == 0
+                && entry.baseline.reasoning == 0;
             let first_total = first.input + first.output + first.reasoning;
-            let baseline_total = entry.baseline.input + entry.baseline.output + entry.baseline.reasoning;
+            let baseline_total =
+                entry.baseline.input + entry.baseline.output + entry.baseline.reasoning;
             if baseline_empty || first_total < baseline_total {
                 entry.baseline = first.clone();
             }
@@ -1318,8 +1349,15 @@ fn read_recent_claude_threads(
         let Some(project_path) = payload.get("project").and_then(|value| value.as_str()) else {
             continue;
         };
-        let timestamp_ms = payload.get("timestamp").and_then(|value| value.as_i64()).unwrap_or_default();
-        let timestamp = if timestamp_ms > 0 { timestamp_ms / 1000 } else { 0 };
+        let timestamp_ms = payload
+            .get("timestamp")
+            .and_then(|value| value.as_i64())
+            .unwrap_or_default();
+        let timestamp = if timestamp_ms > 0 {
+            timestamp_ms / 1000
+        } else {
+            0
+        };
         if timestamp <= 0 {
             continue;
         }
@@ -1329,7 +1367,10 @@ fn read_recent_claude_threads(
             .map(|(_, existing_ts)| timestamp >= *existing_ts)
             .unwrap_or(true);
         if replace {
-            project_by_session.insert(session_id.to_string(), (project_path.to_string(), timestamp));
+            project_by_session.insert(
+                session_id.to_string(),
+                (project_path.to_string(), timestamp),
+            );
         }
     }
 
@@ -1458,7 +1499,8 @@ fn read_recent_claude_threads(
                 let Some(role) = message.get("role").and_then(|value| value.as_str()) else {
                     continue;
                 };
-                let Some(content) = message.get("content").and_then(|value| value.as_array()) else {
+                let Some(content) = message.get("content").and_then(|value| value.as_array())
+                else {
                     continue;
                 };
                 let text = content
@@ -1518,10 +1560,7 @@ fn read_frontmost_pid() -> Option<i32> {
         return None;
     }
     let front_stdout = String::from_utf8_lossy(&front.stdout).to_string();
-    let asn = front_stdout
-        .trim()
-        .strip_prefix("ASN:")?
-        .trim();
+    let asn = front_stdout.trim().strip_prefix("ASN:")?.trim();
     if asn.is_empty() {
         return None;
     }
@@ -1546,10 +1585,7 @@ fn read_frontmost_app_name() -> Option<String> {
         return None;
     }
     let front_stdout = String::from_utf8_lossy(&front.stdout).to_string();
-    let asn = front_stdout
-        .trim()
-        .strip_prefix("ASN:")?
-        .trim();
+    let asn = front_stdout.trim().strip_prefix("ASN:")?.trim();
     if asn.is_empty() {
         return None;
     }
@@ -1657,7 +1693,9 @@ fn project_paths_from_titles(projects: &[ProjectSnapshot], titles: &[String]) ->
     for title in titles {
         let lower_title = title.to_lowercase();
         for project in projects {
-            if lower_title.contains(&project.name.to_lowercase()) && seen.insert(project.path.clone()) {
+            if lower_title.contains(&project.name.to_lowercase())
+                && seen.insert(project.path.clone())
+            {
                 matched.push(project.path.clone());
             }
         }
@@ -1708,7 +1746,10 @@ fn extract_project_name_from_title(title: &str) -> Option<String> {
         "Terminal",
         "Problems",
     ];
-    if ignored_titles.iter().any(|item| item.eq_ignore_ascii_case(trimmed)) {
+    if ignored_titles
+        .iter()
+        .any(|item| item.eq_ignore_ascii_case(trimmed))
+    {
         return None;
     }
 
@@ -1780,7 +1821,11 @@ fn read_ide_signal(projects: &[ProjectSnapshot], known_paths: &[String]) -> IdeS
         }
     }
 
-    if frontmost_project_paths.is_empty() && IDE_PROCESS_NAMES.iter().any(|name| frontmost_app_name.as_deref() == Some(*name)) {
+    if frontmost_project_paths.is_empty()
+        && IDE_PROCESS_NAMES
+            .iter()
+            .any(|name| frontmost_app_name.as_deref() == Some(*name))
+    {
         frontmost_project_paths = code_title_paths.clone();
     }
 
@@ -1805,7 +1850,9 @@ fn infer_projects_from_titles(titles: &[String]) -> Vec<(String, String)> {
 
     for title in titles {
         if let Some(project_name) = extract_project_name_from_title(title) {
-            if IDE_PROCESS_NAMES.contains(&project_name.as_str()) || !seen.insert(project_name.clone()) {
+            if IDE_PROCESS_NAMES.contains(&project_name.as_str())
+                || !seen.insert(project_name.clone())
+            {
                 continue;
             }
 
@@ -1845,7 +1892,8 @@ fn placeholder_project_snapshot(
         other_host_summary: String::new(),
         hosts,
         is_blocked: false,
-        is_active_by_codex: !active_project_path.is_empty() && path_matches(path, active_project_path),
+        is_active_by_codex: !active_project_path.is_empty()
+            && path_matches(path, active_project_path),
         is_open_in_ide: true,
         progress_label: "未接入 workflow".into(),
         stage_label: "未同步".into(),
@@ -1862,10 +1910,14 @@ fn placeholder_project_snapshot(
             .map(|runtime| runtime.primary_thread.thread.title.clone())
             .unwrap_or_else(|| name.into()),
         last_message_role: project_runtime
-            .map(|runtime| read_last_thread_message(&runtime.primary_thread.thread.rollout_path).role)
+            .map(|runtime| {
+                read_last_thread_message(&runtime.primary_thread.thread.rollout_path).role
+            })
             .unwrap_or_default(),
         last_message_text: project_runtime
-            .map(|runtime| read_last_thread_message(&runtime.primary_thread.thread.rollout_path).text)
+            .map(|runtime| {
+                read_last_thread_message(&runtime.primary_thread.thread.rollout_path).text
+            })
             .unwrap_or_default(),
         token_total: project_runtime
             .map(|runtime| runtime.token_usage.total)
@@ -1949,7 +2001,13 @@ fn read_project_snapshot(
             WorkflowStage::Bootstrap | WorkflowStage::Requirement | WorkflowStage::Execution
         );
     let hosts = project_runtime
-        .map(|runtime| vec![build_codex_project_host_session(runtime, &project_path, auto_resume_enabled)])
+        .map(|runtime| {
+            vec![build_codex_project_host_session(
+                runtime,
+                &project_path,
+                auto_resume_enabled,
+            )]
+        })
         .unwrap_or_default();
 
     Some(ProjectSnapshot {
@@ -1971,7 +2029,8 @@ fn read_project_snapshot(
         other_host_summary: String::new(),
         hosts,
         is_blocked,
-        is_active_by_codex: !active_project_path.is_empty() && path_matches(&project_path, active_project_path),
+        is_active_by_codex: !active_project_path.is_empty()
+            && path_matches(&project_path, active_project_path),
         is_open_in_ide: false,
         progress_label,
         stage_label: stage_label(&stage),
@@ -1988,10 +2047,14 @@ fn read_project_snapshot(
             .map(|runtime| runtime.primary_thread.thread.title.clone())
             .unwrap_or_default(),
         last_message_role: project_runtime
-            .map(|runtime| read_last_thread_message(&runtime.primary_thread.thread.rollout_path).role)
+            .map(|runtime| {
+                read_last_thread_message(&runtime.primary_thread.thread.rollout_path).role
+            })
             .unwrap_or_default(),
         last_message_text: project_runtime
-            .map(|runtime| read_last_thread_message(&runtime.primary_thread.thread.rollout_path).text)
+            .map(|runtime| {
+                read_last_thread_message(&runtime.primary_thread.thread.rollout_path).text
+            })
             .unwrap_or_default(),
         token_total: project_runtime
             .map(|runtime| runtime.token_usage.total)
@@ -2028,19 +2091,26 @@ fn build_groups(projects: &[ProjectSnapshot]) -> Vec<ProjectGroup> {
             let items = match *key {
                 "execution" => projects
                     .iter()
-                    .filter(|item| matches!(item.workflow_stage, WorkflowStage::Execution) && !item.is_blocked)
+                    .filter(|item| {
+                        matches!(item.workflow_stage, WorkflowStage::Execution) && !item.is_blocked
+                    })
                     .take(MAX_GROUP_ITEMS)
                     .cloned()
                     .collect(),
                 "idle" => projects
                     .iter()
-                    .filter(|item| matches!(item.workflow_stage, WorkflowStage::Idle) && !item.is_blocked)
+                    .filter(|item| {
+                        matches!(item.workflow_stage, WorkflowStage::Idle) && !item.is_blocked
+                    })
                     .take(MAX_GROUP_ITEMS)
                     .cloned()
                     .collect(),
                 "requirement" => projects
                     .iter()
-                    .filter(|item| matches!(item.workflow_stage, WorkflowStage::Requirement) && !item.is_blocked)
+                    .filter(|item| {
+                        matches!(item.workflow_stage, WorkflowStage::Requirement)
+                            && !item.is_blocked
+                    })
                     .take(MAX_GROUP_ITEMS)
                     .cloned()
                     .collect(),
@@ -2170,7 +2240,11 @@ fn build_codex_global_state(
             .unwrap_or_else(|| ide_signal.frontmost_project_name.clone()),
         active_project_path: active_project_path.into(),
         source: "state_5.sqlite + logs_2.sqlite".into(),
-        confidence: if process_running { "high".into() } else { "medium".into() },
+        confidence: if process_running {
+            "high".into()
+        } else {
+            "medium".into()
+        },
         process_running,
         auto_resume_enabled: auto_resume_project.is_some(),
         monitored_project_name: auto_resume_project
@@ -2185,7 +2259,10 @@ fn build_claude_global_host_session(
     now: i64,
 ) -> HostSession {
     let log_ts = thread.map(|item| item.updated_at).unwrap_or_default();
-    let status = if home_dir().map(|path| path.join(".claude").exists()).unwrap_or(false) {
+    let status = if home_dir()
+        .map(|path| path.join(".claude").exists())
+        .unwrap_or(false)
+    {
         codex_status_from_activity(process_running, log_ts, now)
     } else {
         CodexStatus::Offline
@@ -2202,12 +2279,22 @@ fn build_claude_global_host_session(
                     .unwrap_or_else(|| item.project_path.clone())
             })
             .unwrap_or_else(|| "暂无活跃会话".into()),
-        project_path: thread.map(|item| item.project_path.clone()).unwrap_or_default(),
-        last_message_role: thread.map(|item| item.last_message_role.clone()).unwrap_or_default(),
-        last_message_text: thread.map(|item| item.last_message_text.clone()).unwrap_or_default(),
+        project_path: thread
+            .map(|item| item.project_path.clone())
+            .unwrap_or_default(),
+        last_message_role: thread
+            .map(|item| item.last_message_role.clone())
+            .unwrap_or_default(),
+        last_message_text: thread
+            .map(|item| item.last_message_text.clone())
+            .unwrap_or_default(),
         process_running,
         source: "history.jsonl + projects/*.jsonl".into(),
-        confidence: if process_running { "medium".into() } else { "low".into() },
+        confidence: if process_running {
+            "medium".into()
+        } else {
+            "low".into()
+        },
         token_total: 0,
         token_input: 0,
         token_output: 0,
@@ -2233,7 +2320,10 @@ fn build_codex_project_host_session(
         project_path: project_path.into(),
         last_message_role: last_message.role,
         last_message_text: last_message.text,
-        process_running: !matches!(runtime.primary_thread.status, CodexStatus::Idle | CodexStatus::Offline),
+        process_running: !matches!(
+            runtime.primary_thread.status,
+            CodexStatus::Idle | CodexStatus::Offline
+        ),
         source: "state_5.sqlite + logs_2.sqlite".into(),
         confidence: "high".into(),
         token_total: runtime.token_usage.total,
@@ -2286,7 +2376,8 @@ fn host_rank_order(left: &HostSession, right: &HostSession) -> std::cmp::Orderin
         .then_with(|| {
             if matches!(left.host, HostKind::Codex) && !matches!(right.host, HostKind::Codex) {
                 std::cmp::Ordering::Greater
-            } else if !matches!(left.host, HostKind::Codex) && matches!(right.host, HostKind::Codex) {
+            } else if !matches!(left.host, HostKind::Codex) && matches!(right.host, HostKind::Codex)
+            {
                 std::cmp::Ordering::Less
             } else {
                 std::cmp::Ordering::Equal
@@ -2311,7 +2402,9 @@ fn select_active_host_session<'a>(
         }
     }
 
-    hosts.iter().max_by(|left, right| host_rank_order(left, right))
+    hosts
+        .iter()
+        .max_by(|left, right| host_rank_order(left, right))
 }
 
 fn should_include_other_host_in_summary(host: &HostSession, now: i64) -> bool {
@@ -2328,7 +2421,11 @@ fn should_include_other_host_in_summary(host: &HostSession, now: i64) -> bool {
     }
 }
 
-fn other_host_summary_for(hosts: &[HostSession], active_host: Option<&HostKind>, now: i64) -> String {
+fn other_host_summary_for(
+    hosts: &[HostSession],
+    active_host: Option<&HostKind>,
+    now: i64,
+) -> String {
     let Some(active_host) = active_host else {
         return String::new();
     };
@@ -2393,15 +2490,19 @@ fn apply_legacy_codex_fields_from_hosts(project: &mut ProjectSnapshot) {
 
 fn apply_runtime_host_compatibility(state: &mut RuntimeState, now: i64) {
     if state.hosts.is_empty() {
-        state.hosts.push(build_codex_global_host_session(&state.codex, now));
+        state
+            .hosts
+            .push(build_codex_global_host_session(&state.codex, now));
     }
 
     let active_session = select_active_host_session(&state.hosts, None);
     state.active_host = active_session.map(|session| session.host.clone());
-    state.other_host_summary = other_host_summary_for(&state.hosts, state.active_host.as_ref(), now);
+    state.other_host_summary =
+        other_host_summary_for(&state.hosts, state.active_host.as_ref(), now);
 
     for project in &mut state.projects {
-        let project_active_session = select_active_host_session(&project.hosts, Some(&project.path));
+        let project_active_session =
+            select_active_host_session(&project.hosts, Some(&project.path));
         project.active_host = project_active_session.map(|session| session.host.clone());
         project.other_host_summary =
             other_host_summary_for(&project.hosts, project.active_host.as_ref(), now);
@@ -2447,9 +2548,11 @@ fn enrich_projects_with_claude_host(
         {
             continue;
         }
-        project
-            .hosts
-            .push(build_claude_global_host_session(process_running, Some(thread), now));
+        project.hosts.push(build_claude_global_host_session(
+            process_running,
+            Some(thread),
+            now,
+        ));
     }
 }
 
@@ -2488,7 +2591,10 @@ fn preferred_project_match_bonus(project: &ProjectSnapshot, thread_project_path:
     bonus
 }
 
-fn find_best_project_index(projects: &[ProjectSnapshot], thread_project_path: &str) -> Option<usize> {
+fn find_best_project_index(
+    projects: &[ProjectSnapshot],
+    thread_project_path: &str,
+) -> Option<usize> {
     projects
         .iter()
         .enumerate()
@@ -2518,11 +2624,10 @@ fn workflow_stage_key(stage: &WorkflowStage) -> &'static str {
     }
 }
 
-fn app_alert_settings_path<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<PathBuf, String> {
-    let dir = app
-        .path()
-        .app_config_dir()
-        .map_err(|err| err.to_string())?;
+fn app_alert_settings_path<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+) -> Result<PathBuf, String> {
+    let dir = app.path().app_config_dir().map_err(|err| err.to_string())?;
     Ok(dir.join("alert-settings.json"))
 }
 
@@ -2658,7 +2763,10 @@ fn alert_dispatch_config(settings: &AlertSettings) -> Option<AlertDispatchConfig
             let app_secret = settings.feishu_app_secret.trim();
             let open_id = settings.feishu_open_id.trim();
             let chat_id = settings.feishu_chat_id.trim();
-            if app_id.is_empty() || app_secret.is_empty() || (open_id.is_empty() && chat_id.is_empty()) {
+            if app_id.is_empty()
+                || app_secret.is_empty()
+                || (open_id.is_empty() && chat_id.is_empty())
+            {
                 return None;
             }
             Some(AlertDispatchConfig::Feishu {
@@ -2671,7 +2779,11 @@ fn alert_dispatch_config(settings: &AlertSettings) -> Option<AlertDispatchConfig
     }
 }
 
-fn is_notification_enabled(settings: &AlertSettings, event_type: &str, dispatch_remote: bool) -> bool {
+fn is_notification_enabled(
+    settings: &AlertSettings,
+    event_type: &str,
+    dispatch_remote: bool,
+) -> bool {
     let channel_enabled = if dispatch_remote {
         settings.remote_notifications_enabled
     } else {
@@ -2722,7 +2834,11 @@ fn is_notification_enabled(settings: &AlertSettings, event_type: &str, dispatch_
     }
 }
 
-fn post_bridge_alert(endpoint: &str, token: &str, payload: &RemoteAlertPayload) -> Result<(), String> {
+fn post_bridge_alert(
+    endpoint: &str,
+    token: &str,
+    payload: &RemoteAlertPayload,
+) -> Result<(), String> {
     let mut request = ureq::post(endpoint).set("Content-Type", "application/json");
     if !token.trim().is_empty() {
         request = request.set("Authorization", &format!("Bearer {}", token.trim()));
@@ -2737,15 +2853,17 @@ fn post_bridge_alert(endpoint: &str, token: &str, payload: &RemoteAlertPayload) 
 }
 
 fn request_feishu_tenant_access_token(app_id: &str, app_secret: &str) -> Result<String, String> {
-    let response = ureq::post("https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal")
-        .set("Content-Type", "application/json")
-        .send_json(serde_json::json!({
-            "app_id": app_id,
-            "app_secret": app_secret,
-        }))
-        .map_err(|err| err.to_string())?;
+    let response =
+        ureq::post("https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal")
+            .set("Content-Type", "application/json")
+            .send_json(serde_json::json!({
+                "app_id": app_id,
+                "app_secret": app_secret,
+            }))
+            .map_err(|err| err.to_string())?;
 
-    let body: FeishuTenantAccessTokenResponse = response.into_json().map_err(|err| err.to_string())?;
+    let body: FeishuTenantAccessTokenResponse =
+        response.into_json().map_err(|err| err.to_string())?;
     if body.code != 0 || body.tenant_access_token.trim().is_empty() {
         return Err(format!("feishu token error: {} ({})", body.msg, body.code));
     }
@@ -2804,9 +2922,14 @@ fn post_feishu_alert(
     Ok(())
 }
 
-fn post_remote_alert(config: &AlertDispatchConfig, payload: &RemoteAlertPayload) -> Result<(), String> {
+fn post_remote_alert(
+    config: &AlertDispatchConfig,
+    payload: &RemoteAlertPayload,
+) -> Result<(), String> {
     match config {
-        AlertDispatchConfig::Bridge { endpoint, token } => post_bridge_alert(endpoint, token, payload),
+        AlertDispatchConfig::Bridge { endpoint, token } => {
+            post_bridge_alert(endpoint, token, payload)
+        }
         AlertDispatchConfig::Feishu {
             app_id,
             app_secret,
@@ -2818,7 +2941,12 @@ fn post_remote_alert(config: &AlertDispatchConfig, payload: &RemoteAlertPayload)
 
 fn knowledgebase_auto_push_enabled() -> bool {
     env::var("WORKFLOW_STATUSBAR_KB_PUSH")
-        .map(|value| matches!(value.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+        .map(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
         .unwrap_or(true)
 }
 
@@ -2867,7 +2995,8 @@ fn now_nanos() -> u128 {
 fn connect_knowledgebase() -> Result<Connection, String> {
     let root = knowledgebase_root_dir();
     fs::create_dir_all(&root).map_err(|err| format!("创建知识库目录失败: {err}"))?;
-    let conn = Connection::open(knowledgebase_db_path()).map_err(|err| format!("打开知识库数据库失败: {err}"))?;
+    let conn = Connection::open(knowledgebase_db_path())
+        .map_err(|err| format!("打开知识库数据库失败: {err}"))?;
     conn.execute_batch(
         r#"
         CREATE TABLE IF NOT EXISTS projects (
@@ -2955,8 +3084,11 @@ fn kb_upsert_item(
         params![item_id, project_id, item_type, title, content_text, source_path, content_hash],
     )
     .map_err(|err| err.to_string())?;
-    conn.execute("DELETE FROM items_fts WHERE item_id=?1", params![item_id.clone()])
-        .map_err(|err| err.to_string())?;
+    conn.execute(
+        "DELETE FROM items_fts WHERE item_id=?1",
+        params![item_id.clone()],
+    )
+    .map_err(|err| err.to_string())?;
     conn.execute(
         "INSERT INTO items_fts(item_id, title, content_text, source_path) VALUES(?1, ?2, ?3, ?4)",
         params![item_id.clone(), title, content_text, source_path],
@@ -2965,7 +3097,12 @@ fn kb_upsert_item(
     Ok(item_id)
 }
 
-fn kb_create_link(conn: &Connection, from_id: &str, to_id: &str, relation_type: &str) -> Result<(), String> {
+fn kb_create_link(
+    conn: &Connection,
+    from_id: &str,
+    to_id: &str,
+    relation_type: &str,
+) -> Result<(), String> {
     let link_id = format!("lnk-{}", now_nanos());
     conn.execute(
         "INSERT OR IGNORE INTO links(link_id, from_id, to_id, relation_type) VALUES(?1, ?2, ?3, ?4)",
@@ -2975,7 +3112,12 @@ fn kb_create_link(conn: &Connection, from_id: &str, to_id: &str, relation_type: 
     Ok(())
 }
 
-fn kb_find_item_ids_by_token(conn: &Connection, project_id: &str, token: &str, limit: i64) -> Result<Vec<String>, String> {
+fn kb_find_item_ids_by_token(
+    conn: &Connection,
+    project_id: &str,
+    token: &str,
+    limit: i64,
+) -> Result<Vec<String>, String> {
     let pattern = format!("%{token}%");
     let mut stmt = conn
         .prepare(
@@ -2988,7 +3130,9 @@ fn kb_find_item_ids_by_token(conn: &Connection, project_id: &str, token: &str, l
         )
         .map_err(|err| err.to_string())?;
     let rows = stmt
-        .query_map(params![project_id, pattern, limit], |row| row.get::<_, String>(0))
+        .query_map(params![project_id, pattern, limit], |row| {
+            row.get::<_, String>(0)
+        })
         .map_err(|err| err.to_string())?;
     let mut out = Vec::new();
     for row in rows {
@@ -3026,7 +3170,12 @@ fn json_text(payload: &serde_json::Value, key: &str) -> String {
         .unwrap_or_default()
 }
 
-fn kb_process_event_payload(conn: &Connection, project_id: &str, fallback_source_path: &str, payload: &serde_json::Value) -> Result<String, String> {
+fn kb_process_event_payload(
+    conn: &Connection,
+    project_id: &str,
+    fallback_source_path: &str,
+    payload: &serde_json::Value,
+) -> Result<String, String> {
     let summary = json_text(payload, "summary");
     let event_type = {
         let value = json_text(payload, "event_type");
@@ -3057,10 +3206,15 @@ fn kb_process_event_payload(conn: &Connection, project_id: &str, fallback_source
     let content = serde_json::to_string_pretty(payload).unwrap_or_else(|_| "{}".to_string());
     let full_text = format!(
         "{}\n\n{}",
-        if summary.is_empty() { "workflow event" } else { &summary },
+        if summary.is_empty() {
+            "workflow event"
+        } else {
+            &summary
+        },
         content
     );
-    let event_item_id = kb_upsert_item(conn, project_id, "event", &title, &full_text, &source_path)?;
+    let event_item_id =
+        kb_upsert_item(conn, project_id, "event", &title, &full_text, &source_path)?;
     let tokens_raw = format!("{content}\n{summary}\n{req_id}\n{task_id}");
     let (tokens_req, tokens_task) = extract_req_task_tokens(&tokens_raw);
     for token in tokens_req {
@@ -3076,7 +3230,11 @@ fn kb_process_event_payload(conn: &Connection, project_id: &str, fallback_source
     Ok(event_item_id)
 }
 
-fn ingest_inbox_for_project(conn: &Connection, project_path: &str, project_name: &str) -> Result<(i64, i64), String> {
+fn ingest_inbox_for_project(
+    conn: &Connection,
+    project_path: &str,
+    project_name: &str,
+) -> Result<(i64, i64), String> {
     let project_id = kb_upsert_project(conn, project_name, project_path)?;
     let root = PathBuf::from(project_path);
     let inbox_dirs = vec![
@@ -3109,7 +3267,8 @@ fn ingest_inbox_for_project(conn: &Connection, project_path: &str, project_name:
                     Ok(value) => value,
                     Err(_) => continue,
                 };
-                let _ = kb_process_event_payload(conn, &project_id, &path.to_string_lossy(), &payload)?;
+                let _ =
+                    kb_process_event_payload(conn, &project_id, &path.to_string_lossy(), &payload)?;
                 events += 1;
                 moved_lines.push(trimmed.to_string());
             }
@@ -3128,13 +3287,19 @@ fn ingest_inbox_for_project(conn: &Connection, project_path: &str, project_name:
 fn kb_get_stats_internal() -> Result<KbStats, String> {
     let conn = connect_knowledgebase()?;
     let projects = conn
-        .query_row("SELECT COUNT(*) FROM projects", [], |row| row.get::<_, i64>(0))
+        .query_row("SELECT COUNT(*) FROM projects", [], |row| {
+            row.get::<_, i64>(0)
+        })
         .map_err(|err| err.to_string())?;
     let items = conn
         .query_row("SELECT COUNT(*) FROM items", [], |row| row.get::<_, i64>(0))
         .map_err(|err| err.to_string())?;
     let events = conn
-        .query_row("SELECT COUNT(*) FROM items WHERE item_type='event'", [], |row| row.get::<_, i64>(0))
+        .query_row(
+            "SELECT COUNT(*) FROM items WHERE item_type='event'",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
         .map_err(|err| err.to_string())?;
     let links = conn
         .query_row("SELECT COUNT(*) FROM links", [], |row| row.get::<_, i64>(0))
@@ -3272,20 +3437,23 @@ fn kb_trace_internal(item_id: &str) -> Result<KbTraceResponse, String> {
 }
 
 fn kb_register_project_internal(path: &str, name: Option<String>) -> Result<String, String> {
-    let root = PathBuf::from(path).canonicalize().unwrap_or_else(|_| PathBuf::from(path));
-    let display_name = name
-        .unwrap_or_else(|| {
-            root.file_name()
-                .map(|value| value.to_string_lossy().to_string())
-                .filter(|value| !value.trim().is_empty())
-                .unwrap_or_else(|| "project".to_string())
-        });
+    let root = PathBuf::from(path)
+        .canonicalize()
+        .unwrap_or_else(|_| PathBuf::from(path));
+    let display_name = name.unwrap_or_else(|| {
+        root.file_name()
+            .map(|value| value.to_string_lossy().to_string())
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| "project".to_string())
+    });
     let conn = connect_knowledgebase()?;
     kb_upsert_project(&conn, &display_name, &root.to_string_lossy())
 }
 
 fn kb_ingest_inbox_internal(path: &str) -> Result<(i64, i64), String> {
-    let root = PathBuf::from(path).canonicalize().unwrap_or_else(|_| PathBuf::from(path));
+    let root = PathBuf::from(path)
+        .canonicalize()
+        .unwrap_or_else(|_| PathBuf::from(path));
     let project_path = root.to_string_lossy().to_string();
     let project_name = root
         .file_name()
@@ -3295,8 +3463,14 @@ fn kb_ingest_inbox_internal(path: &str) -> Result<(i64, i64), String> {
     ingest_inbox_for_project(&conn, &project_path, &project_name)
 }
 
-fn kb_push_event_internal(path: &str, event: &serde_json::Value, process_now: bool) -> Result<(), String> {
-    let root = PathBuf::from(path).canonicalize().unwrap_or_else(|_| PathBuf::from(path));
+fn kb_push_event_internal(
+    path: &str,
+    event: &serde_json::Value,
+    process_now: bool,
+) -> Result<(), String> {
+    let root = PathBuf::from(path)
+        .canonicalize()
+        .unwrap_or_else(|_| PathBuf::from(path));
     let project_path = root.to_string_lossy().to_string();
     let project_name = root
         .file_name()
@@ -3319,14 +3493,176 @@ fn knowledgebase_web_url() -> String {
         .unwrap_or_else(|| KNOWLEDGEBASE_DEFAULT_WEB_URL.to_string())
 }
 
+fn knowledgebase_bind_addr() -> String {
+    if let Ok(value) = env::var("WORKFLOW_STATUSBAR_KB_BIND") {
+        let bind = value.trim().to_string();
+        if !bind.is_empty() {
+            return bind;
+        }
+    }
+    let url = knowledgebase_web_url();
+    if let Some(rest) = url.strip_prefix("http://") {
+        let host_port = rest.split('/').next().unwrap_or_default().trim();
+        if !host_port.is_empty() {
+            return host_port.to_string();
+        }
+    }
+    KNOWLEDGEBASE_DEFAULT_BIND_ADDR.to_string()
+}
+
+fn http_header(name: &[u8], value: &[u8]) -> Option<Header> {
+    Header::from_bytes(name, value).ok()
+}
+
+fn http_respond_json(request: Request, status_code: u16, body: String) {
+    let mut response = Response::from_string(body).with_status_code(StatusCode(status_code));
+    if let Some(header) = http_header(b"Content-Type", b"application/json; charset=utf-8") {
+        response.add_header(header);
+    }
+    if let Some(header) = http_header(b"Cache-Control", b"no-store") {
+        response.add_header(header);
+    }
+    let _ = request.respond(response);
+}
+
+fn http_respond_html(request: Request, status_code: u16, body: String) {
+    let mut response = Response::from_string(body).with_status_code(StatusCode(status_code));
+    if let Some(header) = http_header(b"Content-Type", b"text/html; charset=utf-8") {
+        response.add_header(header);
+    }
+    if let Some(header) = http_header(b"Cache-Control", b"no-store") {
+        response.add_header(header);
+    }
+    let _ = request.respond(response);
+}
+
+fn url_decode(value: &str) -> String {
+    urlencoding::decode(value)
+        .map(|item| item.into_owned())
+        .unwrap_or_else(|_| value.to_string())
+}
+
+fn query_param(url_query: &str, key: &str) -> Option<String> {
+    for pair in url_query.split('&') {
+        let (raw_key, raw_value) = pair.split_once('=').unwrap_or((pair, ""));
+        if raw_key == key {
+            return Some(url_decode(raw_value));
+        }
+    }
+    None
+}
+
+fn handle_knowledgebase_http_request(request: Request) {
+    if request.method() != &Method::Get {
+        http_respond_json(
+            request,
+            405,
+            serde_json::json!({ "error": "method_not_allowed" }).to_string(),
+        );
+        return;
+    }
+
+    let raw_url = request.url().to_string();
+    let (path, query) = raw_url
+        .split_once('?')
+        .map(|(left, right)| (left, right))
+        .unwrap_or((raw_url.as_str(), ""));
+
+    match path {
+        "/" | "/index.html" => {
+            http_respond_html(request, 200, KNOWLEDGEBASE_WEB_HTML.to_string());
+        }
+        "/api/stats" => match kb_get_stats_internal() {
+            Ok(data) => http_respond_json(
+                request,
+                200,
+                serde_json::to_string(&data).unwrap_or_else(|_| "{}".to_string()),
+            ),
+            Err(err) => http_respond_json(
+                request,
+                500,
+                serde_json::json!({ "error": err }).to_string(),
+            ),
+        },
+        "/api/search" => {
+            let query_text = query_param(query, "q").unwrap_or_default();
+            match kb_search_internal(&query_text) {
+                Ok(data) => http_respond_json(
+                    request,
+                    200,
+                    serde_json::to_string(&data).unwrap_or_else(|_| "{}".to_string()),
+                ),
+                Err(err) => http_respond_json(
+                    request,
+                    500,
+                    serde_json::json!({ "error": err }).to_string(),
+                ),
+            }
+        }
+        _ if path.starts_with("/api/trace/") => {
+            let item_id = url_decode(path.trim_start_matches("/api/trace/"));
+            match kb_trace_internal(&item_id) {
+                Ok(data) => http_respond_json(
+                    request,
+                    200,
+                    serde_json::to_string(&data).unwrap_or_else(|_| "{}".to_string()),
+                ),
+                Err(err) => http_respond_json(
+                    request,
+                    500,
+                    serde_json::json!({ "error": err }).to_string(),
+                ),
+            }
+        }
+        _ => {
+            http_respond_html(request, 404, "<h1>Not Found</h1>".to_string());
+        }
+    }
+}
+
+fn start_knowledgebase_web_server() -> Result<(), String> {
+    let bind_addr = knowledgebase_bind_addr();
+    let server = Server::http(&bind_addr)
+        .map_err(|err| format!("知识库 Web 服务启动失败({bind_addr}): {err}"))?;
+    thread::spawn(move || {
+        for request in server.incoming_requests() {
+            handle_knowledgebase_http_request(request);
+        }
+    });
+    Ok(())
+}
+
+fn ensure_knowledgebase_web_server() -> Result<(), String> {
+    let state = knowledgebase_web_server_state();
+    let result = state.get_or_init(start_knowledgebase_web_server);
+    match result {
+        Ok(()) => Ok(()),
+        Err(err) => {
+            if let Ok(mut guard) = knowledgebase_push_state().lock() {
+                if guard.last_error.is_empty() {
+                    guard.failure_count = guard.failure_count.saturating_add(1);
+                }
+                guard.last_error = err.clone();
+            }
+            Err(err.clone())
+        }
+    }
+}
+
 fn open_knowledgebase_internal() -> Result<(), String> {
+    ensure_knowledgebase_web_server()?;
     let base = knowledgebase_web_url();
     let sep = if base.contains('?') { "&" } else { "?" };
     let url = format!("{base}{sep}t={}", unix_now());
     open_url(&url)
 }
 
-fn post_knowledgebase_event(project: &ProjectSnapshot, event_type: &str, title: &str, body: &str) -> Result<(), String> {
+fn post_knowledgebase_event(
+    project: &ProjectSnapshot,
+    event_type: &str,
+    title: &str,
+    body: &str,
+) -> Result<(), String> {
     if !knowledgebase_auto_push_enabled() {
         return Ok(());
     }
@@ -3369,6 +3705,7 @@ fn post_knowledgebase_event(project: &ProjectSnapshot, event_type: &str, title: 
 
 fn snapshot_knowledgebase_push_status() -> KnowledgebasePushStatus {
     let enabled = knowledgebase_auto_push_enabled();
+    let _ = ensure_knowledgebase_web_server();
     let endpoint = knowledgebase_web_url();
     let mut last_push_at = "未上报".to_string();
     let mut failure_count = 0_u64;
@@ -3382,7 +3719,9 @@ fn snapshot_knowledgebase_push_status() -> KnowledgebasePushStatus {
         last_error = guard.last_error.clone();
     }
 
-    let connected = enabled && connect_knowledgebase().is_ok();
+    let db_connected = connect_knowledgebase().is_ok();
+    let web_connected = matches!(knowledgebase_web_server_state().get(), Some(Ok(())));
+    let connected = enabled && db_connected && web_connected;
     if enabled && !connected && last_error.is_empty() {
         last_error = "内置知识库初始化失败".into();
     }
@@ -3397,7 +3736,10 @@ fn snapshot_knowledgebase_push_status() -> KnowledgebasePushStatus {
     }
 }
 
-fn find_auto_resume_project<'a>(projects: &'a [ProjectSnapshot], project_path: &str) -> Option<&'a ProjectSnapshot> {
+fn find_auto_resume_project<'a>(
+    projects: &'a [ProjectSnapshot],
+    project_path: &str,
+) -> Option<&'a ProjectSnapshot> {
     projects.iter().find(|project| {
         project.auto_resume_enabled
             && !project.is_blocked
@@ -3421,7 +3763,10 @@ fn should_attempt_auto_resume(previous: &CodexStatus, current: &CodexStatus) -> 
         && matches!(current, CodexStatus::Stalled | CodexStatus::Idle)
 }
 
-fn should_attempt_follow_up_resume(previous: &ProjectRuntimeSignature, current: &ProjectRuntimeSignature) -> bool {
+fn should_attempt_follow_up_resume(
+    previous: &ProjectRuntimeSignature,
+    current: &ProjectRuntimeSignature,
+) -> bool {
     !previous.follow_up_prompted
         && current.follow_up_prompted
         && is_follow_up_resume_candidate(&current.codex_status)
@@ -3603,7 +3948,8 @@ fn collect_runtime_state() -> RuntimeState {
         .as_ref()
         .map(|thread| thread.id.as_str())
         .unwrap_or("");
-    let (claude_threads, mut claude_debug_entries, claude_probe) = read_recent_claude_threads(&home);
+    let (claude_threads, mut claude_debug_entries, claude_probe) =
+        read_recent_claude_threads(&home);
 
     let mut seen = HashSet::new();
     let mut projects = Vec::new();
@@ -3643,7 +3989,9 @@ fn collect_runtime_state() -> RuntimeState {
             primary_thread: thread_runtimes[0].clone(),
             token_usage: build_project_token_usage(&thread_runtimes, today, &mut token_usage_cache),
         };
-        if let Some(snapshot) = read_project_snapshot(&state_file, &active_project_path, Some(&project_runtime)) {
+        if let Some(snapshot) =
+            read_project_snapshot(&state_file, &active_project_path, Some(&project_runtime))
+        {
             projects.push(snapshot);
         }
     }
@@ -3667,7 +4015,10 @@ fn collect_runtime_state() -> RuntimeState {
     }
 
     for (name, pseudo_path) in infer_projects_from_titles(&code_titles) {
-        if projects.iter().any(|project| project.name == name || project.path == pseudo_path) {
+        if projects
+            .iter()
+            .any(|project| project.name == name || project.path == pseudo_path)
+        {
             continue;
         }
         let mut matched_threads = match_thread_for_placeholder(&name, &threads)
@@ -3695,7 +4046,11 @@ fn collect_runtime_state() -> RuntimeState {
             enrich_primary_thread_runtime(&mut matched_threads[0]);
             Some(ProjectRuntime {
                 primary_thread: matched_threads[0].clone(),
-                token_usage: build_project_token_usage(&matched_threads, today, &mut token_usage_cache),
+                token_usage: build_project_token_usage(
+                    &matched_threads,
+                    today,
+                    &mut token_usage_cache,
+                ),
             })
         };
         projects.push(placeholder_project_snapshot(
@@ -3707,7 +4062,9 @@ fn collect_runtime_state() -> RuntimeState {
     }
 
     for open_path in &ide_signal.open_project_paths {
-        if projects.iter().any(|project| path_matches(&project.path, open_path) || path_matches(open_path, &project.path)) {
+        if projects.iter().any(|project| {
+            path_matches(&project.path, open_path) || path_matches(open_path, &project.path)
+        }) {
             continue;
         }
 
@@ -3736,7 +4093,11 @@ fn collect_runtime_state() -> RuntimeState {
             enrich_primary_thread_runtime(&mut matched_threads[0]);
             Some(ProjectRuntime {
                 primary_thread: matched_threads[0].clone(),
-                token_usage: build_project_token_usage(&matched_threads, today, &mut token_usage_cache),
+                token_usage: build_project_token_usage(
+                    &matched_threads,
+                    today,
+                    &mut token_usage_cache,
+                ),
             })
         };
 
@@ -3755,7 +4116,12 @@ fn collect_runtime_state() -> RuntimeState {
     }
 
     save_token_usage_cache(&home, &token_usage_cache);
-    enrich_projects_with_claude_host(&mut projects, &claude_threads, &mut claude_debug_entries, now);
+    enrich_projects_with_claude_host(
+        &mut projects,
+        &claude_threads,
+        &mut claude_debug_entries,
+        now,
+    );
 
     let spotlight_before_apply = find_spotlight(&projects, &ide_signal, &active_project_path);
     let auto_resume_project = spotlight_before_apply
@@ -3775,7 +4141,10 @@ fn collect_runtime_state() -> RuntimeState {
     );
     let claude_process = claude_process_running();
     let claude_host = build_claude_global_host_session(claude_process, claude_threads.first(), now);
-    let hosts = vec![build_codex_global_host_session(&codex_state, now), claude_host];
+    let hosts = vec![
+        build_codex_global_host_session(&codex_state, now),
+        claude_host,
+    ];
     let active_host = select_active_host_session(&hosts, None).map(|session| session.host.clone());
     let other_host_summary = other_host_summary_for(&hosts, active_host.as_ref(), now);
 
@@ -3800,7 +4169,8 @@ fn collect_runtime_state() -> RuntimeState {
         updated_at: fmt_relative_age(now),
     };
     apply_runtime_host_compatibility(&mut runtime, now);
-    runtime.spotlight_project = find_spotlight(&runtime.projects, &ide_signal, &active_project_path);
+    runtime.spotlight_project =
+        find_spotlight(&runtime.projects, &ide_signal, &active_project_path);
     runtime.groups = build_groups(&runtime.projects);
     runtime.summary = build_summary(&runtime.projects);
 
@@ -3822,7 +4192,10 @@ fn signature_for(state: &RuntimeState) -> RuntimeSignature {
     let focus = state.spotlight_project.clone();
     RuntimeSignature {
         codex_status: state.codex.status.clone(),
-        focus_project_path: focus.as_ref().map(|project| project.path.clone()).unwrap_or_default(),
+        focus_project_path: focus
+            .as_ref()
+            .map(|project| project.path.clone())
+            .unwrap_or_default(),
         focus_task_id: focus
             .as_ref()
             .map(|project| project.current_task_id.clone())
@@ -3909,7 +4282,9 @@ fn notify_changes<R: tauri::Runtime>(
     maybe_resume_follow_up_on_startup(app, cache, alert_settings, current);
 
     if let Some(previous) = cache.signature.as_ref() {
-        if previous.focus_task_status != "blocked" && current_signature.focus_task_status == "blocked" {
+        if previous.focus_task_status != "blocked"
+            && current_signature.focus_task_status == "blocked"
+        {
             let body = current
                 .spotlight_project
                 .as_ref()
@@ -3976,7 +4351,8 @@ fn notify_changes<R: tauri::Runtime>(
                 );
             }
 
-            let interrupted = should_attempt_auto_resume(&previous.codex_status, &signature.codex_status);
+            let interrupted =
+                should_attempt_auto_resume(&previous.codex_status, &signature.codex_status);
             let follow_up_waiting = should_attempt_follow_up_resume(previous, &signature);
 
             if interrupted || follow_up_waiting {
@@ -4083,7 +4459,10 @@ fn push_alert<R: tauri::Runtime>(
     dispatch_remote: bool,
     project: Option<&ProjectSnapshot>,
 ) {
-    let settings = alert_settings.lock().map(|guard| guard.clone()).unwrap_or_default();
+    let settings = alert_settings
+        .lock()
+        .map(|guard| guard.clone())
+        .unwrap_or_default();
     if is_notification_enabled(&settings, event_type, false) {
         let _ = app.notification().builder().title(title).body(body).show();
     }
@@ -4168,7 +4547,9 @@ fn save_alert_settings_command<R: tauri::Runtime>(
     settings: AlertSettings,
 ) -> Result<AlertSettings, String> {
     save_alert_settings(&app, &settings)?;
-    let mut guard = state.lock().map_err(|_| "alert settings lock poisoned".to_string())?;
+    let mut guard = state
+        .lock()
+        .map_err(|_| "alert settings lock poisoned".to_string())?;
     *guard = settings.clone();
     Ok(settings)
 }
@@ -4191,7 +4572,8 @@ fn send_test_alert_command<R: tauri::Runtime>(
         title: "workflow-statusbar 测试提醒".into(),
         body: "这是一条手动触发的测试消息，用来确认飞书提醒链路已经打通。".into(),
         project_name: "workflow-statusbar".into(),
-        project_path: "/Users/wucongpeng/Documents/ai/skill/workflow-skills-copy/workflow-statusbar".into(),
+        project_path:
+            "/Users/wucongpeng/Documents/ai/skill/workflow-skills-copy/workflow-statusbar".into(),
         active_host: "Codex".into(),
         thread_id: "test-thread".into(),
         task_id: "TEST-ALERT".into(),
@@ -4251,7 +4633,9 @@ fn sync_main_window_size<R: tauri::Runtime>(
         .map_err(|err| err.to_string())?
         .map(|monitor| monitor.size().height as f64)
         .unwrap_or(900.0);
-    let next_height = (content_height + 12.0).ceil().min((monitor_height - 96.0).max(260.0));
+    let next_height = (content_height + 12.0)
+        .ceil()
+        .min((monitor_height - 96.0).max(260.0));
 
     window
         .set_size(Size::Logical(tauri::LogicalSize {
@@ -4312,7 +4696,10 @@ fn window_contains_cursor<R: tauri::Runtime>(
     cursor.x >= x && cursor.x <= x + width && cursor.y >= y && cursor.y <= y + height
 }
 
-fn hide_main_window_with_delay<R: tauri::Runtime>(app: tauri::AppHandle<R>, tray_rect: Option<Rect>) {
+fn hide_main_window_with_delay<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    tray_rect: Option<Rect>,
+) {
     thread::spawn(move || {
         thread::sleep(Duration::from_millis(TRAY_HIDE_DELAY_MS));
         let Some(window) = app.get_webview_window("main") else {
@@ -4384,7 +4771,11 @@ fn show_main_window<R: tauri::Runtime>(
                     let top = pos.y;
                     let right = pos.x + msize.width as i32;
                     let bottom = pos.y + msize.height as i32;
-                    if px >= left as f64 && px <= right as f64 && py >= top as f64 && py <= bottom as f64 {
+                    if px >= left as f64
+                        && px <= right as f64
+                        && py >= top as f64
+                        && py <= bottom as f64
+                    {
                         Some((left, top, msize.width as i32, msize.height as i32))
                     } else {
                         None
@@ -4459,7 +4850,10 @@ fn show_main_window<R: tauri::Runtime>(
 }
 
 #[tauri::command]
-fn set_floating_visibility<R: tauri::Runtime>(app: tauri::AppHandle<R>, visible: bool) -> Result<(), String> {
+fn set_floating_visibility<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    visible: bool,
+) -> Result<(), String> {
     let Some(window) = app.get_webview_window("floating") else {
         return Err("floating window missing".into());
     };
@@ -4517,17 +4911,39 @@ fn kb_ingest_inbox(path: String) -> Result<serde_json::Value, String> {
 }
 
 #[tauri::command]
-fn kb_push_event(path: String, event: serde_json::Value, process_now: Option<bool>) -> Result<(), String> {
+fn kb_push_event(
+    path: String,
+    event: serde_json::Value,
+    process_now: Option<bool>,
+) -> Result<(), String> {
     kb_push_event_internal(&path, &event, process_now.unwrap_or(true))
 }
 
 fn build_tray_menu<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<Menu<R>, String> {
-    let open_dashboard = MenuItem::with_id(app, TRAY_MENU_OPEN_DASHBOARD, "打开面板", true, None::<&str>)
-        .map_err(|err| err.to_string())?;
-    let open_alert_settings = MenuItem::with_id(app, TRAY_MENU_OPEN_ALERT_SETTINGS, "提醒配置", true, None::<&str>)
-        .map_err(|err| err.to_string())?;
-    let open_knowledgebase = MenuItem::with_id(app, TRAY_MENU_OPEN_KNOWLEDGEBASE, "打开知识库", true, None::<&str>)
-        .map_err(|err| err.to_string())?;
+    let open_dashboard = MenuItem::with_id(
+        app,
+        TRAY_MENU_OPEN_DASHBOARD,
+        "打开面板",
+        true,
+        None::<&str>,
+    )
+    .map_err(|err| err.to_string())?;
+    let open_alert_settings = MenuItem::with_id(
+        app,
+        TRAY_MENU_OPEN_ALERT_SETTINGS,
+        "提醒配置",
+        true,
+        None::<&str>,
+    )
+    .map_err(|err| err.to_string())?;
+    let open_knowledgebase = MenuItem::with_id(
+        app,
+        TRAY_MENU_OPEN_KNOWLEDGEBASE,
+        "打开知识库",
+        true,
+        None::<&str>,
+    )
+    .map_err(|err| err.to_string())?;
     let quit = MenuItem::with_id(app, TRAY_MENU_QUIT, "退出", true, None::<&str>)
         .map_err(|err| err.to_string())?;
 
@@ -4550,12 +4966,16 @@ pub fn run() {
     tauri::Builder::default()
         .manage(runtime_cache.clone())
         .setup(move |app| {
-            let alert_settings: SharedAlertSettings = Arc::new(Mutex::new(read_alert_settings(app.handle())));
+            let alert_settings: SharedAlertSettings =
+                Arc::new(Mutex::new(read_alert_settings(app.handle())));
             app.manage(alert_settings.clone());
+            let _ = ensure_knowledgebase_web_server();
             #[cfg(target_os = "macos")]
             app.set_activation_policy(ActivationPolicy::Accessory);
 
-            let main_window = app.get_webview_window("main").expect("main window should exist");
+            let main_window = app
+                .get_webview_window("main")
+                .expect("main window should exist");
             let _ = position_top_center(&main_window);
             let _ = main_window.hide();
             let startup_hide_handle = app.handle().clone();
@@ -4576,7 +4996,8 @@ pub fn run() {
 
             let icon = app.default_window_icon().cloned();
             let tray_handle = app.handle().clone();
-            let tray_menu = build_tray_menu(app.handle()).map_err(|err| -> Box<dyn std::error::Error> { err.into() })?;
+            let tray_menu = build_tray_menu(app.handle())
+                .map_err(|err| -> Box<dyn std::error::Error> { err.into() })?;
             TrayIconBuilder::new()
                 .icon(icon.expect("default icon missing"))
                 .menu(&tray_menu)
@@ -4837,7 +5258,10 @@ mod tests {
     #[test]
     fn path_matches_requires_candidate_to_be_inside_project() {
         assert!(path_matches("/tmp/solo", "/tmp/solo"));
-        assert!(path_matches("/tmp/solo", "/tmp/solo/.ai/runtime/project-state.json"));
+        assert!(path_matches(
+            "/tmp/solo",
+            "/tmp/solo/.ai/runtime/project-state.json"
+        ));
         assert!(!path_matches("/tmp/solo", "/tmp"));
         assert!(!path_matches("/tmp/solo", "/tmp/solo-backup"));
     }
@@ -5176,8 +5600,11 @@ mod tests {
         child.name = "child".into();
         let projects = vec![parent, child];
 
-        let index = find_best_project_index(&projects, "/Users/wucongpeng/Documents/ai/skill/workflow-skills-copy")
-            .expect("project should match");
+        let index = find_best_project_index(
+            &projects,
+            "/Users/wucongpeng/Documents/ai/skill/workflow-skills-copy",
+        )
+        .expect("project should match");
         assert_eq!(projects[index].name, "child");
     }
 

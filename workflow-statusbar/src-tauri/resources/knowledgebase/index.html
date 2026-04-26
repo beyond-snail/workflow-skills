@@ -1,0 +1,389 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Personal Knowledge Core · Prototype</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&family=ZCOOL+XiaoWei&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #061418;
+      --panel: #0f2429;
+      --panel-soft: #133239;
+      --text: #e8fff7;
+      --muted: #9bc6bc;
+      --accent: #33e6b8;
+      --accent-2: #5dd3ff;
+      --warn: #ffd577;
+      --ok: #69f2a5;
+      --danger: #ff7f93;
+      --line: rgba(105, 242, 165, 0.18);
+      --radius: 18px;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: "Plus Jakarta Sans", sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 8% 10%, rgba(93,211,255,0.18), transparent 35%),
+        radial-gradient(circle at 92% 85%, rgba(51,230,184,0.16), transparent 35%),
+        linear-gradient(150deg, #041015, #0c1f24 48%, #08171c);
+      min-height: 100vh;
+    }
+
+    .grain::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background-image: radial-gradient(rgba(255,255,255,0.04) 0.7px, transparent 0.7px);
+      background-size: 3px 3px;
+      opacity: .22;
+    }
+
+    .wrap {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 24px;
+      display: grid;
+      gap: 16px;
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      animation: rise .55s ease both;
+    }
+
+    .card {
+      background: linear-gradient(160deg, rgba(18,49,56,.88), rgba(10,30,35,.85));
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 18px;
+      box-shadow: 0 14px 30px rgba(0,0,0,.26);
+      backdrop-filter: blur(7px);
+    }
+
+    .title {
+      font-family: "ZCOOL XiaoWei", serif;
+      font-size: clamp(22px, 3.4vw, 34px);
+      margin: 0 0 4px;
+      letter-spacing: .4px;
+    }
+
+    .sub {
+      color: var(--muted);
+      margin: 0;
+      line-height: 1.6;
+      font-size: 14px;
+    }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+      margin-top: 12px;
+    }
+
+    .metric {
+      background: rgba(4, 18, 22, 0.58);
+      border: 1px solid rgba(93,211,255,0.2);
+      border-radius: 14px;
+      padding: 10px;
+    }
+
+    .metric b { font-size: 19px; display: block; }
+    .metric span { color: var(--muted); font-size: 12px; }
+
+    .collector {
+      display: grid;
+      gap: 10px;
+    }
+
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 11px;
+      border-radius: 999px;
+      font-size: 12px;
+      background: rgba(105,242,165,.12);
+      border: 1px solid rgba(105,242,165,.35);
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--ok);
+      box-shadow: 0 0 14px var(--ok);
+      animation: pulse 1.5s infinite;
+    }
+
+    .progress {
+      width: 100%;
+      height: 8px;
+      background: rgba(255,255,255,.1);
+      border-radius: 999px;
+      overflow: hidden;
+    }
+
+    .progress > i {
+      display: block;
+      height: 100%;
+      width: 73%;
+      background: linear-gradient(90deg, var(--accent), var(--accent-2));
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    .searchbar {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 10px;
+      margin-top: 8px;
+    }
+
+    input {
+      width: 100%;
+      border: 1px solid rgba(93,211,255,.34);
+      background: rgba(4,18,22,.58);
+      border-radius: 12px;
+      color: var(--text);
+      padding: 12px;
+      font-size: 14px;
+      outline: none;
+    }
+
+    button {
+      border: none;
+      border-radius: 12px;
+      background: linear-gradient(120deg, var(--accent), var(--accent-2));
+      color: #032027;
+      font-weight: 700;
+      padding: 0 14px;
+      cursor: pointer;
+    }
+
+    .result {
+      margin-top: 10px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .item {
+      border: 1px solid rgba(255,255,255,.1);
+      border-radius: 12px;
+      padding: 10px;
+      background: rgba(0,0,0,.2);
+      cursor: pointer;
+    }
+
+    .item h4 { margin: 0 0 5px; font-size: 14px; }
+    .item p { margin: 0; color: var(--muted); font-size: 13px; }
+
+    .section-title {
+      margin: 0 0 8px;
+      font-size: 16px;
+    }
+
+    .trace {
+      position: relative;
+      padding-left: 20px;
+      margin-top: 8px;
+    }
+
+    .trace::before {
+      content: "";
+      position: absolute;
+      left: 6px;
+      top: 2px;
+      bottom: 2px;
+      width: 2px;
+      background: linear-gradient(var(--accent-2), transparent);
+    }
+
+    .node {
+      position: relative;
+      margin: 10px 0;
+      padding: 8px 10px;
+      border-radius: 11px;
+      border: 1px solid rgba(93,211,255,.22);
+      background: rgba(8,28,33,.7);
+      font-size: 13px;
+    }
+
+    .node::before {
+      content: "";
+      position: absolute;
+      left: -18px;
+      top: 12px;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--accent-2);
+      box-shadow: 0 0 8px rgba(93,211,255,.9);
+    }
+
+    .muted {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .footer {
+      font-size: 12px;
+      color: var(--muted);
+      text-align: right;
+      opacity: .9;
+    }
+
+    @keyframes pulse { 0%,100%{transform:scale(1)} 50%{transform:scale(1.22)} }
+    @keyframes rise { from{opacity:0; transform:translateY(10px)} to{opacity:1; transform:translateY(0)} }
+
+    @media (max-width: 960px) {
+      .hero, .grid { grid-template-columns: 1fr; }
+      .metrics { grid-template-columns: repeat(2, 1fr); }
+    }
+  </style>
+</head>
+<body class="grain">
+  <main class="wrap">
+    <section class="hero">
+      <article class="card">
+        <h1 class="title">个人超级知识库 · 自动采集版</h1>
+        <p class="sub">Local-first · Auto Collector · RAG</p>
+        <div class="metrics">
+          <div class="metric"><b id="k-items">0</b><span>知识条目</span></div>
+          <div class="metric"><b id="k-projects">0</b><span>活跃项目</span></div>
+          <div class="metric"><b id="k-links">0</b><span>可追溯关系</span></div>
+          <div class="metric"><b id="k-events">0</b><span>事件条目</span></div>
+        </div>
+      </article>
+      <article class="card collector">
+        <div class="tag"><i class="dot"></i> 自动采集中 · workflow-statusbar</div>
+        <p class="sub" id="collector-meta">等待新事件 · Local-first</p>
+        <div class="progress"><i></i></div>
+        <p class="sub">collect → normalize → index</p>
+      </article>
+    </section>
+
+    <section class="grid">
+      <article class="card">
+        <h3 class="section-title">检索</h3>
+        <div class="searchbar">
+          <input id="q" value="TASK" aria-label="query" />
+          <button type="button" onclick="run()">检索</button>
+        </div>
+        <div class="result" id="out"></div>
+      </article>
+
+      <article class="card">
+        <h3 class="section-title">追溯链</h3>
+        <div class="trace" id="traceOut">
+          <div class="node">REQ -> TASK -> Decision -> Evidence</div>
+        </div>
+      </article>
+    </section>
+
+    <section class="grid">
+      <article class="card">
+        <h3 class="section-title">能力</h3>
+        <p class="sub">自动采集 · 混合检索 · 可追溯问答 · 周报复盘 · 图片OCR</p>
+      </article>
+      <article class="card">
+        <h3 class="section-title">路线</h3>
+        <p class="sub">V1 可检索 → V1.1 可追溯 → V1.2 自动复盘</p>
+      </article>
+    </section>
+
+    <div class="footer">Prototype • Local-first • Auto Collector via workflow-statusbar</div>
+  </main>
+  <script>
+    function esc(text) {
+      return String(text ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#39;");
+    }
+
+    async function loadStats() {
+      const res = await fetch("/api/stats");
+      const data = await res.json();
+      document.getElementById("k-items").textContent = data.items ?? 0;
+      document.getElementById("k-projects").textContent = data.projects ?? 0;
+      document.getElementById("k-links").textContent = data.links ?? 0;
+      document.getElementById("k-events").textContent = data.events ?? 0;
+      document.getElementById("collector-meta").textContent = `最近更新 · items ${data.items ?? 0} · links ${data.links ?? 0}`;
+    }
+
+    async function trace(itemId) {
+      const res = await fetch("/api/trace/" + encodeURIComponent(itemId));
+      const data = await res.json();
+      const out = document.getElementById("traceOut");
+      if (!data.item) {
+        out.innerHTML = '<div class="node">无追溯数据</div>';
+        return;
+      }
+      const lines = [];
+      lines.push(`<div class="node"><b>${esc(data.item.title)}</b><br><span class="muted">${esc(data.item.item_type)} · ${esc(data.item.source_path)}</span></div>`);
+      const related = data.related_items || [];
+      for (const item of related) {
+        lines.push(`<div class="node"><b>${esc(item.title)}</b><br><span class="muted">${esc(item.item_type)} · ${esc(item.source_path)}</span></div>`);
+      }
+      if (!related.length) {
+        lines.push('<div class="node">暂无关联节点</div>');
+      }
+      out.innerHTML = lines.join("");
+    }
+
+    async function searchWithFallback(primaryQuery) {
+      const candidates = [primaryQuery, "REQ", "TASK", "statusbar", "workflow"]
+        .map((item) => (item || "").trim())
+        .filter((item, idx, arr) => item && arr.indexOf(item) === idx);
+      for (const q of candidates) {
+        const res = await fetch("/api/search?q=" + encodeURIComponent(q));
+        const data = await res.json();
+        const items = data.items || [];
+        if (items.length > 0) {
+          if (q !== primaryQuery) {
+            document.getElementById("q").value = q;
+          }
+          return items;
+        }
+      }
+      return [];
+    }
+
+    async function run() {
+      const q = document.getElementById("q").value.trim();
+      if (!q) return;
+      const items = await searchWithFallback(q);
+      const out = document.getElementById("out");
+      out.innerHTML = items.map((item) =>
+        `<div class="item" onclick="trace('${esc(item.item_id)}')"><h4>${esc(item.title)}</h4><p>${esc(item.source_path)}</p></div>`
+      ).join("") || '<div class="item"><h4>无结果</h4><p>换个关键词再试试</p></div>';
+      if (items.length > 0) {
+        await trace(items[0].item_id);
+      } else {
+        document.getElementById("traceOut").innerHTML = '<div class="node">暂无可追溯数据</div>';
+      }
+    }
+
+    loadStats();
+    run();
+    setInterval(loadStats, 10000);
+  </script>
+</body>
+</html>
