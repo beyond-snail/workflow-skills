@@ -5,7 +5,8 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
     env, fs,
-    io::{Read, Seek, SeekFrom},
+    io::{Read, Seek, SeekFrom, Write},
+    net::{TcpStream, ToSocketAddrs},
     path::{Path, PathBuf},
     process::{Command, Stdio},
     sync::{Arc, Mutex, OnceLock},
@@ -28,6 +29,14 @@ const AUTO_RESUME_COOLDOWN_SECONDS: i64 = 90;
 const OTHER_HOST_SUMMARY_FRESH_WINDOW_SECONDS: i64 = 2 * 60 * 60;
 const POLL_INTERVAL_SECONDS: u64 = 8;
 const TRAY_HIDE_DELAY_MS: u64 = 260;
+const ALERT_HTTP_TIMEOUT_CONNECT_MS: u64 = 2_000;
+const ALERT_HTTP_TIMEOUT_READ_MS: u64 = 4_000;
+const ALERT_HTTP_TIMEOUT_WRITE_MS: u64 = 4_000;
+const SQLITE_BUSY_TIMEOUT_MS: u64 = 800;
+const KB_HEALTHCHECK_INTERVAL_SECONDS: u64 = 20;
+const KB_HEALTHCHECK_CONSECUTIVE_FAILURES: u32 = 3;
+const KB_HEALTHCHECK_ALERT_COOLDOWN_SECONDS: i64 = 5 * 60;
+const KB_HEALTHCHECK_TIMEOUT_MS: u64 = 1_500;
 const TRAY_MENU_OPEN_DASHBOARD: &str = "open_dashboard";
 const TRAY_MENU_OPEN_ALERT_SETTINGS: &str = "open_alert_settings";
 const TRAY_MENU_OPEN_KNOWLEDGEBASE: &str = "open_knowledgebase";
@@ -364,7 +373,7 @@ enum AlertDispatchConfig {
     },
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 struct RemoteAlertPayload {
     event_type: String,
     title: String,
@@ -2839,7 +2848,9 @@ fn post_bridge_alert(
     token: &str,
     payload: &RemoteAlertPayload,
 ) -> Result<(), String> {
-    let mut request = ureq::post(endpoint).set("Content-Type", "application/json");
+    let mut request = alert_http_agent()
+        .post(endpoint)
+        .set("Content-Type", "application/json");
     if !token.trim().is_empty() {
         request = request.set("Authorization", &format!("Bearer {}", token.trim()));
     }
@@ -2849,21 +2860,23 @@ fn post_bridge_alert(
             "payload": payload,
         }))
         .map(|_| ())
-        .map_err(|err| err.to_string())
+        .map_err(|err: ureq::Error| err.to_string())
 }
 
 fn request_feishu_tenant_access_token(app_id: &str, app_secret: &str) -> Result<String, String> {
-    let response =
-        ureq::post("https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal")
-            .set("Content-Type", "application/json")
-            .send_json(serde_json::json!({
-                "app_id": app_id,
-                "app_secret": app_secret,
-            }))
-            .map_err(|err| err.to_string())?;
+    let response = alert_http_agent()
+        .post("https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal")
+        .set("Content-Type", "application/json")
+        .send_json(serde_json::json!({
+            "app_id": app_id,
+            "app_secret": app_secret,
+        }))
+        .map_err(|err: ureq::Error| err.to_string())?;
 
     let body: FeishuTenantAccessTokenResponse =
-        response.into_json().map_err(|err| err.to_string())?;
+        response
+            .into_json()
+            .map_err(|err: std::io::Error| err.to_string())?;
     if body.code != 0 || body.tenant_access_token.trim().is_empty() {
         return Err(format!("feishu token error: {} ({})", body.msg, body.code));
     }
@@ -2903,23 +2916,34 @@ fn post_feishu_alert(
         )
     });
 
-    let response = ureq::post(&format!(
-        "https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type={receive_id_type}"
-    ))
-    .set("Authorization", &format!("Bearer {token}"))
-    .set("Content-Type", "application/json")
-    .send_json(serde_json::json!({
-        "receive_id": receive_id,
-        "msg_type": "text",
-        "content": content.to_string(),
-    }))
-    .map_err(|err| err.to_string())?;
+    let response = alert_http_agent()
+        .post(&format!(
+            "https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type={receive_id_type}"
+        ))
+        .set("Authorization", &format!("Bearer {token}"))
+        .set("Content-Type", "application/json")
+        .send_json(serde_json::json!({
+            "receive_id": receive_id,
+            "msg_type": "text",
+            "content": content.to_string(),
+        }))
+        .map_err(|err: ureq::Error| err.to_string())?;
 
-    let body: FeishuApiResponse = response.into_json().map_err(|err| err.to_string())?;
+    let body: FeishuApiResponse = response
+        .into_json()
+        .map_err(|err: std::io::Error| err.to_string())?;
     if body.code != 0 {
         return Err(format!("feishu send error: {} ({})", body.msg, body.code));
     }
     Ok(())
+}
+
+fn alert_http_agent() -> ureq::Agent {
+    ureq::AgentBuilder::new()
+        .timeout_connect(Duration::from_millis(ALERT_HTTP_TIMEOUT_CONNECT_MS))
+        .timeout_read(Duration::from_millis(ALERT_HTTP_TIMEOUT_READ_MS))
+        .timeout_write(Duration::from_millis(ALERT_HTTP_TIMEOUT_WRITE_MS))
+        .build()
 }
 
 fn post_remote_alert(
@@ -2997,6 +3021,8 @@ fn connect_knowledgebase() -> Result<Connection, String> {
     fs::create_dir_all(&root).map_err(|err| format!("创建知识库目录失败: {err}"))?;
     let conn = Connection::open(knowledgebase_db_path())
         .map_err(|err| format!("打开知识库数据库失败: {err}"))?;
+    conn.busy_timeout(Duration::from_millis(SQLITE_BUSY_TIMEOUT_MS))
+        .map_err(|err| format!("配置知识库数据库busy_timeout失败: {err}"))?;
     conn.execute_batch(
         r#"
         CREATE TABLE IF NOT EXISTS projects (
@@ -3314,21 +3340,27 @@ fn kb_get_stats_internal() -> Result<KbStats, String> {
 
 fn kb_search_internal(query: &str) -> Result<KbSearchResponse, String> {
     let conn = connect_knowledgebase()?;
-    let tokens = query
+    let raw_query = query.trim();
+    let tokens = raw_query
         .replace('"', " ")
         .split_whitespace()
         .map(|item| item.trim())
         .filter(|item| !item.is_empty())
         .map(|item| format!("\"{item}\""))
         .collect::<Vec<_>>();
-    if tokens.is_empty() {
+    if raw_query.is_empty() {
         return Ok(KbSearchResponse {
             query: query.to_string(),
             items: Vec::new(),
         });
     }
-    let safe_query = tokens.join(" AND ");
+    let safe_query = if tokens.is_empty() {
+        format!("\"{}\"", raw_query.replace('"', " "))
+    } else {
+        tokens.join(" OR ")
+    };
     let mut items = Vec::new();
+    let mut seen_ids = HashSet::new();
     let mut stmt = conn
         .prepare(
             r#"
@@ -3337,6 +3369,7 @@ fn kb_search_internal(query: &str) -> Result<KbSearchResponse, String> {
             FROM items_fts
             JOIN items i ON i.item_id = items_fts.item_id
             WHERE items_fts MATCH ?1
+            ORDER BY bm25(items_fts), i.updated_at DESC
             LIMIT 30
             "#,
         )
@@ -3353,7 +3386,44 @@ fn kb_search_internal(query: &str) -> Result<KbSearchResponse, String> {
         })
         .map_err(|err| err.to_string())?;
     for row in rows {
-        items.push(row.map_err(|err| err.to_string())?);
+        let item = row.map_err(|err| err.to_string())?;
+        if seen_ids.insert(item.item_id.clone()) {
+            items.push(item);
+        }
+    }
+
+    // Fallback to substring search so Chinese/partial keywords can still hit.
+    let like_pattern = format!("%{}%", raw_query);
+    let mut fallback_stmt = conn
+        .prepare(
+            r#"
+            SELECT item_id, item_type, title, source_path, substr(content_text, 1, 120) AS snippet
+            FROM items
+            WHERE title LIKE ?1 OR content_text LIKE ?1 OR source_path LIKE ?1
+            ORDER BY updated_at DESC
+            LIMIT 30
+            "#,
+        )
+        .map_err(|err| err.to_string())?;
+    let fallback_rows = fallback_stmt
+        .query_map(params![like_pattern], |row| {
+            Ok(KbSearchItem {
+                item_id: row.get::<_, String>(0)?,
+                item_type: row.get::<_, String>(1)?,
+                title: row.get::<_, String>(2)?,
+                source_path: row.get::<_, String>(3)?,
+                snippet: row.get::<_, String>(4).unwrap_or_default(),
+            })
+        })
+        .map_err(|err| err.to_string())?;
+    for row in fallback_rows {
+        let item = row.map_err(|err| err.to_string())?;
+        if seen_ids.insert(item.item_id.clone()) {
+            items.push(item);
+        }
+        if items.len() >= 30 {
+            break;
+        }
     }
     Ok(KbSearchResponse {
         query: query.to_string(),
@@ -3620,13 +3690,95 @@ fn handle_knowledgebase_http_request(request: Request) {
     }
 }
 
+fn is_knowledgebase_http_healthy() -> bool {
+    let bind_addr = knowledgebase_bind_addr();
+    let mut addrs = match bind_addr.to_socket_addrs() {
+        Ok(iter) => iter,
+        Err(_) => return false,
+    };
+    let Some(addr) = addrs.next() else {
+        return false;
+    };
+    let timeout = Duration::from_millis(KB_HEALTHCHECK_TIMEOUT_MS);
+    let mut stream = match TcpStream::connect_timeout(&addr, timeout) {
+        Ok(stream) => stream,
+        Err(_) => return false,
+    };
+    let _ = stream.set_read_timeout(Some(timeout));
+    let _ = stream.set_write_timeout(Some(timeout));
+    let req = format!(
+        "GET /api/stats HTTP/1.1\r\nHost: {bind_addr}\r\nConnection: close\r\n\r\n"
+    );
+    if stream.write_all(req.as_bytes()).is_err() {
+        return false;
+    }
+    let mut buf = [0_u8; 128];
+    match stream.read(&mut buf) {
+        Ok(size) if size > 0 => String::from_utf8_lossy(&buf[..size]).contains("200"),
+        _ => false,
+    }
+}
+
+fn spawn_knowledgebase_health_watchdog<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    alert_settings: SharedAlertSettings,
+) {
+    thread::spawn(move || {
+        let mut consecutive_failures = 0_u32;
+        let mut last_alert_at = 0_i64;
+        loop {
+            thread::sleep(Duration::from_secs(KB_HEALTHCHECK_INTERVAL_SECONDS));
+            if !knowledgebase_auto_push_enabled() {
+                consecutive_failures = 0;
+                continue;
+            }
+            if is_knowledgebase_http_healthy() {
+                consecutive_failures = 0;
+                if let Ok(mut guard) = knowledgebase_push_state().lock() {
+                    if guard.last_error == "knowledgebase_http_unhealthy" {
+                        guard.last_error.clear();
+                    }
+                }
+                continue;
+            }
+
+            consecutive_failures = consecutive_failures.saturating_add(1);
+            if let Ok(mut guard) = knowledgebase_push_state().lock() {
+                guard.failure_count = guard.failure_count.saturating_add(1);
+                guard.last_error = "knowledgebase_http_unhealthy".into();
+            }
+            if consecutive_failures < KB_HEALTHCHECK_CONSECUTIVE_FAILURES {
+                continue;
+            }
+            let now = unix_now();
+            if now - last_alert_at < KB_HEALTHCHECK_ALERT_COOLDOWN_SECONDS {
+                continue;
+            }
+            last_alert_at = now;
+            push_alert(
+                &app,
+                &alert_settings,
+                "manual_test",
+                "知识库服务异常",
+                "内置知识库接口连续超时，已触发健康告警。建议重启应用并关注网络/磁盘占用。",
+                true,
+                false,
+                None,
+            );
+        }
+    });
+}
+
 fn start_knowledgebase_web_server() -> Result<(), String> {
     let bind_addr = knowledgebase_bind_addr();
     let server = Server::http(&bind_addr)
         .map_err(|err| format!("知识库 Web 服务启动失败({bind_addr}): {err}"))?;
     thread::spawn(move || {
         for request in server.incoming_requests() {
-            handle_knowledgebase_http_request(request);
+            // Isolate slow handlers to avoid blocking the accept loop.
+            thread::spawn(move || {
+                handle_knowledgebase_http_request(request);
+            });
         }
     });
     Ok(())
@@ -4501,7 +4653,10 @@ fn push_alert<R: tauri::Runtime>(
                     .unwrap_or_default(),
                 occurred_at: unix_now(),
             };
-            let _ = post_remote_alert(&config, &payload);
+            // Remote alerts should never block the runtime poll loop.
+            thread::spawn(move || {
+                let _ = post_remote_alert(&config, &payload);
+            });
         }
     }
     if let Some(project) = project {
@@ -5045,6 +5200,7 @@ pub fn run() {
                 emit_runtime_state(&poller_app, &poller_cache, &poller_alert_settings);
                 thread::sleep(Duration::from_secs(POLL_INTERVAL_SECONDS));
             });
+            spawn_knowledgebase_health_watchdog(app.handle().clone(), alert_settings.clone());
 
             Ok(())
         })

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Personal Knowledge Core · Prototype</title>
+  <title>个人超级知识库</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&family=ZCOOL+XiaoWei&display=swap" rel="stylesheet">
@@ -260,53 +260,53 @@
   <main class="wrap">
     <section class="hero">
       <article class="card">
-        <h1 class="title">个人超级知识库 · 自动采集版</h1>
-        <p class="sub">Local-first · Auto Collector · RAG</p>
+        <h1 class="title">个人超级知识库</h1>
+        <p class="sub">本地优先 · 自动采集 · 可检索可追溯</p>
         <div class="metrics">
-          <div class="metric"><b id="k-items">0</b><span>知识条目</span></div>
-          <div class="metric"><b id="k-projects">0</b><span>活跃项目</span></div>
-          <div class="metric"><b id="k-links">0</b><span>可追溯关系</span></div>
-          <div class="metric"><b id="k-events">0</b><span>事件条目</span></div>
+          <div class="metric"><b id="k-items">0</b><span>已收集内容</span></div>
+          <div class="metric"><b id="k-projects">0</b><span>项目数量</span></div>
+          <div class="metric"><b id="k-links">0</b><span>关联关系</span></div>
+          <div class="metric"><b id="k-events">0</b><span>动态记录</span></div>
         </div>
       </article>
       <article class="card collector">
-        <div class="tag"><i class="dot"></i> 自动采集中 · workflow-statusbar</div>
-        <p class="sub" id="collector-meta">等待新事件 · Local-first</p>
+        <div class="tag"><i class="dot"></i> 正在自动采集中</div>
+        <p class="sub" id="collector-meta">等待新数据</p>
         <div class="progress"><i></i></div>
-        <p class="sub">collect → normalize → index</p>
+        <p class="sub">采集 → 整理 → 建索引</p>
       </article>
     </section>
 
     <section class="grid">
       <article class="card">
-        <h3 class="section-title">检索</h3>
+        <h3 class="section-title">快速搜索</h3>
         <div class="searchbar">
-          <input id="q" value="TASK" aria-label="query" />
-          <button type="button" onclick="run()">检索</button>
+          <input id="q" value="TASK" aria-label="query" placeholder="比如：支付重试机制在哪些项目做过？" />
+          <button type="button" onclick="run()">搜索</button>
         </div>
         <div class="result" id="out"></div>
       </article>
 
       <article class="card">
-        <h3 class="section-title">追溯链</h3>
+        <h3 class="section-title">来龙去脉</h3>
         <div class="trace" id="traceOut">
-          <div class="node">REQ -> TASK -> Decision -> Evidence</div>
+          <div class="node">这里会展示这条记录相关的上下游信息</div>
         </div>
       </article>
     </section>
 
     <section class="grid">
       <article class="card">
-        <h3 class="section-title">能力</h3>
-        <p class="sub">自动采集 · 混合检索 · 可追溯问答 · 周报复盘 · 图片OCR</p>
+        <h3 class="section-title">你可以做什么</h3>
+        <p class="sub">自动采集 · 关键词检索 · 关系追溯 · 周报复盘 · 图片 OCR</p>
       </article>
       <article class="card">
-        <h3 class="section-title">路线</h3>
-        <p class="sub">V1 可检索 → V1.1 可追溯 → V1.2 自动复盘</p>
+        <h3 class="section-title">版本路线</h3>
+        <p class="sub">V1 搜得到 → V1.1 讲得清 → V1.2 自动复盘</p>
       </article>
     </section>
 
-    <div class="footer">Prototype • Local-first • Auto Collector via workflow-statusbar</div>
+    <div class="footer">本地优先 · 由 workflow-statusbar 持续采集</div>
   </main>
   <script>
     function esc(text) {
@@ -318,6 +318,39 @@
         .replaceAll("'", "&#39;");
     }
 
+    function prettyType(itemType) {
+      const map = {
+        event: "动态",
+        req: "需求",
+        task: "任务",
+        decision: "决策",
+        evidence: "证据",
+      };
+      return map[itemType] || itemType || "记录";
+    }
+
+    function prettySource(sourcePath) {
+      if (!sourcePath) return "未知来源";
+      if (sourcePath.includes("workflow-statusbar/runtime")) return "状态栏自动采集";
+      if (sourcePath.includes("knowledge-store/inbox")) return "项目 inbox";
+      if (sourcePath.includes(".ai/runtime/inbox")) return "AI 运行 inbox";
+      return sourcePath;
+    }
+
+    function prettyTitle(raw) {
+      const text = String(raw || "");
+      if (text.includes("statusbar.task_interrupted")) {
+        const parts = text.split("|").map((x) => x.trim()).filter(Boolean);
+        const req = parts.find((x) => x.startsWith("REQ-")) || "";
+        const task = parts.find((x) => x.startsWith("TASK-")) || "";
+        if (req || task) {
+          return `任务被中断（${[req, task].filter(Boolean).join(" / ")}）`;
+        }
+        return "任务被中断";
+      }
+      return text;
+    }
+
     async function loadStats() {
       const res = await fetch("/api/stats");
       const data = await res.json();
@@ -325,7 +358,7 @@
       document.getElementById("k-projects").textContent = data.projects ?? 0;
       document.getElementById("k-links").textContent = data.links ?? 0;
       document.getElementById("k-events").textContent = data.events ?? 0;
-      document.getElementById("collector-meta").textContent = `最近更新 · items ${data.items ?? 0} · links ${data.links ?? 0}`;
+      document.getElementById("collector-meta").textContent = `当前已收集 ${data.items ?? 0} 条内容，建立 ${data.links ?? 0} 条关联`;
     }
 
     async function trace(itemId) {
@@ -333,17 +366,17 @@
       const data = await res.json();
       const out = document.getElementById("traceOut");
       if (!data.item) {
-        out.innerHTML = '<div class="node">无追溯数据</div>';
+        out.innerHTML = '<div class="node">暂时没有可追溯信息</div>';
         return;
       }
       const lines = [];
-      lines.push(`<div class="node"><b>${esc(data.item.title)}</b><br><span class="muted">${esc(data.item.item_type)} · ${esc(data.item.source_path)}</span></div>`);
+      lines.push(`<div class="node"><b>${esc(prettyTitle(data.item.title))}</b><br><span class="muted">主记录 · ${esc(prettyType(data.item.item_type))} · ${esc(prettySource(data.item.source_path))}</span></div>`);
       const related = data.related_items || [];
       for (const item of related) {
-        lines.push(`<div class="node"><b>${esc(item.title)}</b><br><span class="muted">${esc(item.item_type)} · ${esc(item.source_path)}</span></div>`);
+        lines.push(`<div class="node"><b>${esc(prettyTitle(item.title))}</b><br><span class="muted">关联记录 · ${esc(prettyType(item.item_type))} · ${esc(prettySource(item.source_path))}</span></div>`);
       }
       if (!related.length) {
-        lines.push('<div class="node">暂无关联节点</div>');
+        lines.push('<div class="node">当前还没有关联记录（后续采集更多需求/任务后会自动连起来）</div>');
       }
       out.innerHTML = lines.join("");
     }
@@ -372,8 +405,8 @@
       const items = await searchWithFallback(q);
       const out = document.getElementById("out");
       out.innerHTML = items.map((item) =>
-        `<div class="item" onclick="trace('${esc(item.item_id)}')"><h4>${esc(item.title)}</h4><p>${esc(item.source_path)}</p></div>`
-      ).join("") || '<div class="item"><h4>无结果</h4><p>换个关键词再试试</p></div>';
+        `<div class="item" onclick="trace('${esc(item.item_id)}')"><h4>${esc(prettyTitle(item.title))}</h4><p>${esc(prettyType(item.item_type))} · ${esc(prettySource(item.source_path))}</p></div>`
+      ).join("") || '<div class="item"><h4>没找到结果</h4><p>换个关键词再试试，比如：REQ、TASK、项目名</p></div>';
       if (items.length > 0) {
         await trace(items[0].item_id);
       } else {
