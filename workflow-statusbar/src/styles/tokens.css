@@ -202,16 +202,11 @@ button {
   letter-spacing: 0.01em;
 }
 
-.kb-card__actions {
-  display: inline-flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 5px;
-}
-
 .kb-card__meta {
+  flex: 0 0 auto;
   font-size: 9px;
   color: var(--muted);
+  white-space: nowrap;
 }
 
 .kb-card__status {
@@ -248,12 +243,12 @@ button {
   margin: 5px 0 0;
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
+  min-width: 0;
 }
 
 .kb-card__endpoint {
-  flex: 1;
+  flex: 1 1 auto;
   min-width: 0;
   font-size: 9px;
   color: var(--muted);
@@ -263,6 +258,7 @@ button {
 }
 
 .kb-card__open {
+  flex: 0 0 auto;
   border-radius: 999px;
   border: 1px solid rgba(175, 192, 220, 0.95);
   background: rgba(255, 255, 255, 0.96);

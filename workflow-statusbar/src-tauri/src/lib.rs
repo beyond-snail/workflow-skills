@@ -32,7 +32,7 @@ const TRAY_MENU_OPEN_DASHBOARD: &str = "open_dashboard";
 const TRAY_MENU_OPEN_ALERT_SETTINGS: &str = "open_alert_settings";
 const TRAY_MENU_OPEN_KNOWLEDGEBASE: &str = "open_knowledgebase";
 const TRAY_MENU_QUIT: &str = "quit";
-const KNOWLEDGEBASE_INTERNAL_ENDPOINT: &str = "workflow-statusbar://knowledgebase";
+const KNOWLEDGEBASE_DEFAULT_WEB_URL: &str = "http://127.0.0.1:8787";
 
 type SharedRuntimeCache = Arc<Mutex<RuntimeCache>>;
 type SharedAlertSettings = Arc<Mutex<AlertSettings>>;
@@ -3311,8 +3311,16 @@ fn kb_push_event_internal(path: &str, event: &serde_json::Value, process_now: bo
     Ok(())
 }
 
+fn knowledgebase_web_url() -> String {
+    env::var("WORKFLOW_STATUSBAR_KB_WEB_URL")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| KNOWLEDGEBASE_DEFAULT_WEB_URL.to_string())
+}
+
 fn open_knowledgebase_internal() -> Result<(), String> {
-    Ok(())
+    open_url(&knowledgebase_web_url())
 }
 
 fn post_knowledgebase_event(project: &ProjectSnapshot, event_type: &str, title: &str, body: &str) -> Result<(), String> {
@@ -3358,7 +3366,7 @@ fn post_knowledgebase_event(project: &ProjectSnapshot, event_type: &str, title: 
 
 fn snapshot_knowledgebase_push_status() -> KnowledgebasePushStatus {
     let enabled = knowledgebase_auto_push_enabled();
-    let endpoint = KNOWLEDGEBASE_INTERNAL_ENDPOINT.to_string();
+    let endpoint = knowledgebase_web_url();
     let mut last_push_at = "未上报".to_string();
     let mut failure_count = 0_u64;
     let mut last_error = String::new();
@@ -4468,9 +4476,9 @@ fn open_path(path: String) -> Result<(), String> {
 
 #[tauri::command]
 fn open_knowledgebase<R: tauri::Runtime>(app: tauri::AppHandle<R>) -> Result<(), String> {
-    show_main_window(&app, None)?;
-    app.emit("open-knowledgebase", true).map_err(|err| err.to_string())?;
-    open_knowledgebase_internal()
+    open_knowledgebase_internal()?;
+    hide_main_window_with_delay(app, None);
+    Ok(())
 }
 
 #[tauri::command]
@@ -4576,8 +4584,7 @@ pub fn run() {
                         let _ = open_alert_settings_window(app.clone());
                     }
                     TRAY_MENU_OPEN_KNOWLEDGEBASE => {
-                        let _ = show_main_window(app, None);
-                        let _ = app.emit("open-knowledgebase", true);
+                        let _ = open_knowledgebase(app.clone());
                     }
                     TRAY_MENU_QUIT => {
                         app.exit(0);

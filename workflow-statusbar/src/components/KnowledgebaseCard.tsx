@@ -56,14 +56,9 @@ export function KnowledgebaseCard({ state }: KnowledgebaseCardProps) {
     <section className="card kb-card" role="region" aria-label="知识库连接状态">
       <div className="kb-card__top">
         <h3 className="kb-card__title">知识库连接</h3>
-        <div className="kb-card__actions">
-          <div className="kb-card__status" data-state={kb.connected ? "ok" : "error"}>
-            <span className="status-dot" />
-            <strong>{statusText}</strong>
-          </div>
-          <button className="kb-card__open" type="button" onClick={handleOpen} disabled={!canOpen}>
-            {opening ? "启动中..." : actionLabel}
-          </button>
+        <div className="kb-card__status" data-state={kb.connected ? "ok" : "error"}>
+          <span className="status-dot" />
+          <strong>{statusText}</strong>
         </div>
       </div>
       <p className="kb-card__summary">
@@ -71,6 +66,9 @@ export function KnowledgebaseCard({ state }: KnowledgebaseCardProps) {
         <span className="kb-card__endpoint" title={kb.connected ? endpoint : (kb.last_error || endpoint)}>
           {endpoint || "未配置 endpoint"}
         </span>
+        <button className="kb-card__open" type="button" onClick={handleOpen} disabled={!canOpen}>
+          {opening ? "启动中..." : actionLabel}
+        </button>
       </p>
     </section>
   );
