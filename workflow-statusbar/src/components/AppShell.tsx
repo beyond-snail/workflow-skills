@@ -2,9 +2,10 @@ import type { PropsWithChildren } from "react";
 
 type AppShellProps = PropsWithChildren<{
   compact?: boolean;
+  onMouseLeave?: () => void;
 }>;
 
-export function AppShell({ compact = false, children }: AppShellProps) {
+export function AppShell({ compact = false, onMouseLeave, children }: AppShellProps) {
   const isWindows = typeof navigator !== "undefined" && /windows/i.test(navigator.userAgent);
   const shellClass = [
     "app-shell",
@@ -19,7 +20,7 @@ export function AppShell({ compact = false, children }: AppShellProps) {
   ].filter(Boolean).join(" ");
 
   return (
-    <main className={shellClass}>
+    <main className={shellClass} onMouseLeave={onMouseLeave}>
       <section className={surfaceClass}>
         {children}
       </section>

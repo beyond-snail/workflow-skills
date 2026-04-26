@@ -5,6 +5,7 @@ import { currentMonitor, getCurrentWindow } from "@tauri-apps/api/window";
 import { AlertSettingsPanel } from "./components/AlertSettingsPanel";
 import { AppShell } from "./components/AppShell";
 import { EmptyState } from "./components/EmptyState";
+import { KnowledgebaseCard } from "./components/KnowledgebaseCard";
 import { StatusCard } from "./components/StatusCard";
 import type { AlertSettings, RuntimeState } from "./lib/types";
 
@@ -239,7 +240,7 @@ function App() {
 
   if (!state) {
     return (
-      <AppShell compact={windowLabel === "floating"}>
+      <AppShell compact={windowLabel === "floating"} onMouseLeave={handlePanelMouseLeave}>
         <div className="panel-content" ref={contentRef}>
           <EmptyState
             title="读取状态中"
@@ -293,12 +294,11 @@ function App() {
     const panelMaxHeight = viewport?.mode === "alert-settings" ? viewport.height : undefined;
 
     return (
-      <AppShell>
+      <AppShell onMouseLeave={handlePanelMouseLeave}>
         <div
           className="panel-content"
           ref={contentRef}
           style={{ maxHeight: panelMaxHeight }}
-          onMouseLeave={handlePanelMouseLeave}
         >
           <AlertSettingsPanel
             settings={alertSettings}
@@ -313,12 +313,12 @@ function App() {
   }
 
   return (
-    <AppShell>
+    <AppShell onMouseLeave={handlePanelMouseLeave}>
       <div
         className="panel-content panel-content--dashboard"
         ref={contentRef}
-        onMouseLeave={handlePanelMouseLeave}
       >
+        <KnowledgebaseCard state={state} />
         {openProjects.length === 0 ? (
           <StatusCard
             key="status-empty"

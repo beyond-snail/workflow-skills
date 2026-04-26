@@ -7,6 +7,7 @@ use std::{
     env,
     fs,
     io::{Read, Seek, SeekFrom},
+    net::{TcpStream, ToSocketAddrs},
     path::{Path, PathBuf},
     process::{Command, Stdio},
     sync::{Arc, Mutex, OnceLock},
@@ -30,6 +31,9 @@ const POLL_INTERVAL_SECONDS: u64 = 8;
 const TRAY_HIDE_DELAY_MS: u64 = 260;
 const TRAY_MENU_OPEN_DASHBOARD: &str = "open_dashboard";
 const TRAY_MENU_OPEN_ALERT_SETTINGS: &str = "open_alert_settings";
+const TRAY_MENU_OPEN_KNOWLEDGEBASE: &str = "open_knowledgebase";
+const TRAY_MENU_START_KNOWLEDGEBASE: &str = "start_knowledgebase";
+const TRAY_MENU_STOP_KNOWLEDGEBASE: &str = "stop_knowledgebase";
 const TRAY_MENU_QUIT: &str = "quit";
 const KNOWLEDGEBASE_DEFAULT_ENDPOINT: &str = "http://127.0.0.1:8787";
 
@@ -648,6 +652,11 @@ fn format_sync_text(input: &str) -> String {
 fn knowledgebase_push_state() -> &'static Mutex<KnowledgebasePushStateRaw> {
     static STATE: OnceLock<Mutex<KnowledgebasePushStateRaw>> = OnceLock::new();
     STATE.get_or_init(|| Mutex::new(KnowledgebasePushStateRaw::default()))
+}
+
+fn knowledgebase_service_pid() -> &'static Mutex<Option<u32>> {
+    static PID: OnceLock<Mutex<Option<u32>>> = OnceLock::new();
+    PID.get_or_init(|| Mutex::new(None))
 }
 
 fn path_matches(project_path: &str, candidate_path: &str) -> bool {
@@ -2776,12 +2785,247 @@ fn knowledgebase_auto_push_enabled() -> bool {
         .unwrap_or(true)
 }
 
+fn knowledgebase_autostart_enabled() -> bool {
+    env::var("WORKFLOW_STATUSBAR_KB_AUTOSTART")
+        .map(|value| !matches!(value.trim().to_ascii_lowercase().as_str(), "0" | "false" | "no" | "off"))
+        .unwrap_or(true)
+}
+
 fn knowledgebase_endpoint() -> String {
     env::var("WORKFLOW_STATUSBAR_KB_ENDPOINT")
         .ok()
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| KNOWLEDGEBASE_DEFAULT_ENDPOINT.to_string())
+}
+
+#[derive(Clone, Debug)]
+struct EndpointTarget {
+    url: String,
+    host: String,
+    port: u16,
+}
+
+fn parse_endpoint_target(raw: &str) -> EndpointTarget {
+    let trimmed = raw.trim();
+    let with_scheme = if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
+        trimmed.to_string()
+    } else {
+        format!("http://{trimmed}")
+    };
+
+    let (scheme, rest) = if let Some((left, right)) = with_scheme.split_once("://") {
+        (left.to_ascii_lowercase(), right)
+    } else {
+        ("http".to_string(), with_scheme.as_str())
+    };
+
+    let authority = rest.split('/').next().unwrap_or(rest);
+    let host = authority
+        .split(':')
+        .next()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "127.0.0.1".to_string());
+    let port = authority
+        .rsplit_once(':')
+        .and_then(|(_, value)| value.parse::<u16>().ok())
+        .unwrap_or_else(|| if scheme == "https" { 443 } else { 80 });
+
+    EndpointTarget {
+        url: with_scheme,
+        host,
+        port,
+    }
+}
+
+fn is_local_host(host: &str) -> bool {
+    matches!(host, "127.0.0.1" | "localhost" | "0.0.0.0" | "::1")
+}
+
+fn knowledgebase_is_reachable(endpoint: &str) -> bool {
+    let target = parse_endpoint_target(endpoint);
+    let addr = format!("{}:{}", target.host, target.port);
+    let addrs = match addr.to_socket_addrs() {
+        Ok(value) => value.collect::<Vec<_>>(),
+        Err(_) => return false,
+    };
+    for socket in addrs {
+        if TcpStream::connect_timeout(&socket, Duration::from_millis(250)).is_ok() {
+            return true;
+        }
+    }
+    false
+}
+
+fn knowledgebase_candidate_roots() -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+
+    if let Ok(custom) = env::var("WORKFLOW_STATUSBAR_KB_PROJECT_DIR") {
+        let path = custom.trim();
+        if !path.is_empty() {
+            candidates.push(PathBuf::from(path));
+        }
+    }
+
+    if let Ok(cwd) = env::current_dir() {
+        candidates.push(cwd.join("personal-knowledgebase"));
+        candidates.push(cwd.join("../personal-knowledgebase"));
+        candidates.push(cwd.join("../../personal-knowledgebase"));
+    }
+
+    if let Some(home) = home_dir() {
+        candidates.push(home.join("Documents/ai/skill/personal-knowledgebase"));
+        candidates.push(home.join("Documents/personal-knowledgebase"));
+        candidates.push(home.join("personal-knowledgebase"));
+    }
+
+    let mut uniq = Vec::new();
+    for candidate in candidates {
+        if uniq.iter().any(|item: &PathBuf| item == &candidate) {
+            continue;
+        }
+        uniq.push(candidate);
+    }
+    uniq
+}
+
+fn resolve_knowledgebase_project_dir() -> Result<PathBuf, String> {
+    for candidate in knowledgebase_candidate_roots() {
+        let pyproject = candidate.join("pyproject.toml");
+        let api_main = candidate.join("kb/api/main.py");
+        if pyproject.exists() && api_main.exists() {
+            return Ok(candidate);
+        }
+    }
+    Err("未找到 personal-knowledgebase 项目目录，请设置 WORKFLOW_STATUSBAR_KB_PROJECT_DIR".into())
+}
+
+fn start_knowledgebase_service(endpoint: &str) -> Result<(), String> {
+    let target = parse_endpoint_target(endpoint);
+    if !is_local_host(&target.host) {
+        return Err("当前 endpoint 不是本地地址，无法自动拉起本地知识库服务".into());
+    }
+
+    if knowledgebase_is_reachable(endpoint) {
+        return Ok(());
+    }
+
+    let project_dir = resolve_knowledgebase_project_dir()?;
+    let python_in_venv = project_dir.join(".venv/bin/python");
+
+    let mut command = if python_in_venv.exists() {
+        let mut inner = Command::new(python_in_venv);
+        inner.current_dir(&project_dir);
+        inner
+    } else {
+        let mut inner = Command::new("python3");
+        inner.current_dir(&project_dir);
+        inner
+    };
+
+    let child = command
+        .arg("-m")
+        .arg("uvicorn")
+        .arg("kb.api.main:app")
+        .arg("--host")
+        .arg(&target.host)
+        .arg("--port")
+        .arg(target.port.to_string())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|err| format!("启动知识库服务失败: {err}"))?;
+
+    if let Ok(mut guard) = knowledgebase_service_pid().lock() {
+        *guard = Some(child.id());
+    }
+
+    for _ in 0..30 {
+        if knowledgebase_is_reachable(endpoint) {
+            return Ok(());
+        }
+        thread::sleep(Duration::from_millis(200));
+    }
+
+    Err("知识库服务启动超时，请检查 personal-knowledgebase 依赖和日志".into())
+}
+
+fn stop_knowledgebase_service(endpoint: &str) -> Result<(), String> {
+    let mut stopped_any = false;
+
+    if let Ok(mut guard) = knowledgebase_service_pid().lock() {
+        if let Some(pid) = guard.take() {
+            let status = Command::new("kill")
+                .arg("-TERM")
+                .arg(pid.to_string())
+                .status()
+                .map_err(|err| format!("停止知识库服务失败: {err}"))?;
+            stopped_any = status.success() || stopped_any;
+        }
+    }
+
+    if !stopped_any {
+        let target = parse_endpoint_target(endpoint);
+        if is_local_host(&target.host) {
+            let output = Command::new("lsof")
+                .arg("-ti")
+                .arg(format!("tcp:{}", target.port))
+                .arg("-sTCP:LISTEN")
+                .output()
+                .map_err(|err| format!("查询知识库监听进程失败: {err}"))?;
+            let pids = String::from_utf8_lossy(&output.stdout)
+                .lines()
+                .map(|line| line.trim())
+                .filter(|line| !line.is_empty())
+                .map(|line| line.to_string())
+                .collect::<Vec<_>>();
+            for pid in pids {
+                let status = Command::new("kill")
+                    .arg("-TERM")
+                    .arg(pid)
+                    .status()
+                    .map_err(|err| format!("停止知识库服务失败: {err}"))?;
+                stopped_any = status.success() || stopped_any;
+            }
+        }
+    }
+
+    if stopped_any || !knowledgebase_is_reachable(endpoint) {
+        Ok(())
+    } else {
+        Err("知识库服务仍在运行，请稍后重试".into())
+    }
+}
+
+fn open_url(url: &str) -> Result<(), String> {
+    Command::new("open")
+        .arg(url)
+        .status()
+        .map_err(|err| err.to_string())
+        .and_then(|status| {
+            if status.success() {
+                Ok(())
+            } else {
+                Err("open command failed".into())
+            }
+        })
+}
+
+fn open_knowledgebase_internal() -> Result<(), String> {
+    let endpoint = knowledgebase_endpoint();
+    let target = parse_endpoint_target(&endpoint);
+
+    if knowledgebase_is_reachable(&target.url) {
+        return open_url(&target.url);
+    }
+
+    if is_local_host(&target.host) {
+        start_knowledgebase_service(&target.url)?;
+        return open_url(&target.url);
+    }
+
+    Err("知识库地址不可达，请检查 WORKFLOW_STATUSBAR_KB_ENDPOINT 配置".into())
 }
 
 fn post_knowledgebase_event(project: &ProjectSnapshot, event_type: &str, title: &str, body: &str) -> Result<(), String> {
@@ -2842,7 +3086,7 @@ fn post_knowledgebase_event(project: &ProjectSnapshot, event_type: &str, title: 
 
 fn snapshot_knowledgebase_push_status() -> KnowledgebasePushStatus {
     let enabled = knowledgebase_auto_push_enabled();
-    let endpoint = knowledgebase_endpoint();
+    let endpoint = parse_endpoint_target(&knowledgebase_endpoint()).url;
     let mut last_push_at = "未上报".to_string();
     let mut failure_count = 0_u64;
     let mut last_error = String::new();
@@ -2855,7 +3099,11 @@ fn snapshot_knowledgebase_push_status() -> KnowledgebasePushStatus {
         last_error = guard.last_error.clone();
     }
 
-    let connected = enabled && last_error.is_empty();
+    let service_alive = knowledgebase_is_reachable(&endpoint);
+    let connected = enabled && service_alive;
+    if enabled && !service_alive && last_error.is_empty() {
+        last_error = "知识库服务未启动".into();
+    }
 
     KnowledgebasePushStatus {
         enabled,
@@ -3944,17 +4192,24 @@ fn set_floating_visibility<R: tauri::Runtime>(app: tauri::AppHandle<R>, visible:
 
 #[tauri::command]
 fn open_path(path: String) -> Result<(), String> {
-    Command::new("open")
-        .arg(path)
-        .status()
-        .map_err(|err| err.to_string())
-        .and_then(|status| {
-            if status.success() {
-                Ok(())
-            } else {
-                Err("open command failed".into())
-            }
-        })
+    open_url(&path)
+}
+
+#[tauri::command]
+fn open_knowledgebase() -> Result<(), String> {
+    open_knowledgebase_internal()
+}
+
+#[tauri::command]
+fn start_knowledgebase() -> Result<(), String> {
+    let endpoint = parse_endpoint_target(&knowledgebase_endpoint()).url;
+    start_knowledgebase_service(&endpoint)
+}
+
+#[tauri::command]
+fn stop_knowledgebase() -> Result<(), String> {
+    let endpoint = parse_endpoint_target(&knowledgebase_endpoint()).url;
+    stop_knowledgebase_service(&endpoint)
 }
 
 fn build_tray_menu<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<Menu<R>, String> {
@@ -3962,10 +4217,27 @@ fn build_tray_menu<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<Menu<
         .map_err(|err| err.to_string())?;
     let open_alert_settings = MenuItem::with_id(app, TRAY_MENU_OPEN_ALERT_SETTINGS, "提醒配置", true, None::<&str>)
         .map_err(|err| err.to_string())?;
+    let open_knowledgebase = MenuItem::with_id(app, TRAY_MENU_OPEN_KNOWLEDGEBASE, "打开知识库", true, None::<&str>)
+        .map_err(|err| err.to_string())?;
+    let start_knowledgebase = MenuItem::with_id(app, TRAY_MENU_START_KNOWLEDGEBASE, "启动知识库", true, None::<&str>)
+        .map_err(|err| err.to_string())?;
+    let stop_knowledgebase = MenuItem::with_id(app, TRAY_MENU_STOP_KNOWLEDGEBASE, "停止知识库", true, None::<&str>)
+        .map_err(|err| err.to_string())?;
     let quit = MenuItem::with_id(app, TRAY_MENU_QUIT, "退出", true, None::<&str>)
         .map_err(|err| err.to_string())?;
 
-    Menu::with_items(app, &[&open_dashboard, &open_alert_settings, &quit]).map_err(|err| err.to_string())
+    Menu::with_items(
+        app,
+        &[
+            &open_dashboard,
+            &open_alert_settings,
+            &open_knowledgebase,
+            &start_knowledgebase,
+            &stop_knowledgebase,
+            &quit,
+        ],
+    )
+    .map_err(|err| err.to_string())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -4013,6 +4285,17 @@ pub fn run() {
                     TRAY_MENU_OPEN_ALERT_SETTINGS => {
                         let _ = open_alert_settings_window(app.clone());
                     }
+                    TRAY_MENU_OPEN_KNOWLEDGEBASE => {
+                        let _ = open_knowledgebase_internal();
+                    }
+                    TRAY_MENU_START_KNOWLEDGEBASE => {
+                        let endpoint = parse_endpoint_target(&knowledgebase_endpoint()).url;
+                        let _ = start_knowledgebase_service(&endpoint);
+                    }
+                    TRAY_MENU_STOP_KNOWLEDGEBASE => {
+                        let endpoint = parse_endpoint_target(&knowledgebase_endpoint()).url;
+                        let _ = stop_knowledgebase_service(&endpoint);
+                    }
                     TRAY_MENU_QUIT => {
                         app.exit(0);
                     }
@@ -4039,6 +4322,15 @@ pub fn run() {
 
             emit_runtime_state(app.handle(), &runtime_cache, &alert_settings);
 
+            if knowledgebase_autostart_enabled() {
+                thread::spawn(move || {
+                    let endpoint = parse_endpoint_target(&knowledgebase_endpoint()).url;
+                    if !knowledgebase_is_reachable(&endpoint) {
+                        let _ = start_knowledgebase_service(&endpoint);
+                    }
+                });
+            }
+
             let poller_app = app.handle().clone();
             let poller_cache = runtime_cache.clone();
             let poller_alert_settings = alert_settings.clone();
@@ -4064,7 +4356,10 @@ pub fn run() {
             open_alert_settings_window,
             sync_main_window_size,
             set_floating_visibility,
-            open_path
+            open_path,
+            open_knowledgebase,
+            start_knowledgebase,
+            stop_knowledgebase
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
