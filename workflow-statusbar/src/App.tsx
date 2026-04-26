@@ -6,18 +6,21 @@ import { AlertSettingsPanel } from "./components/AlertSettingsPanel";
 import { AppShell } from "./components/AppShell";
 import { EmptyState } from "./components/EmptyState";
 import { KnowledgebaseCard } from "./components/KnowledgebaseCard";
+import { KnowledgebasePanel } from "./components/KnowledgebasePanel";
 import { StatusCard } from "./components/StatusCard";
 import type { AlertSettings, RuntimeState } from "./lib/types";
 
 const isTauriRuntime = "__TAURI_INTERNALS__" in window;
 const windowLabel = isTauriRuntime ? getCurrentWindow().label : "main";
-const initialPanelMode =
-  new URLSearchParams(window.location.search).get("panel") === "alert-settings"
-    ? "alert-settings"
+const panelQuery = new URLSearchParams(window.location.search).get("panel");
+const initialPanelMode = panelQuery === "alert-settings"
+  ? "alert-settings"
+  : panelQuery === "knowledgebase"
+    ? "knowledgebase"
     : "dashboard";
 
 type PanelViewport = {
-  mode: "dashboard" | "alert-settings";
+  mode: "dashboard" | "alert-settings" | "knowledgebase";
   height: number;
 };
 
@@ -118,7 +121,7 @@ function App() {
   const [state, setState] = useState<RuntimeState | null>(null);
   const [alertSettings, setAlertSettings] = useState<AlertSettings | null>(null);
   const [savingAlertSettings, setSavingAlertSettings] = useState(false);
-  const [panelMode, setPanelMode] = useState<"dashboard" | "alert-settings">(initialPanelMode);
+  const [panelMode, setPanelMode] = useState<"dashboard" | "alert-settings" | "knowledgebase">(initialPanelMode);
   const [error, setError] = useState("");
   const contentRef = useRef<HTMLDivElement | null>(null);
   const [viewport, setViewport] = useState<PanelViewport | null>(null);
@@ -160,6 +163,12 @@ function App() {
 
     listen<boolean>("open-alert-settings", () => {
       setPanelMode("alert-settings");
+    }).then((fn) => {
+      unlisteners.push(fn);
+    });
+
+    listen<boolean>("open-knowledgebase", () => {
+      setPanelMode("knowledgebase");
     }).then((fn) => {
       unlisteners.push(fn);
     });
@@ -307,6 +316,20 @@ function App() {
             onSendTest={handleSendTestAlert}
             onBack={() => setPanelMode("dashboard")}
           />
+        </div>
+      </AppShell>
+    );
+  }
+
+  if (panelMode === "knowledgebase") {
+    return (
+      <AppShell onMouseLeave={handlePanelMouseLeave}>
+        <div
+          className="panel-content"
+          ref={contentRef}
+          style={{ maxHeight: viewport?.mode === "knowledgebase" ? viewport.height : undefined }}
+        >
+          <KnowledgebasePanel onBack={() => setPanelMode("dashboard")} />
         </div>
       </AppShell>
     );

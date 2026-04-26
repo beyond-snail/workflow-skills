@@ -1,13 +1,12 @@
 use chrono::{Datelike, Local};
 use dirs::home_dir;
-use rusqlite::Connection;
+use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
     env,
     fs,
     io::{Read, Seek, SeekFrom},
-    net::{TcpStream, ToSocketAddrs},
     path::{Path, PathBuf},
     process::{Command, Stdio},
     sync::{Arc, Mutex, OnceLock},
@@ -32,10 +31,8 @@ const TRAY_HIDE_DELAY_MS: u64 = 260;
 const TRAY_MENU_OPEN_DASHBOARD: &str = "open_dashboard";
 const TRAY_MENU_OPEN_ALERT_SETTINGS: &str = "open_alert_settings";
 const TRAY_MENU_OPEN_KNOWLEDGEBASE: &str = "open_knowledgebase";
-const TRAY_MENU_START_KNOWLEDGEBASE: &str = "start_knowledgebase";
-const TRAY_MENU_STOP_KNOWLEDGEBASE: &str = "stop_knowledgebase";
 const TRAY_MENU_QUIT: &str = "quit";
-const KNOWLEDGEBASE_DEFAULT_ENDPOINT: &str = "http://127.0.0.1:8787";
+const KNOWLEDGEBASE_INTERNAL_ENDPOINT: &str = "workflow-statusbar://knowledgebase";
 
 type SharedRuntimeCache = Arc<Mutex<RuntimeCache>>;
 type SharedAlertSettings = Arc<Mutex<AlertSettings>>;
@@ -184,6 +181,51 @@ struct KnowledgebasePushStatus {
     last_push_at: String,
     failure_count: u64,
     last_error: String,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+struct KbStats {
+    projects: i64,
+    items: i64,
+    events: i64,
+    links: i64,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+struct KbSearchItem {
+    item_id: String,
+    item_type: String,
+    title: String,
+    source_path: String,
+    snippet: String,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+struct KbSearchResponse {
+    query: String,
+    items: Vec<KbSearchItem>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+struct KbTraceItem {
+    item_id: String,
+    item_type: String,
+    title: String,
+    source_path: String,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+struct KbTraceLink {
+    from_id: String,
+    to_id: String,
+    relation_type: String,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+struct KbTraceResponse {
+    item: Option<KbTraceItem>,
+    links: Vec<KbTraceLink>,
+    related_items: Vec<KbTraceItem>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq, Default)]
@@ -652,11 +694,6 @@ fn format_sync_text(input: &str) -> String {
 fn knowledgebase_push_state() -> &'static Mutex<KnowledgebasePushStateRaw> {
     static STATE: OnceLock<Mutex<KnowledgebasePushStateRaw>> = OnceLock::new();
     STATE.get_or_init(|| Mutex::new(KnowledgebasePushStateRaw::default()))
-}
-
-fn knowledgebase_service_pid() -> &'static Mutex<Option<u32>> {
-    static PID: OnceLock<Mutex<Option<u32>>> = OnceLock::new();
-    PID.get_or_init(|| Mutex::new(None))
 }
 
 fn path_matches(project_path: &str, candidate_path: &str) -> bool {
@@ -2785,219 +2822,6 @@ fn knowledgebase_auto_push_enabled() -> bool {
         .unwrap_or(true)
 }
 
-fn knowledgebase_autostart_enabled() -> bool {
-    env::var("WORKFLOW_STATUSBAR_KB_AUTOSTART")
-        .map(|value| !matches!(value.trim().to_ascii_lowercase().as_str(), "0" | "false" | "no" | "off"))
-        .unwrap_or(true)
-}
-
-fn knowledgebase_endpoint() -> String {
-    env::var("WORKFLOW_STATUSBAR_KB_ENDPOINT")
-        .ok()
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| KNOWLEDGEBASE_DEFAULT_ENDPOINT.to_string())
-}
-
-#[derive(Clone, Debug)]
-struct EndpointTarget {
-    url: String,
-    host: String,
-    port: u16,
-}
-
-fn parse_endpoint_target(raw: &str) -> EndpointTarget {
-    let trimmed = raw.trim();
-    let with_scheme = if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
-        trimmed.to_string()
-    } else {
-        format!("http://{trimmed}")
-    };
-
-    let (scheme, rest) = if let Some((left, right)) = with_scheme.split_once("://") {
-        (left.to_ascii_lowercase(), right)
-    } else {
-        ("http".to_string(), with_scheme.as_str())
-    };
-
-    let authority = rest.split('/').next().unwrap_or(rest);
-    let host = authority
-        .split(':')
-        .next()
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| "127.0.0.1".to_string());
-    let port = authority
-        .rsplit_once(':')
-        .and_then(|(_, value)| value.parse::<u16>().ok())
-        .unwrap_or_else(|| if scheme == "https" { 443 } else { 80 });
-
-    EndpointTarget {
-        url: with_scheme,
-        host,
-        port,
-    }
-}
-
-fn is_local_host(host: &str) -> bool {
-    matches!(host, "127.0.0.1" | "localhost" | "0.0.0.0" | "::1")
-}
-
-fn knowledgebase_is_reachable(endpoint: &str) -> bool {
-    let target = parse_endpoint_target(endpoint);
-    let addr = format!("{}:{}", target.host, target.port);
-    let addrs = match addr.to_socket_addrs() {
-        Ok(value) => value.collect::<Vec<_>>(),
-        Err(_) => return false,
-    };
-    for socket in addrs {
-        if TcpStream::connect_timeout(&socket, Duration::from_millis(250)).is_ok() {
-            return true;
-        }
-    }
-    false
-}
-
-fn knowledgebase_candidate_roots() -> Vec<PathBuf> {
-    let mut candidates = Vec::new();
-
-    if let Ok(custom) = env::var("WORKFLOW_STATUSBAR_KB_PROJECT_DIR") {
-        let path = custom.trim();
-        if !path.is_empty() {
-            candidates.push(PathBuf::from(path));
-        }
-    }
-
-    if let Ok(cwd) = env::current_dir() {
-        candidates.push(cwd.join("personal-knowledgebase"));
-        candidates.push(cwd.join("../personal-knowledgebase"));
-        candidates.push(cwd.join("../../personal-knowledgebase"));
-    }
-
-    if let Some(home) = home_dir() {
-        candidates.push(home.join("Documents/ai/skill/personal-knowledgebase"));
-        candidates.push(home.join("Documents/personal-knowledgebase"));
-        candidates.push(home.join("personal-knowledgebase"));
-    }
-
-    let mut uniq = Vec::new();
-    for candidate in candidates {
-        if uniq.iter().any(|item: &PathBuf| item == &candidate) {
-            continue;
-        }
-        uniq.push(candidate);
-    }
-    uniq
-}
-
-fn resolve_knowledgebase_project_dir() -> Result<PathBuf, String> {
-    for candidate in knowledgebase_candidate_roots() {
-        let pyproject = candidate.join("pyproject.toml");
-        let api_main = candidate.join("kb/api/main.py");
-        if pyproject.exists() && api_main.exists() {
-            return Ok(candidate);
-        }
-    }
-    Err("未找到 personal-knowledgebase 项目目录，请设置 WORKFLOW_STATUSBAR_KB_PROJECT_DIR".into())
-}
-
-fn start_knowledgebase_service(endpoint: &str) -> Result<(), String> {
-    let target = parse_endpoint_target(endpoint);
-    if !is_local_host(&target.host) {
-        return Err("当前 endpoint 不是本地地址，无法自动拉起本地知识库服务".into());
-    }
-
-    if knowledgebase_is_reachable(endpoint) {
-        return Ok(());
-    }
-
-    let project_dir = resolve_knowledgebase_project_dir()?;
-    let python_in_venv = project_dir.join(".venv/bin/python");
-
-    let mut command = if python_in_venv.exists() {
-        let mut inner = Command::new(python_in_venv);
-        inner.current_dir(&project_dir);
-        inner
-    } else {
-        let mut inner = Command::new("python3");
-        inner.current_dir(&project_dir);
-        inner
-    };
-
-    let child = command
-        .arg("-m")
-        .arg("uvicorn")
-        .arg("kb.api.main:app")
-        .arg("--host")
-        .arg(&target.host)
-        .arg("--port")
-        .arg(target.port.to_string())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .map_err(|err| format!("启动知识库服务失败: {err}"))?;
-
-    if let Ok(mut guard) = knowledgebase_service_pid().lock() {
-        *guard = Some(child.id());
-    }
-
-    for _ in 0..30 {
-        if knowledgebase_is_reachable(endpoint) {
-            return Ok(());
-        }
-        thread::sleep(Duration::from_millis(200));
-    }
-
-    Err("知识库服务启动超时，请检查 personal-knowledgebase 依赖和日志".into())
-}
-
-fn stop_knowledgebase_service(endpoint: &str) -> Result<(), String> {
-    let mut stopped_any = false;
-
-    if let Ok(mut guard) = knowledgebase_service_pid().lock() {
-        if let Some(pid) = guard.take() {
-            let status = Command::new("kill")
-                .arg("-TERM")
-                .arg(pid.to_string())
-                .status()
-                .map_err(|err| format!("停止知识库服务失败: {err}"))?;
-            stopped_any = status.success() || stopped_any;
-        }
-    }
-
-    if !stopped_any {
-        let target = parse_endpoint_target(endpoint);
-        if is_local_host(&target.host) {
-            let output = Command::new("lsof")
-                .arg("-ti")
-                .arg(format!("tcp:{}", target.port))
-                .arg("-sTCP:LISTEN")
-                .output()
-                .map_err(|err| format!("查询知识库监听进程失败: {err}"))?;
-            let pids = String::from_utf8_lossy(&output.stdout)
-                .lines()
-                .map(|line| line.trim())
-                .filter(|line| !line.is_empty())
-                .map(|line| line.to_string())
-                .collect::<Vec<_>>();
-            for pid in pids {
-                let status = Command::new("kill")
-                    .arg("-TERM")
-                    .arg(pid)
-                    .status()
-                    .map_err(|err| format!("停止知识库服务失败: {err}"))?;
-                stopped_any = status.success() || stopped_any;
-            }
-        }
-    }
-
-    if stopped_any || !knowledgebase_is_reachable(endpoint) {
-        Ok(())
-    } else {
-        Err("知识库服务仍在运行，请稍后重试".into())
-    }
-}
-
 fn open_url(url: &str) -> Result<(), String> {
     Command::new("open")
         .arg(url)
@@ -3012,61 +2836,509 @@ fn open_url(url: &str) -> Result<(), String> {
         })
 }
 
+fn knowledgebase_root_dir() -> PathBuf {
+    if let Some(home) = home_dir() {
+        home.join("Library/Application Support/workflow-statusbar/knowledgebase")
+    } else {
+        PathBuf::from("./.workflow-statusbar/knowledgebase")
+    }
+}
+
+fn knowledgebase_db_path() -> PathBuf {
+    knowledgebase_root_dir().join("knowledge.db")
+}
+
+fn fnv1a64_hex(input: &str) -> String {
+    let mut hash: u64 = 0xcbf29ce484222325;
+    for b in input.as_bytes() {
+        hash ^= *b as u64;
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    format!("{hash:016x}")
+}
+
+fn now_nanos() -> u128 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or(0)
+}
+
+fn connect_knowledgebase() -> Result<Connection, String> {
+    let root = knowledgebase_root_dir();
+    fs::create_dir_all(&root).map_err(|err| format!("创建知识库目录失败: {err}"))?;
+    let conn = Connection::open(knowledgebase_db_path()).map_err(|err| format!("打开知识库数据库失败: {err}"))?;
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS projects (
+          project_id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          root_path TEXT NOT NULL,
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS items (
+          item_id TEXT PRIMARY KEY,
+          project_id TEXT NOT NULL,
+          item_type TEXT NOT NULL,
+          title TEXT NOT NULL,
+          content_text TEXT NOT NULL,
+          source_path TEXT NOT NULL,
+          content_hash TEXT NOT NULL,
+          updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS links (
+          link_id TEXT PRIMARY KEY,
+          from_id TEXT NOT NULL,
+          to_id TEXT NOT NULL,
+          relation_type TEXT NOT NULL,
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_items_project_type ON items(project_id, item_type);
+        CREATE INDEX IF NOT EXISTS idx_items_hash ON items(content_hash);
+        CREATE INDEX IF NOT EXISTS idx_links_from_to ON links(from_id, to_id);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_links_unique ON links(from_id, to_id, relation_type);
+        CREATE VIRTUAL TABLE IF NOT EXISTS items_fts USING fts5(
+          item_id UNINDEXED,
+          title,
+          content_text,
+          source_path,
+          tokenize = 'unicode61'
+        );
+        "#,
+    )
+    .map_err(|err| format!("初始化知识库表失败: {err}"))?;
+    Ok(conn)
+}
+
+fn kb_project_id(project_path: &str) -> String {
+    format!("proj-{}", fnv1a64_hex(project_path))
+}
+
+fn kb_upsert_project(conn: &Connection, name: &str, root_path: &str) -> Result<String, String> {
+    let project_id = kb_project_id(root_path);
+    conn.execute(
+        r#"
+        INSERT INTO projects(project_id, name, root_path)
+        VALUES(?1, ?2, ?3)
+        ON CONFLICT(project_id) DO UPDATE SET
+          name=excluded.name,
+          root_path=excluded.root_path,
+          updated_at=CURRENT_TIMESTAMP
+        "#,
+        params![project_id, name, root_path],
+    )
+    .map_err(|err| err.to_string())?;
+    Ok(project_id)
+}
+
+fn kb_upsert_item(
+    conn: &Connection,
+    project_id: &str,
+    item_type: &str,
+    title: &str,
+    content_text: &str,
+    source_path: &str,
+) -> Result<String, String> {
+    let content_hash = fnv1a64_hex(content_text);
+    let item_id = format!("item-{content_hash}");
+    conn.execute(
+        r#"
+        INSERT INTO items(item_id, project_id, item_type, title, content_text, source_path, content_hash)
+        VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)
+        ON CONFLICT(item_id) DO UPDATE SET
+          title=excluded.title,
+          content_text=excluded.content_text,
+          source_path=excluded.source_path,
+          updated_at=CURRENT_TIMESTAMP
+        "#,
+        params![item_id, project_id, item_type, title, content_text, source_path, content_hash],
+    )
+    .map_err(|err| err.to_string())?;
+    conn.execute("DELETE FROM items_fts WHERE item_id=?1", params![item_id.clone()])
+        .map_err(|err| err.to_string())?;
+    conn.execute(
+        "INSERT INTO items_fts(item_id, title, content_text, source_path) VALUES(?1, ?2, ?3, ?4)",
+        params![item_id.clone(), title, content_text, source_path],
+    )
+    .map_err(|err| err.to_string())?;
+    Ok(item_id)
+}
+
+fn kb_create_link(conn: &Connection, from_id: &str, to_id: &str, relation_type: &str) -> Result<(), String> {
+    let link_id = format!("lnk-{}", now_nanos());
+    conn.execute(
+        "INSERT OR IGNORE INTO links(link_id, from_id, to_id, relation_type) VALUES(?1, ?2, ?3, ?4)",
+        params![link_id, from_id, to_id, relation_type],
+    )
+    .map_err(|err| err.to_string())?;
+    Ok(())
+}
+
+fn kb_find_item_ids_by_token(conn: &Connection, project_id: &str, token: &str, limit: i64) -> Result<Vec<String>, String> {
+    let pattern = format!("%{token}%");
+    let mut stmt = conn
+        .prepare(
+            r#"
+            SELECT item_id
+            FROM items
+            WHERE project_id=?1 AND item_type!='event' AND (title LIKE ?2 OR content_text LIKE ?2)
+            LIMIT ?3
+            "#,
+        )
+        .map_err(|err| err.to_string())?;
+    let rows = stmt
+        .query_map(params![project_id, pattern, limit], |row| row.get::<_, String>(0))
+        .map_err(|err| err.to_string())?;
+    let mut out = Vec::new();
+    for row in rows {
+        out.push(row.map_err(|err| err.to_string())?);
+    }
+    Ok(out)
+}
+
+fn extract_req_task_tokens(raw: &str) -> (Vec<String>, Vec<String>) {
+    let mut req = Vec::new();
+    let mut task = Vec::new();
+    for token in raw.split(|c: char| !(c.is_ascii_alphanumeric() || c == '-')) {
+        let item = token.trim();
+        if item.len() < 12 {
+            continue;
+        }
+        if item.starts_with("REQ-") {
+            req.push(item.to_string());
+        } else if item.starts_with("TASK-") {
+            task.push(item.to_string());
+        }
+    }
+    req.sort();
+    req.dedup();
+    task.sort();
+    task.dedup();
+    (req, task)
+}
+
+fn json_text(payload: &serde_json::Value, key: &str) -> String {
+    payload
+        .get(key)
+        .and_then(|value| value.as_str())
+        .map(|value| value.trim().to_string())
+        .unwrap_or_default()
+}
+
+fn kb_process_event_payload(conn: &Connection, project_id: &str, fallback_source_path: &str, payload: &serde_json::Value) -> Result<String, String> {
+    let summary = json_text(payload, "summary");
+    let event_type = {
+        let value = json_text(payload, "event_type");
+        if value.is_empty() {
+            "event".to_string()
+        } else {
+            value
+        }
+    };
+    let req_id = json_text(payload, "req_id");
+    let task_id = json_text(payload, "task_id");
+    let source_path = {
+        let value = json_text(payload, "source_path");
+        if value.is_empty() {
+            fallback_source_path.to_string()
+        } else {
+            value
+        }
+    };
+    let mut title_parts = vec![event_type.clone()];
+    if !req_id.is_empty() {
+        title_parts.push(req_id.clone());
+    }
+    if !task_id.is_empty() {
+        title_parts.push(task_id.clone());
+    }
+    let title = title_parts.join(" | ");
+    let content = serde_json::to_string_pretty(payload).unwrap_or_else(|_| "{}".to_string());
+    let full_text = format!(
+        "{}\n\n{}",
+        if summary.is_empty() { "workflow event" } else { &summary },
+        content
+    );
+    let event_item_id = kb_upsert_item(conn, project_id, "event", &title, &full_text, &source_path)?;
+    let tokens_raw = format!("{content}\n{summary}\n{req_id}\n{task_id}");
+    let (tokens_req, tokens_task) = extract_req_task_tokens(&tokens_raw);
+    for token in tokens_req {
+        for target_id in kb_find_item_ids_by_token(conn, project_id, &token, 20)? {
+            let _ = kb_create_link(conn, &event_item_id, &target_id, "references_req");
+        }
+    }
+    for token in tokens_task {
+        for target_id in kb_find_item_ids_by_token(conn, project_id, &token, 20)? {
+            let _ = kb_create_link(conn, &event_item_id, &target_id, "references_task");
+        }
+    }
+    Ok(event_item_id)
+}
+
+fn ingest_inbox_for_project(conn: &Connection, project_path: &str, project_name: &str) -> Result<(i64, i64), String> {
+    let project_id = kb_upsert_project(conn, project_name, project_path)?;
+    let root = PathBuf::from(project_path);
+    let inbox_dirs = vec![
+        root.join("knowledge-store/inbox"),
+        root.join(".ai/runtime/inbox"),
+    ];
+
+    let mut events = 0_i64;
+    let mut processed_files = 0_i64;
+
+    for inbox_dir in inbox_dirs {
+        if !inbox_dir.exists() {
+            continue;
+        }
+        let entries = fs::read_dir(&inbox_dir).map_err(|err| err.to_string())?;
+        for entry in entries {
+            let entry = entry.map_err(|err| err.to_string())?;
+            let path = entry.path();
+            if path.extension().and_then(|v| v.to_str()) != Some("jsonl") {
+                continue;
+            }
+            let content = fs::read_to_string(&path).unwrap_or_default();
+            let mut moved_lines = Vec::new();
+            for line in content.lines() {
+                let trimmed = line.trim();
+                if trimmed.is_empty() {
+                    continue;
+                }
+                let payload: serde_json::Value = match serde_json::from_str(trimmed) {
+                    Ok(value) => value,
+                    Err(_) => continue,
+                };
+                let _ = kb_process_event_payload(conn, &project_id, &path.to_string_lossy(), &payload)?;
+                events += 1;
+                moved_lines.push(trimmed.to_string());
+            }
+            if !moved_lines.is_empty() {
+                processed_files += 1;
+                let done_file = path.with_extension("done");
+                let _ = fs::write(&done_file, format!("{}\n", moved_lines.join("\n")));
+                let _ = fs::remove_file(&path);
+            }
+        }
+    }
+
+    Ok((events, processed_files))
+}
+
+fn kb_get_stats_internal() -> Result<KbStats, String> {
+    let conn = connect_knowledgebase()?;
+    let projects = conn
+        .query_row("SELECT COUNT(*) FROM projects", [], |row| row.get::<_, i64>(0))
+        .map_err(|err| err.to_string())?;
+    let items = conn
+        .query_row("SELECT COUNT(*) FROM items", [], |row| row.get::<_, i64>(0))
+        .map_err(|err| err.to_string())?;
+    let events = conn
+        .query_row("SELECT COUNT(*) FROM items WHERE item_type='event'", [], |row| row.get::<_, i64>(0))
+        .map_err(|err| err.to_string())?;
+    let links = conn
+        .query_row("SELECT COUNT(*) FROM links", [], |row| row.get::<_, i64>(0))
+        .map_err(|err| err.to_string())?;
+    Ok(KbStats {
+        projects,
+        items,
+        events,
+        links,
+    })
+}
+
+fn kb_search_internal(query: &str) -> Result<KbSearchResponse, String> {
+    let conn = connect_knowledgebase()?;
+    let tokens = query
+        .replace('"', " ")
+        .split_whitespace()
+        .map(|item| item.trim())
+        .filter(|item| !item.is_empty())
+        .map(|item| format!("\"{item}\""))
+        .collect::<Vec<_>>();
+    if tokens.is_empty() {
+        return Ok(KbSearchResponse {
+            query: query.to_string(),
+            items: Vec::new(),
+        });
+    }
+    let safe_query = tokens.join(" AND ");
+    let mut items = Vec::new();
+    let mut stmt = conn
+        .prepare(
+            r#"
+            SELECT i.item_id, i.item_type, i.title, i.source_path,
+                   snippet(items_fts, 2, '[', ']', ' … ', 24) AS snippet
+            FROM items_fts
+            JOIN items i ON i.item_id = items_fts.item_id
+            WHERE items_fts MATCH ?1
+            LIMIT 30
+            "#,
+        )
+        .map_err(|err| err.to_string())?;
+    let rows = stmt
+        .query_map(params![safe_query], |row| {
+            Ok(KbSearchItem {
+                item_id: row.get::<_, String>(0)?,
+                item_type: row.get::<_, String>(1)?,
+                title: row.get::<_, String>(2)?,
+                source_path: row.get::<_, String>(3)?,
+                snippet: row.get::<_, String>(4).unwrap_or_default(),
+            })
+        })
+        .map_err(|err| err.to_string())?;
+    for row in rows {
+        items.push(row.map_err(|err| err.to_string())?);
+    }
+    Ok(KbSearchResponse {
+        query: query.to_string(),
+        items,
+    })
+}
+
+fn kb_trace_internal(item_id: &str) -> Result<KbTraceResponse, String> {
+    let conn = connect_knowledgebase()?;
+    let mut item_stmt = conn
+        .prepare("SELECT item_id, item_type, title, source_path FROM items WHERE item_id=?1")
+        .map_err(|err| err.to_string())?;
+    let item = item_stmt
+        .query_row(params![item_id], |row| {
+            Ok(KbTraceItem {
+                item_id: row.get::<_, String>(0)?,
+                item_type: row.get::<_, String>(1)?,
+                title: row.get::<_, String>(2)?,
+                source_path: row.get::<_, String>(3)?,
+            })
+        })
+        .ok();
+
+    if item.is_none() {
+        return Ok(KbTraceResponse {
+            item: None,
+            links: Vec::new(),
+            related_items: Vec::new(),
+        });
+    }
+
+    let mut links = Vec::new();
+    let mut link_stmt = conn
+        .prepare("SELECT from_id, to_id, relation_type FROM links WHERE from_id=?1 OR to_id=?1")
+        .map_err(|err| err.to_string())?;
+    let link_rows = link_stmt
+        .query_map(params![item_id], |row| {
+            Ok(KbTraceLink {
+                from_id: row.get::<_, String>(0)?,
+                to_id: row.get::<_, String>(1)?,
+                relation_type: row.get::<_, String>(2)?,
+            })
+        })
+        .map_err(|err| err.to_string())?;
+    let mut related_ids = HashSet::new();
+    for row in link_rows {
+        let link = row.map_err(|err| err.to_string())?;
+        if link.from_id != item_id {
+            related_ids.insert(link.from_id.clone());
+        }
+        if link.to_id != item_id {
+            related_ids.insert(link.to_id.clone());
+        }
+        links.push(link);
+    }
+
+    let mut related_items = Vec::new();
+    if !related_ids.is_empty() {
+        let mut related_stmt = conn
+            .prepare("SELECT item_id, item_type, title, source_path FROM items WHERE item_id=?1")
+            .map_err(|err| err.to_string())?;
+        for related_id in related_ids {
+            if let Ok(node) = related_stmt.query_row(params![related_id], |row| {
+                Ok(KbTraceItem {
+                    item_id: row.get::<_, String>(0)?,
+                    item_type: row.get::<_, String>(1)?,
+                    title: row.get::<_, String>(2)?,
+                    source_path: row.get::<_, String>(3)?,
+                })
+            }) {
+                related_items.push(node);
+            }
+        }
+    }
+
+    Ok(KbTraceResponse {
+        item,
+        links,
+        related_items,
+    })
+}
+
+fn kb_register_project_internal(path: &str, name: Option<String>) -> Result<String, String> {
+    let root = PathBuf::from(path).canonicalize().unwrap_or_else(|_| PathBuf::from(path));
+    let display_name = name
+        .unwrap_or_else(|| {
+            root.file_name()
+                .map(|value| value.to_string_lossy().to_string())
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or_else(|| "project".to_string())
+        });
+    let conn = connect_knowledgebase()?;
+    kb_upsert_project(&conn, &display_name, &root.to_string_lossy())
+}
+
+fn kb_ingest_inbox_internal(path: &str) -> Result<(i64, i64), String> {
+    let root = PathBuf::from(path).canonicalize().unwrap_or_else(|_| PathBuf::from(path));
+    let project_path = root.to_string_lossy().to_string();
+    let project_name = root
+        .file_name()
+        .map(|value| value.to_string_lossy().to_string())
+        .unwrap_or_else(|| "project".to_string());
+    let conn = connect_knowledgebase()?;
+    ingest_inbox_for_project(&conn, &project_path, &project_name)
+}
+
+fn kb_push_event_internal(path: &str, event: &serde_json::Value, process_now: bool) -> Result<(), String> {
+    let root = PathBuf::from(path).canonicalize().unwrap_or_else(|_| PathBuf::from(path));
+    let project_path = root.to_string_lossy().to_string();
+    let project_name = root
+        .file_name()
+        .map(|value| value.to_string_lossy().to_string())
+        .unwrap_or_else(|| "project".to_string());
+    let conn = connect_knowledgebase()?;
+    let project_id = kb_upsert_project(&conn, &project_name, &project_path)?;
+    let _ = kb_process_event_payload(&conn, &project_id, "workflow-statusbar/manual", event)?;
+    if process_now {
+        let _ = ingest_inbox_for_project(&conn, &project_path, &project_name)?;
+    }
+    Ok(())
+}
+
 fn open_knowledgebase_internal() -> Result<(), String> {
-    let endpoint = knowledgebase_endpoint();
-    let target = parse_endpoint_target(&endpoint);
-
-    if knowledgebase_is_reachable(&target.url) {
-        return open_url(&target.url);
-    }
-
-    if is_local_host(&target.host) {
-        start_knowledgebase_service(&target.url)?;
-        return open_url(&target.url);
-    }
-
-    Err("知识库地址不可达，请检查 WORKFLOW_STATUSBAR_KB_ENDPOINT 配置".into())
+    Ok(())
 }
 
 fn post_knowledgebase_event(project: &ProjectSnapshot, event_type: &str, title: &str, body: &str) -> Result<(), String> {
     if !knowledgebase_auto_push_enabled() {
         return Ok(());
     }
-
-    let endpoint = knowledgebase_endpoint();
-    let url = format!("{}/api/events/push", endpoint.trim_end_matches('/'));
-    let req_id = if project.current_req_id.is_empty() {
-        serde_json::Value::Null
-    } else {
-        serde_json::Value::String(project.current_req_id.clone())
-    };
-    let task_id = if project.current_task_id.is_empty() {
-        serde_json::Value::Null
-    } else {
-        serde_json::Value::String(project.current_task_id.clone())
-    };
-
-    let result = ureq::post(&url)
-        .query("project", &project.path)
-        .query("process_now", "true")
-        .set("Content-Type", "application/json")
-        .send_json(serde_json::json!({
-            "event_type": format!("statusbar.{event_type}"),
-            "summary": body,
-            "title": title,
-            "project_name": project.name,
-            "project_path": project.path,
-            "workflow_stage": workflow_stage_key(&project.workflow_stage),
-            "codex_status": codex_status_key(&project.codex_status),
-            "thread_id": project.codex_thread_id,
-            "host": host_kind_label(project.active_host.as_ref()),
-            "req_id": req_id,
-            "task_id": task_id,
-            "source_path": "workflow-statusbar/runtime",
-            "occurred_at": unix_now(),
-        }))
-        .map(|_| ())
-        .map_err(|err| err.to_string());
+    let mut conn = connect_knowledgebase()?;
+    let tx = conn.transaction().map_err(|err| err.to_string())?;
+    let project_id = kb_upsert_project(&tx, &project.name, &project.path)?;
+    let payload = serde_json::json!({
+        "event_type": format!("statusbar.{event_type}"),
+        "summary": body,
+        "title": title,
+        "project_name": project.name,
+        "project_path": project.path,
+        "workflow_stage": workflow_stage_key(&project.workflow_stage),
+        "codex_status": codex_status_key(&project.codex_status),
+        "thread_id": project.codex_thread_id,
+        "host": host_kind_label(project.active_host.as_ref()),
+        "req_id": if project.current_req_id.is_empty() { serde_json::Value::Null } else { serde_json::Value::String(project.current_req_id.clone()) },
+        "task_id": if project.current_task_id.is_empty() { serde_json::Value::Null } else { serde_json::Value::String(project.current_task_id.clone()) },
+        "source_path": "workflow-statusbar/runtime",
+        "occurred_at": unix_now(),
+    });
+    let result = kb_process_event_payload(&tx, &project_id, "workflow-statusbar/runtime", &payload)
+        .and_then(|_| tx.commit().map_err(|err| err.to_string()));
 
     if let Ok(mut guard) = knowledgebase_push_state().lock() {
         match &result {
@@ -3086,7 +3358,7 @@ fn post_knowledgebase_event(project: &ProjectSnapshot, event_type: &str, title: 
 
 fn snapshot_knowledgebase_push_status() -> KnowledgebasePushStatus {
     let enabled = knowledgebase_auto_push_enabled();
-    let endpoint = parse_endpoint_target(&knowledgebase_endpoint()).url;
+    let endpoint = KNOWLEDGEBASE_INTERNAL_ENDPOINT.to_string();
     let mut last_push_at = "未上报".to_string();
     let mut failure_count = 0_u64;
     let mut last_error = String::new();
@@ -3099,10 +3371,9 @@ fn snapshot_knowledgebase_push_status() -> KnowledgebasePushStatus {
         last_error = guard.last_error.clone();
     }
 
-    let service_alive = knowledgebase_is_reachable(&endpoint);
-    let connected = enabled && service_alive;
-    if enabled && !service_alive && last_error.is_empty() {
-        last_error = "知识库服务未启动".into();
+    let connected = enabled && connect_knowledgebase().is_ok();
+    if enabled && !connected && last_error.is_empty() {
+        last_error = "内置知识库初始化失败".into();
     }
 
     KnowledgebasePushStatus {
@@ -4196,20 +4467,45 @@ fn open_path(path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn open_knowledgebase() -> Result<(), String> {
+fn open_knowledgebase<R: tauri::Runtime>(app: tauri::AppHandle<R>) -> Result<(), String> {
+    show_main_window(&app, None)?;
+    app.emit("open-knowledgebase", true).map_err(|err| err.to_string())?;
     open_knowledgebase_internal()
 }
 
 #[tauri::command]
-fn start_knowledgebase() -> Result<(), String> {
-    let endpoint = parse_endpoint_target(&knowledgebase_endpoint()).url;
-    start_knowledgebase_service(&endpoint)
+fn kb_get_stats() -> Result<KbStats, String> {
+    kb_get_stats_internal()
 }
 
 #[tauri::command]
-fn stop_knowledgebase() -> Result<(), String> {
-    let endpoint = parse_endpoint_target(&knowledgebase_endpoint()).url;
-    stop_knowledgebase_service(&endpoint)
+fn kb_search(query: String) -> Result<KbSearchResponse, String> {
+    kb_search_internal(&query)
+}
+
+#[tauri::command]
+fn kb_trace(item_id: String) -> Result<KbTraceResponse, String> {
+    kb_trace_internal(&item_id)
+}
+
+#[tauri::command]
+fn kb_register_project(path: String, name: Option<String>) -> Result<String, String> {
+    kb_register_project_internal(&path, name)
+}
+
+#[tauri::command]
+fn kb_ingest_inbox(path: String) -> Result<serde_json::Value, String> {
+    let (events, processed_files) = kb_ingest_inbox_internal(&path)?;
+    Ok(serde_json::json!({
+        "project": path,
+        "events": events,
+        "processed_files": processed_files
+    }))
+}
+
+#[tauri::command]
+fn kb_push_event(path: String, event: serde_json::Value, process_now: Option<bool>) -> Result<(), String> {
+    kb_push_event_internal(&path, &event, process_now.unwrap_or(true))
 }
 
 fn build_tray_menu<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<Menu<R>, String> {
@@ -4218,10 +4514,6 @@ fn build_tray_menu<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<Menu<
     let open_alert_settings = MenuItem::with_id(app, TRAY_MENU_OPEN_ALERT_SETTINGS, "提醒配置", true, None::<&str>)
         .map_err(|err| err.to_string())?;
     let open_knowledgebase = MenuItem::with_id(app, TRAY_MENU_OPEN_KNOWLEDGEBASE, "打开知识库", true, None::<&str>)
-        .map_err(|err| err.to_string())?;
-    let start_knowledgebase = MenuItem::with_id(app, TRAY_MENU_START_KNOWLEDGEBASE, "启动知识库", true, None::<&str>)
-        .map_err(|err| err.to_string())?;
-    let stop_knowledgebase = MenuItem::with_id(app, TRAY_MENU_STOP_KNOWLEDGEBASE, "停止知识库", true, None::<&str>)
         .map_err(|err| err.to_string())?;
     let quit = MenuItem::with_id(app, TRAY_MENU_QUIT, "退出", true, None::<&str>)
         .map_err(|err| err.to_string())?;
@@ -4232,8 +4524,6 @@ fn build_tray_menu<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<Menu<
             &open_dashboard,
             &open_alert_settings,
             &open_knowledgebase,
-            &start_knowledgebase,
-            &stop_knowledgebase,
             &quit,
         ],
     )
@@ -4286,15 +4576,8 @@ pub fn run() {
                         let _ = open_alert_settings_window(app.clone());
                     }
                     TRAY_MENU_OPEN_KNOWLEDGEBASE => {
-                        let _ = open_knowledgebase_internal();
-                    }
-                    TRAY_MENU_START_KNOWLEDGEBASE => {
-                        let endpoint = parse_endpoint_target(&knowledgebase_endpoint()).url;
-                        let _ = start_knowledgebase_service(&endpoint);
-                    }
-                    TRAY_MENU_STOP_KNOWLEDGEBASE => {
-                        let endpoint = parse_endpoint_target(&knowledgebase_endpoint()).url;
-                        let _ = stop_knowledgebase_service(&endpoint);
+                        let _ = show_main_window(app, None);
+                        let _ = app.emit("open-knowledgebase", true);
                     }
                     TRAY_MENU_QUIT => {
                         app.exit(0);
@@ -4321,15 +4604,6 @@ pub fn run() {
                 .build(app)?;
 
             emit_runtime_state(app.handle(), &runtime_cache, &alert_settings);
-
-            if knowledgebase_autostart_enabled() {
-                thread::spawn(move || {
-                    let endpoint = parse_endpoint_target(&knowledgebase_endpoint()).url;
-                    if !knowledgebase_is_reachable(&endpoint) {
-                        let _ = start_knowledgebase_service(&endpoint);
-                    }
-                });
-            }
 
             let poller_app = app.handle().clone();
             let poller_cache = runtime_cache.clone();
@@ -4358,8 +4632,12 @@ pub fn run() {
             set_floating_visibility,
             open_path,
             open_knowledgebase,
-            start_knowledgebase,
-            stop_knowledgebase
+            kb_get_stats,
+            kb_search,
+            kb_trace,
+            kb_register_project,
+            kb_ingest_inbox,
+            kb_push_event
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

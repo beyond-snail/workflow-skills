@@ -112,6 +112,45 @@ export type RuntimeState = {
   updated_at: string;
 };
 
+export type KbStats = {
+  projects: number;
+  items: number;
+  events: number;
+  links: number;
+};
+
+export type KbSearchItem = {
+  item_id: string;
+  item_type: string;
+  title: string;
+  source_path: string;
+  snippet: string;
+};
+
+export type KbSearchResponse = {
+  query: string;
+  items: KbSearchItem[];
+};
+
+export type KbTraceItem = {
+  item_id: string;
+  item_type: string;
+  title: string;
+  source_path: string;
+};
+
+export type KbTraceLink = {
+  from_id: string;
+  to_id: string;
+  relation_type: string;
+};
+
+export type KbTraceResponse = {
+  item: KbTraceItem | null;
+  links: KbTraceLink[];
+  related_items: KbTraceItem[];
+};
+
 export type AlertProviderMode = "disabled" | "bridge" | "feishu";
 
 export type AlertSettings = {

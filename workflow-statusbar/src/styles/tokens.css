@@ -1106,3 +1106,140 @@ button {
     min-width: 100%;
   }
 }
+
+.kb-panel {
+  display: grid;
+  gap: 10px;
+}
+
+.kb-panel__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.kb-panel__head h3 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.kb-panel__kpi {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.kb-panel__kpi .card {
+  text-align: center;
+  padding: 8px 6px;
+}
+
+.kb-panel__kpi b {
+  display: block;
+  font-size: 14px;
+}
+
+.kb-panel__kpi span {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.kb-panel__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.kb-panel__search-card,
+.kb-panel__trace-card {
+  display: grid;
+  gap: 8px;
+  min-height: 220px;
+}
+
+.kb-panel__row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+}
+
+.kb-panel__row input {
+  border-radius: 8px;
+  border: 1px solid #30464f;
+  background: #0f171b;
+  color: #eaf4f7;
+  padding: 8px;
+}
+
+.kb-panel__row button {
+  border-radius: 8px;
+  border: none;
+  background: #4edeb8;
+  color: #06221d;
+  font-weight: 700;
+  padding: 0 10px;
+}
+
+.kb-panel__results {
+  max-height: 210px;
+  overflow: auto;
+  display: grid;
+  gap: 6px;
+}
+
+.kb-panel__item {
+  text-align: left;
+  border: 1px solid #22333b;
+  border-radius: 8px;
+  padding: 8px;
+  background: #122129;
+  color: inherit;
+  display: grid;
+  gap: 3px;
+}
+
+.kb-panel__item b {
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.kb-panel__item span {
+  font-size: 11px;
+  color: var(--muted);
+  word-break: break-all;
+}
+
+.kb-panel__trace-card h4 {
+  margin: 0;
+  font-size: 13px;
+}
+
+.kb-panel__trace-list {
+  display: grid;
+  gap: 6px;
+}
+
+.kb-panel__trace-list .node {
+  background: #112028;
+  border: 1px solid #29414b;
+  border-radius: 8px;
+  padding: 8px;
+  display: grid;
+  gap: 4px;
+}
+
+.kb-panel__trace-list .node b {
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.kb-panel__trace-list .node span {
+  font-size: 11px;
+  color: var(--muted);
+  word-break: break-all;
+}
+
+.kb-panel__error {
+  font-size: 11px;
+  color: #d46a6a;
+}

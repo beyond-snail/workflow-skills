@@ -81,7 +81,7 @@ function normalizeEndpoint(raw: string): string {
   if (!value) {
     return "";
   }
-  if (/^https?:\/\//i.test(value)) {
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(value)) {
     return value;
   }
   return `http://${value}`;
