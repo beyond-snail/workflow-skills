@@ -259,6 +259,14 @@ struct KbProjectStatus {
     document_count: i64,
     conversation_count: i64,
     last_item_at: String,
+    path_exists: bool,
+    has_memory_dir: bool,
+    has_workflow_docs: bool,
+    has_inbox_dir: bool,
+    has_conversation_dir: bool,
+    sync_status: String,
+    sync_reason: String,
+    next_action: String,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -4076,6 +4084,89 @@ fn kb_collect_project_internal(path: &str) -> Result<KbCollectProjectResult, Str
     })
 }
 
+fn kb_detect_project_capabilities(project_root: &Path) -> (bool, bool, bool, bool, bool) {
+    let path_exists = project_root.exists();
+    if !path_exists {
+        return (false, false, false, false, false);
+    }
+    let has_memory_dir = project_root.join(".ai/memory").is_dir();
+    let has_workflow_docs = project_root.join("docs/workflow").is_dir();
+    let has_inbox_dir = project_root.join("knowledge-store/inbox").is_dir()
+        || project_root.join(".ai/runtime/inbox").is_dir();
+    let has_conversation_dir = project_root.join("knowledge-store/conversations").is_dir()
+        || project_root.join(".ai/runtime/conversations").is_dir();
+    (
+        path_exists,
+        has_memory_dir,
+        has_workflow_docs,
+        has_inbox_dir,
+        has_conversation_dir,
+    )
+}
+
+fn kb_project_sync_diagnosis(
+    item_count: i64,
+    document_count: i64,
+    conversation_count: i64,
+    path_exists: bool,
+    has_memory_dir: bool,
+    has_workflow_docs: bool,
+    has_inbox_dir: bool,
+    has_conversation_dir: bool,
+) -> (String, String, String) {
+    if !path_exists {
+        return (
+            "error".into(),
+            "项目路径不存在或当前机器不可访问".into(),
+            "检查项目路径是否迁移，或重新注册正确路径".into(),
+        );
+    }
+
+    if item_count == 0 {
+        if !(has_memory_dir || has_workflow_docs || has_inbox_dir || has_conversation_dir) {
+            return (
+                "empty".into(),
+                "未发现可采集目录，当前项目尚未接入记忆/文档/会话来源".into(),
+                "优先补 `.ai/memory`、`docs/workflow` 或导入会话目录后再重扫".into(),
+            );
+        }
+        return (
+            "warning".into(),
+            "已发现可采集目录，但当前仍未形成有效条目".into(),
+            "先手动执行一次项目采集，再检查目录内容是否为空或格式不受支持".into(),
+        );
+    }
+
+    if document_count > 0 && conversation_count == 0 {
+        if has_conversation_dir {
+            return (
+                "partial".into(),
+                "文档已入库，但会话目录存在却尚未采到有效对话".into(),
+                "检查会话文件格式，补一份真实样本做回放验证".into(),
+            );
+        }
+        return (
+            "partial".into(),
+            "文档已入库，当前项目未发现可读会话目录".into(),
+            "如需补齐多源对话，可接入 Codex/Claude/ChatGPT 会话导出或 runtime 会话目录".into(),
+        );
+    }
+
+    if document_count == 0 && (has_memory_dir || has_workflow_docs) {
+        return (
+            "partial".into(),
+            "项目存在文档来源目录，但当前文档条目仍为 0".into(),
+            "检查文档目录是否为空、是否超出采集范围，必要时补日志回放".into(),
+        );
+    }
+
+    (
+        "ok".into(),
+        "文档与基础知识条目已可采集，当前项目处于可检索状态".into(),
+        "继续按需追加采集，并补做多源样本回归与验收记录".into(),
+    )
+}
+
 fn kb_list_projects_internal() -> Result<Vec<KbProjectStatus>, String> {
     let conn = connect_knowledgebase()?;
     let mut stmt = conn
@@ -4108,12 +4199,47 @@ fn kb_list_projects_internal() -> Result<Vec<KbProjectStatus>, String> {
                 document_count: row.get::<_, i64>(5).unwrap_or_default(),
                 conversation_count: row.get::<_, i64>(6).unwrap_or_default(),
                 last_item_at: row.get::<_, String>(7).unwrap_or_default(),
+                path_exists: false,
+                has_memory_dir: false,
+                has_workflow_docs: false,
+                has_inbox_dir: false,
+                has_conversation_dir: false,
+                sync_status: String::new(),
+                sync_reason: String::new(),
+                next_action: String::new(),
             })
         })
         .map_err(|err| err.to_string())?;
     let mut out = Vec::new();
     for row in rows {
-        out.push(row.map_err(|err| err.to_string())?);
+        let mut item = row.map_err(|err| err.to_string())?;
+        let root = PathBuf::from(&item.root_path);
+        let (
+            path_exists,
+            has_memory_dir,
+            has_workflow_docs,
+            has_inbox_dir,
+            has_conversation_dir,
+        ) = kb_detect_project_capabilities(&root);
+        let (sync_status, sync_reason, next_action) = kb_project_sync_diagnosis(
+            item.item_count,
+            item.document_count,
+            item.conversation_count,
+            path_exists,
+            has_memory_dir,
+            has_workflow_docs,
+            has_inbox_dir,
+            has_conversation_dir,
+        );
+        item.path_exists = path_exists;
+        item.has_memory_dir = has_memory_dir;
+        item.has_workflow_docs = has_workflow_docs;
+        item.has_inbox_dir = has_inbox_dir;
+        item.has_conversation_dir = has_conversation_dir;
+        item.sync_status = sync_status;
+        item.sync_reason = sync_reason;
+        item.next_action = next_action;
+        out.push(item);
     }
     Ok(out)
 }

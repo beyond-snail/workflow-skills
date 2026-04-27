@@ -782,11 +782,14 @@
                   <th>项目</th>
                   <th>路径</th>
                   <th>注册</th>
+                  <th>来源覆盖</th>
                   <th>内容条数</th>
                   <th>事件条数</th>
                   <th>文档条数</th>
                   <th>对话条数</th>
                   <th>上次同步</th>
+                  <th>当前诊断</th>
+                  <th>建议动作</th>
                   <th>操作</th>
                 </tr>
               </thead>
@@ -1050,6 +1053,29 @@
       select.innerHTML = options.join('');
     }
 
+    function diagTag(status) {
+      const value = String(status || '').toLowerCase();
+      if (value === 'ok') return '<span class="tag t-ok">正常</span>';
+      if (value === 'partial') return '<span class="tag t-info">待补齐</span>';
+      if (value === 'warning' || value === 'empty') return '<span class="tag t-warn">待处理</span>';
+      if (value === 'error') return '<span class="tag" style="background:#ffe8ee;border-color:#f5bfd0;color:#9d1f39;">异常</span>';
+      return '<span class="tag t-info">未知</span>';
+    }
+
+    function boolChip(enabled, label) {
+      return '<span class="tag ' + (enabled ? 't-ok' : 't-warn') + '">' + label + '</span>';
+    }
+
+    function renderCoverage(item) {
+      const parts = [
+        boolChip(item.has_memory_dir, '记忆'),
+        boolChip(item.has_workflow_docs, '文档'),
+        boolChip(item.has_inbox_dir, 'Inbox'),
+        boolChip(item.has_conversation_dir, '会话')
+      ];
+      return '<div style="display:flex;gap:4px;flex-wrap:wrap;">' + parts.join('') + '</div>';
+    }
+
     async function loadProjects() {
       const res = await fetch('/api/projects');
       const data = await res.json();
@@ -1069,18 +1095,21 @@
           '<tr>' +
             '<td>' + esc(item.name || '-') + '</td>' +
             '<td>' + esc(item.root_path || '-') + '</td>' +
-            '<td><span class="tag t-ok">已注册</span></td>' +
+            '<td>' + (item.path_exists ? '<span class="tag t-ok">已注册</span>' : '<span class="tag" style="background:#ffe8ee;border-color:#f5bfd0;color:#9d1f39;">路径异常</span>') + '</td>' +
+            '<td>' + renderCoverage(item) + '</td>' +
             '<td>' + Number(item.item_count || 0) + '</td>' +
             '<td>' + Number(item.event_count || 0) + '</td>' +
             '<td>' + Number(item.document_count || 0) + '</td>' +
             '<td>' + Number(item.conversation_count || 0) + '</td>' +
-            '<td>' + esc(item.last_item_at || '-') + '</td>' +
+            '<td>' + esc(formatTime(item.last_item_at || '')) + '</td>' +
+            '<td><div style="display:grid;gap:6px;"><div>' + diagTag(item.sync_status) + '</div><div style="color:#5b6f8f;font-size:11px;line-height:1.5;">' + esc(item.sync_reason || '-') + '</div></div></td>' +
+            '<td style="color:#5b6f8f;font-size:11px;line-height:1.5;">' + esc(item.next_action || '-') + '</td>' +
             '<td class="ops"><button type="button" onclick="quickCollect(\'' + encodeURIComponent(item.root_path || '') + '\')">追加采集</button><button type="button" onclick="useProjectFilterById(\'' + esc(item.project_id || '') + '\', \'' + esc(item.name || item.root_path || '') + '\')">筛选搜索</button></td>' +
           '</tr>'
         );
       }
 
-      document.getElementById('projectRows').innerHTML = rows.join('') || '<tr><td colspan="9">暂无项目，请先采集一个项目路径。</td></tr>';
+      document.getElementById('projectRows').innerHTML = rows.join('') || '<tr><td colspan="12">暂无项目，请先采集一个项目路径。</td></tr>';
       document.getElementById('colEvents').textContent = eventCount;
       document.getElementById('colDocs').textContent = docCount;
       document.getElementById('colConvs').textContent = convCount;
