@@ -65,12 +65,13 @@
       gap: 8px;
       min-height: 0;
       overflow: hidden;
+      background: linear-gradient(180deg, #fdfefe 0%, #f7fbff 100%);
     }
 
     .brand {
-      border: 1px solid #d3e0ef;
+      border: 1px solid #deebf8;
       border-radius: 14px;
-      background: linear-gradient(145deg, #f2f8ff, #fcfdff);
+      background: linear-gradient(145deg, #f8fbff, #ffffff);
       padding: 12px;
     }
 
@@ -87,10 +88,10 @@
     }
 
     .section {
-      border: 1px solid var(--line);
+      border: 1px solid #dde7f4;
       border-radius: 13px;
       padding: 11px;
-      background: #fbfdff;
+      background: rgba(255, 255, 255, 0.82);
     }
 
     .section h3 {
@@ -173,7 +174,7 @@
       border: 1px solid transparent;
       border-radius: 9px;
       background: transparent;
-      color: #31435f;
+      color: #425673;
       text-align: left;
       padding: 6px 8px;
       font-size: 12px;
@@ -186,7 +187,7 @@
     }
 
     .menu button.active {
-      background: #edf3ff;
+      background: linear-gradient(180deg, #eef4ff, #e8f0ff);
       border-color: #cadbfd;
       color: #1c4fa8;
       font-weight: 600;
@@ -333,7 +334,7 @@
       min-height: 0;
       min-width: 0;
       overflow: hidden;
-      grid-template-rows: auto auto auto minmax(0, 1fr);
+      grid-template-rows: auto auto auto auto minmax(0, 1fr);
     }
 
     .collector-layout > .card:first-child {
@@ -342,6 +343,38 @@
     }
 
     .card h3 { margin: 0; font-size: 13px; font-weight: 600; }
+
+    .overview-strip {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .overview-card {
+      border: 1px solid #dce7f7;
+      border-radius: 12px;
+      padding: 9px 10px;
+      background: linear-gradient(180deg, #fcfdff, #f7fbff);
+      display: grid;
+      gap: 4px;
+      min-width: 0;
+    }
+
+    .overview-card b {
+      font-size: 17px;
+      line-height: 1;
+      color: #223658;
+    }
+
+    .overview-card span {
+      font-size: 10px;
+      color: #5c6f8f;
+    }
+
+    .overview-card.accent {
+      background: linear-gradient(135deg, #f2fbf9, #f6f9ff);
+      border-color: #d6eaf2;
+    }
 
     .searchbar {
       display: grid;
@@ -564,50 +597,203 @@
       padding-left: 2px;
     }
 
-    .table-wrap {
+    .collector-board {
       border: 1px solid var(--line);
       border-radius: 10px;
       overflow: auto;
       min-height: 0;
+      background: #fcfdff;
+      padding: 10px;
     }
 
-    table {
-      width: 100%;
-      border-collapse: collapse;
+    .project-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .project-card {
+      border: 1px solid #dbe5f4;
+      border-radius: 14px;
+      background: #fff;
+      padding: 12px;
+      display: grid;
+      gap: 9px;
+    }
+
+    .project-card-head {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .project-card h4 {
+      margin: 0;
+      font-size: 15px;
+      color: #20314f;
+    }
+
+    .project-path {
+      margin-top: 4px;
       font-size: 11px;
-      min-width: 980px;
+      color: var(--muted);
+      line-height: 1.5;
+      word-break: break-all;
     }
 
-    th, td {
-      border-bottom: 1px solid #e5ecf6;
-      padding: 8px 7px;
-      text-align: left;
-      vertical-align: top;
-    }
-
-    th {
-      background: #f8fbff;
-      color: #51627d;
-      font-weight: 700;
-      position: sticky;
-      top: 0;
-      z-index: 1;
-    }
-
-    .ops {
+    .project-badges,
+    .coverage-row,
+    .status-row,
+    .project-actions {
       display: flex;
+      flex-wrap: wrap;
       gap: 6px;
+      align-items: center;
+    }
+
+    .project-main {
+      display: grid;
+      gap: 8px;
+      align-items: start;
+    }
+
+    .project-toolbar {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      justify-content: flex-end;
       flex-wrap: wrap;
     }
 
-    .ops button {
+    .project-metrics {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .metric-box {
+      border: 1px solid #e2eaf6;
+      border-radius: 10px;
+      background: #fbfdff;
+      padding: 8px 10px;
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .metric-box b {
+      font-size: 16px;
+      line-height: 1;
+      color: #24375a;
+      white-space: nowrap;
+    }
+
+    .metric-box span {
+      font-size: 10px;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+
+    .summary-box {
+      border: 1px solid #e3ebf7;
+      border-radius: 11px;
+      background: linear-gradient(180deg, #fbfdff, #f8fbff);
+      padding: 10px 12px;
+      display: grid;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .summary-item {
+      display: grid;
+      grid-template-columns: 76px minmax(0, 1fr);
+      gap: 10px;
+      align-items: start;
+    }
+
+    .summary-label {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 24px;
+      border-radius: 999px;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: .04em;
+      color: #516684;
+      background: #eef4ff;
+      border: 1px solid #d8e4fb;
+      white-space: nowrap;
+      padding: 0 10px;
+    }
+
+    .summary-item p {
+      margin: 0;
+      font-size: 11px;
+      color: #334968;
+      line-height: 1.55;
+    }
+
+    .project-time {
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 10px;
+      color: #2d6dff;
+      background: #eef4ff;
+      border: 1px solid #cdddff;
+      border-radius: 999px;
+      padding: 4px 9px;
+      white-space: nowrap;
+    }
+
+    .project-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .project-actions button {
       border: 1px solid #cfdcf0;
-      border-radius: 7px;
+      border-radius: 9px;
       background: #fff;
       color: #30425e;
-      padding: 6px 9px;
-      font-size: 10px;
+      padding: 7px 11px;
+      font-size: 11px;
+      font-weight: 600;
       cursor: pointer;
+      min-width: 102px;
+    }
+
+    .project-actions .primary {
+      background: linear-gradient(120deg, #0ea8a3, #2d6dff);
+      color: #fff;
+      border-color: transparent;
+    }
+
+    .project-actions .ghost {
+      background: #fff;
+    }
+
+    .project-card.ok {
+      border-color: #cae9dd;
+      background: linear-gradient(180deg, #ffffff, #fbfffd);
+    }
+
+    .project-card.partial {
+      border-color: #d7e3fb;
+      background: linear-gradient(180deg, #ffffff, #fbfcff);
+    }
+
+    .project-card.warning,
+    .project-card.empty {
+      border-color: #f0ddb2;
+      background: linear-gradient(180deg, #ffffff, #fffdf8);
+    }
+
+    .project-card.error {
+      border-color: #f2c4d0;
+      background: linear-gradient(180deg, #ffffff, #fffafb);
     }
 
     .hint {
@@ -622,6 +808,7 @@
 
     @media (max-width: 1220px) {
       .search-layout { grid-template-columns: 1fr; }
+      .overview-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .facet-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .facet-row .facet-reset { grid-column: span 2; }
       .detail-meta-grid { grid-template-columns: 1fr; }
@@ -634,13 +821,20 @@
       .main { order: 1; }
       body { overflow: auto; }
       .app { height: auto; min-height: 100vh; }
+      .overview-strip { grid-template-columns: 1fr; }
+      .project-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .project-card-head { grid-template-columns: 1fr; }
+      .project-toolbar { justify-content: flex-start; }
+      .project-actions { width: 100%; justify-content: flex-start; }
+      .project-actions button { flex: 1 1 140px; }
+      .summary-item { grid-template-columns: 1fr; gap: 6px; }
     }
 
     #spacesMenu,
     .results,
     .trace,
     .detail-content,
-    .table-wrap {
+    .collector-board {
       scrollbar-width: none;
       -ms-overflow-style: none;
     }
@@ -649,7 +843,7 @@
     .results::-webkit-scrollbar,
     .trace::-webkit-scrollbar,
     .detail-content::-webkit-scrollbar,
-    .table-wrap::-webkit-scrollbar {
+    .collector-board::-webkit-scrollbar {
       width: 0;
       height: 0;
       display: none;
@@ -710,6 +904,13 @@
 
       <div class="workspace search-layout active" id="search">
         <article class="card">
+          <div class="overview-strip">
+            <div class="overview-card accent"><b id="ovProjects">0</b><span>已登记项目</span></div>
+            <div class="overview-card"><b id="ovItems">0</b><span>已入库内容</span></div>
+            <div class="overview-card"><b id="ovHealthy">0</b><span>可检索项目</span></div>
+            <div class="overview-card"><b id="ovAttention">0</b><span>待关注项目</span></div>
+          </div>
+
           <div class="searchbar">
             <input id="q" type="text" value="" placeholder="输入任意关键词，例如：支付重试、库存、中断、报表" />
             <button class="btn" id="searchBtn" type="button">搜索</button>
@@ -775,26 +976,8 @@
             <span id="collectStatus">等待采集</span>
             <button class="btn subtle" id="refreshProjectsBtn" type="button">刷新列表</button>
           </div>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>项目</th>
-                  <th>路径</th>
-                  <th>注册</th>
-                  <th>来源覆盖</th>
-                  <th>内容条数</th>
-                  <th>事件条数</th>
-                  <th>文档条数</th>
-                  <th>对话条数</th>
-                  <th>上次同步</th>
-                  <th>当前诊断</th>
-                  <th>建议动作</th>
-                  <th>操作</th>
-                </tr>
-              </thead>
-              <tbody id="projectRows"></tbody>
-            </table>
+          <div class="collector-board">
+            <div class="project-list" id="projectRows"></div>
           </div>
         </article>
 
@@ -833,6 +1016,7 @@
       allResults: [],
       selected: null,
       projects: [],
+      stats: {},
       activeProjectId: "all",
       activeProjectLabel: "全部项目",
       favorites: new Set(),
@@ -1015,11 +1199,27 @@
     async function loadStats() {
       const res = await fetch('/api/stats');
       const data = await res.json();
+      state.stats = data || {};
       document.getElementById('kProjects').textContent = data.projects ?? 0;
       document.getElementById('kItems').textContent = data.items ?? 0;
       document.getElementById('kEvents').textContent = data.events ?? 0;
       document.getElementById('kLinks').textContent = data.links ?? 0;
       document.getElementById('spaceAllCount').textContent = data.items ?? 0;
+      updateSearchOverview();
+    }
+
+    function updateSearchOverview() {
+      const stats = state.stats || {};
+      const projects = Array.isArray(state.projects) ? state.projects : [];
+      const healthy = projects.filter((item) => String(item.sync_status || '').toLowerCase() === 'ok').length;
+      const attention = projects.filter((item) => {
+        const status = String(item.sync_status || '').toLowerCase();
+        return status === 'partial' || status === 'warning' || status === 'empty' || status === 'error';
+      }).length;
+      document.getElementById('ovProjects').textContent = stats.projects ?? projects.length ?? 0;
+      document.getElementById('ovItems').textContent = stats.items ?? projects.reduce((sum, p) => sum + Number(p.item_count || 0), 0);
+      document.getElementById('ovHealthy').textContent = healthy;
+      document.getElementById('ovAttention').textContent = attention;
     }
 
     function renderSidebarProjects(projects) {
@@ -1073,7 +1273,7 @@
         boolChip(item.has_inbox_dir, 'Inbox'),
         boolChip(item.has_conversation_dir, '会话')
       ];
-      return '<div style="display:flex;gap:4px;flex-wrap:wrap;">' + parts.join('') + '</div>';
+      return '<div class="coverage-row">' + parts.join('') + '</div>';
     }
 
     async function loadProjects() {
@@ -1091,30 +1291,53 @@
         docCount += Number(item.document_count || 0);
         convCount += Number(item.conversation_count || 0);
 
+        const statusBadge = item.path_exists
+          ? '<span class="tag t-ok">已注册</span>'
+          : '<span class="tag" style="background:#ffe8ee;border-color:#f5bfd0;color:#9d1f39;">路径异常</span>';
+        const cardState = esc(item.sync_status || 'unknown');
         rows.push(
-          '<tr>' +
-            '<td>' + esc(item.name || '-') + '</td>' +
-            '<td>' + esc(item.root_path || '-') + '</td>' +
-            '<td>' + (item.path_exists ? '<span class="tag t-ok">已注册</span>' : '<span class="tag" style="background:#ffe8ee;border-color:#f5bfd0;color:#9d1f39;">路径异常</span>') + '</td>' +
-            '<td>' + renderCoverage(item) + '</td>' +
-            '<td>' + Number(item.item_count || 0) + '</td>' +
-            '<td>' + Number(item.event_count || 0) + '</td>' +
-            '<td>' + Number(item.document_count || 0) + '</td>' +
-            '<td>' + Number(item.conversation_count || 0) + '</td>' +
-            '<td>' + esc(formatTime(item.last_item_at || '')) + '</td>' +
-            '<td><div style="display:grid;gap:6px;"><div>' + diagTag(item.sync_status) + '</div><div style="color:#5b6f8f;font-size:11px;line-height:1.5;">' + esc(item.sync_reason || '-') + '</div></div></td>' +
-            '<td style="color:#5b6f8f;font-size:11px;line-height:1.5;">' + esc(item.next_action || '-') + '</td>' +
-            '<td class="ops"><button type="button" onclick="quickCollect(\'' + encodeURIComponent(item.root_path || '') + '\')">追加采集</button><button type="button" onclick="useProjectFilterById(\'' + esc(item.project_id || '') + '\', \'' + esc(item.name || item.root_path || '') + '\')">筛选搜索</button></td>' +
-          '</tr>'
+          '<article class="project-card ' + cardState + '">' +
+            '<div class="project-card-head">' +
+              '<div>' +
+                '<h4>' + esc(item.name || '-') + '</h4>' +
+                '<div class="project-path">' + esc(item.root_path || '-') + '</div>' +
+              '</div>' +
+              '<div class="project-toolbar">' +
+                '<div class="project-badges">' + statusBadge + diagTag(item.sync_status) + '</div>' +
+                '<span class="project-time">上次同步 ' + esc(formatTime(item.last_item_at || '')) + '</span>' +
+                '<div class="project-actions"><button class="primary" type="button" onclick="quickCollect(\'' + encodeURIComponent(item.root_path || '') + '\')">追加采集</button><button class="ghost" type="button" onclick="useProjectFilterById(\'' + esc(item.project_id || '') + '\', \'' + esc(item.name || item.root_path || '') + '\')">筛选搜索</button></div>' +
+              '</div>' +
+            '</div>' +
+            '<div class="project-main">' +
+              renderCoverage(item) +
+              '<div class="project-metrics">' +
+                '<div class="metric-box"><b>' + Number(item.item_count || 0) + '</b><span>总条数</span></div>' +
+                '<div class="metric-box"><b>' + Number(item.event_count || 0) + '</b><span>事件</span></div>' +
+                '<div class="metric-box"><b>' + Number(item.document_count || 0) + '</b><span>文档</span></div>' +
+                '<div class="metric-box"><b>' + Number(item.conversation_count || 0) + '</b><span>对话</span></div>' +
+              '</div>' +
+              '<div class="summary-box">' +
+                '<div class="summary-item">' +
+                  '<span class="summary-label">当前诊断</span>' +
+                  '<p>' + esc(item.sync_reason || '-') + '</p>' +
+                '</div>' +
+                '<div class="summary-item">' +
+                  '<span class="summary-label">建议动作</span>' +
+                  '<p>' + esc(item.next_action || '-') + '</p>' +
+                '</div>' +
+              '</div>' +
+            '</div>' +
+          '</article>'
         );
       }
 
-      document.getElementById('projectRows').innerHTML = rows.join('') || '<tr><td colspan="12">暂无项目，请先采集一个项目路径。</td></tr>';
+      document.getElementById('projectRows').innerHTML = rows.join('') || '<div class="detail-panel"><h5>暂无项目</h5><p>请先采集一个项目路径。</p></div>';
       document.getElementById('colEvents').textContent = eventCount;
       document.getElementById('colDocs').textContent = docCount;
       document.getElementById('colConvs').textContent = convCount;
 
       renderSidebarProjects(state.projects);
+      updateSearchOverview();
     }
 
     async function collectProject(path) {
