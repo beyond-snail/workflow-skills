@@ -693,6 +693,75 @@
       word-break: break-word;
     }
 
+    .conversation-view {
+      display: grid;
+      gap: 8px;
+      white-space: normal;
+    }
+
+    .message-block {
+      border: 1px solid #d7e5f8;
+      background: #fff;
+      border-radius: 10px;
+      padding: 9px 10px;
+    }
+
+    .message-block.assistant {
+      background: #f7fbff;
+    }
+
+    .message-role {
+      display: inline-flex;
+      align-items: center;
+      height: 20px;
+      padding: 0 8px;
+      border-radius: 999px;
+      background: #e9f4ff;
+      color: #1f63b5;
+      font-size: 10px;
+      font-weight: 800;
+      margin-bottom: 6px;
+    }
+
+    .message-block.user .message-role {
+      background: #e7f8ef;
+      color: #16734b;
+    }
+
+    .message-text {
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      color: #253b5d;
+      line-height: 1.58;
+    }
+
+    .content-notice {
+      border: 1px dashed #e4b861;
+      background: #fff8e8;
+      color: #815a14;
+      border-radius: 10px;
+      padding: 8px 10px;
+      font-size: 11px;
+      line-height: 1.5;
+      white-space: normal;
+    }
+
+    .conversation-summary {
+      border: 1px solid #cfe0ff;
+      background: #f5f9ff;
+      border-radius: 10px;
+      padding: 10px;
+      color: #233b63;
+      line-height: 1.55;
+    }
+
+    .conversation-summary b {
+      display: block;
+      font-size: 11px;
+      color: #1f63b5;
+      margin-bottom: 4px;
+    }
+
     .trace-block {
       display: grid;
       gap: 4px;
@@ -1166,6 +1235,7 @@
           <div class="meta">
             <span id="collectStatus">等待采集</span>
             <button class="btn subtle" id="refreshProjectsBtn" type="button">刷新列表</button>
+            <button class="btn subtle" id="compactConversationsBtn" type="button">整理会话</button>
           </div>
           <div class="collector-board">
             <div class="project-list" id="projectRows"></div>
@@ -1401,6 +1471,79 @@
       favBtn.textContent = enabled && state.favorites.has(String(selectedId)) ? '取消收藏' : '加入收藏';
     }
 
+    function looksNoisyContent(text) {
+      const value = String(text || '');
+      if (!value.trim()) return false;
+      const markers = [
+        '"cmd"',
+        '"tool_uses"',
+        'exec_command',
+        'workflow-statusbar/src-tauri/src/lib.rs:',
+        'Chunk ID:',
+        '{"timestamp"',
+        'Process exited with code'
+      ];
+      return markers.some((item) => value.includes(item));
+    }
+
+    function parseConversationBlocks(text) {
+      const blocks = [];
+      const re = /\[(用户|助手|user|assistant)\]\s*/ig;
+      const matches = Array.from(String(text || '').matchAll(re));
+      if (!matches.length) return blocks;
+      for (let i = 0; i < matches.length; i += 1) {
+        const match = matches[i];
+        const start = match.index + match[0].length;
+        const end = i + 1 < matches.length ? matches[i + 1].index : String(text || '').length;
+        const roleRaw = match[1].toLowerCase();
+        const content = String(text || '').slice(start, end).trim();
+        if (!content) continue;
+        blocks.push({
+          role: roleRaw === '用户' || roleRaw === 'user' ? 'user' : 'assistant',
+          label: roleRaw === '用户' || roleRaw === 'user' ? '用户' : '助手',
+          content
+        });
+      }
+      return blocks;
+    }
+
+    function summarizeConversation(blocks) {
+      const firstUser = blocks.find((block) => block.role === 'user')?.content || '';
+      const lastAssistant = [...blocks].reverse().find((block) => block.role === 'assistant')?.content || '';
+      const clean = (value) => String(value || '').replace(/\s+/g, ' ').trim();
+      const userText = clean(firstUser).slice(0, 160);
+      const assistantText = clean(lastAssistant).slice(0, 220);
+      if (!userText && !assistantText) return '';
+      return '<div class="conversation-summary">' +
+        '<b>会话摘要</b>' +
+        (userText ? '<div>诉求：' + esc(userText) + '</div>' : '') +
+        (assistantText ? '<div>结论：' + esc(assistantText) + '</div>' : '') +
+      '</div>';
+    }
+
+    function renderReadableContent(item, detail) {
+      const text = detail?.content_text || '';
+      if (!text.trim()) return '(无详细内容)';
+      if (item?.item_type === 'conversation') {
+        const blocks = parseConversationBlocks(text);
+        if (blocks.length) {
+          return '<div class="conversation-view">' + summarizeConversation(blocks) + blocks.map((block) =>
+            '<div class="message-block ' + esc(block.role) + '">' +
+              '<div class="message-role">' + esc(block.label) + '</div>' +
+              '<div class="message-text">' + esc(block.content) + '</div>' +
+            '</div>'
+          ).join('') + '</div>';
+        }
+        if (looksNoisyContent(text)) {
+          return '<div class="conversation-view">' +
+            '<div class="content-notice">这条会话包含命令输出或工具日志，已不适合作为业务知识直接阅读。请执行会话整理后刷新。</div>' +
+            '<div class="message-block"><div class="message-role">原始片段</div><div class="message-text">' + esc(text.slice(0, 1200)) + '</div></div>' +
+          '</div>';
+        }
+      }
+      return esc(text);
+    }
+
     async function renderDetailContent(item) {
       const out = document.getElementById('dContent');
       if (!item?.item_id) {
@@ -1409,7 +1552,7 @@
       }
       const cacheHit = state.detailCache[item.item_id];
       if (cacheHit) {
-        out.textContent = cacheHit.content_text || '(无详细内容)';
+        out.innerHTML = renderReadableContent(item, cacheHit);
         return;
       }
       out.textContent = '正在加载详细内容...';
@@ -1422,7 +1565,7 @@
         }
         state.detailCache[item.item_id] = data.item;
         if (state.selected?.item_id === item.item_id) {
-          out.textContent = data.item.content_text || '(无详细内容)';
+          out.innerHTML = renderReadableContent(item, data.item);
         }
       } catch (_) {
         out.textContent = '读取详细内容失败';
@@ -1760,6 +1903,20 @@
       collectProject(path);
     }
 
+    async function compactConversations() {
+      const status = document.getElementById('collectStatus');
+      status.textContent = '正在整理会话，请稍候...';
+      const res = await fetch('/api/compact-conversations');
+      const data = await res.json();
+      if (!res.ok) {
+        status.textContent = '整理失败：' + (data.error || 'unknown_error');
+        return;
+      }
+      state.detailCache = {};
+      status.textContent = '整理完成：合并 ' + Number(data.compacted || 0) + ' 组会话，移除 ' + Number(data.removed || 0) + ' 条碎片。';
+      await Promise.all([loadStats(), loadProjects(), runSearch()]);
+    }
+
     async function init() {
       bindFloatingTips(document);
       window.addEventListener('scroll', hideFloatingTip, true);
@@ -1790,6 +1947,10 @@
 
       document.getElementById('refreshProjectsBtn').addEventListener('click', () => {
         loadProjects();
+      });
+
+      document.getElementById('compactConversationsBtn').addEventListener('click', () => {
+        compactConversations();
       });
 
       document.getElementById('resetFiltersBtn').addEventListener('click', () => {

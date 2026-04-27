@@ -3065,6 +3065,27 @@ fn fnv1a64_hex(input: &str) -> String {
     format!("{hash:016x}")
 }
 
+fn kb_item_id_for(
+    project_id: &str,
+    item_type: &str,
+    content_hash: &str,
+    source_path: &str,
+    meta: &KbItemMeta,
+) -> String {
+    if item_type == "conversation" && !meta.session_id.trim().is_empty() {
+        return format!(
+            "item-{}",
+            fnv1a64_hex(&format!(
+                "conversation:{}:{}:{}",
+                project_id,
+                source_path,
+                meta.session_id.trim()
+            ))
+        );
+    }
+    format!("item-{content_hash}")
+}
+
 fn now_nanos() -> u128 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -3247,7 +3268,7 @@ fn kb_upsert_item_with_meta(
     meta: &KbItemMeta,
 ) -> Result<String, String> {
     let content_hash = fnv1a64_hex(content_text);
-    let item_id = format!("item-{content_hash}");
+    let item_id = kb_item_id_for(project_id, item_type, &content_hash, source_path, meta);
     conn.execute(
         r#"
         INSERT INTO items(item_id, project_id, item_type, title, content_text, source_path, content_hash, source_type, source_tool, session_id, speaker, verified, tags)
@@ -3545,6 +3566,152 @@ fn normalize_collected_content(raw: &str) -> String {
     out
 }
 
+fn is_human_conversation_role(role: &str) -> bool {
+    matches!(
+        role.trim().to_ascii_lowercase().as_str(),
+        "user" | "assistant"
+    )
+}
+
+fn collect_text_from_content_value(content: &serde_json::Value) -> String {
+    if let Some(text) = content.as_str() {
+        return text.trim().to_string();
+    }
+    if let Some(parts) = content.as_array() {
+        return parts
+            .iter()
+            .filter_map(|item| {
+                item.get("text")
+                    .and_then(|value| value.as_str())
+                    .or_else(|| item.get("content").and_then(|value| value.as_str()))
+                    .or_else(|| item.as_str())
+            })
+            .map(str::trim)
+            .filter(|item| !item.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n");
+    }
+    if let Some(parts) = content.get("parts").and_then(|item| item.as_array()) {
+        return parts
+            .iter()
+            .filter_map(|item| {
+                item.get("text")
+                    .and_then(|value| value.as_str())
+                    .or_else(|| item.as_str())
+            })
+            .map(str::trim)
+            .filter(|item| !item.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n");
+    }
+    if let Some(text) = content.get("text").and_then(|item| item.as_str()) {
+        return text.trim().to_string();
+    }
+    String::new()
+}
+
+fn conversation_text_noise_score(text: &str) -> i32 {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return 100;
+    }
+    let ascii_len = trimmed.chars().filter(|ch| ch.is_ascii_alphanumeric()).count();
+    let non_space_len = trimmed.chars().filter(|ch| !ch.is_whitespace()).count().max(1);
+    let punctuation_len = trimmed
+        .chars()
+        .filter(|ch| "{}[]<>|\\;".contains(*ch))
+        .count();
+    let mut score = 0;
+    if trimmed.len() > 1200 {
+        score += 2;
+    }
+    if trimmed.contains("\"cmd\"")
+        || trimmed.contains("\"tool_uses\"")
+        || trimmed.contains("\"recipient_name\"")
+        || trimmed.contains("\"function_call_output\"")
+        || trimmed.contains("\"function_call\"")
+        || trimmed.contains("exec_command")
+        || trimmed.contains("write_stdin")
+        || trimmed.contains("apply_patch")
+    {
+        score += 5;
+    }
+    if trimmed.contains("workflow-statusbar/src-tauri/src/lib.rs:")
+        || trimmed.contains("Chunk ID:")
+        || trimmed.contains("Process exited with code")
+        || trimmed.contains("Original token count:")
+        || trimmed.contains("timestamp")
+        || trimmed.contains("rate_limits")
+        || trimmed.contains("token_count")
+    {
+        score += 4;
+    }
+    if punctuation_len * 3 > non_space_len {
+        score += 2;
+    }
+    if ascii_len * 100 / non_space_len > 92 && trimmed.len() > 180 {
+        score += 2;
+    }
+    score
+}
+
+fn clean_conversation_text(text: &str) -> Option<String> {
+    let mut lines = Vec::new();
+    let normalized_text = text.replace("\\n", "\n");
+    for line in normalized_text.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if trimmed.starts_with("```") {
+            continue;
+        }
+        if trimmed.starts_with("workflow-statusbar/")
+            || trimmed.starts_with("src-tauri/")
+            || trimmed.starts_with("Chunk ID:")
+            || trimmed.starts_with("Original token count:")
+            || trimmed.starts_with("Process exited with code")
+            || trimmed.starts_with("{\"timestamp\"")
+            || trimmed.starts_with("\"cmd\":")
+        {
+            continue;
+        }
+        lines.push(trimmed);
+        if lines.len() >= 24 {
+            break;
+        }
+    }
+    let cleaned = lines.join("\n");
+    if cleaned.trim().is_empty() || conversation_text_noise_score(&cleaned) >= 5 {
+        None
+    } else {
+        Some(cleaned)
+    }
+}
+
+fn normalize_conversation_block(block: &str) -> String {
+    block
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .chars()
+        .take(300)
+        .collect::<String>()
+}
+
+fn format_conversation_line(role: &str, text: &str) -> Option<String> {
+    if !is_human_conversation_role(role) {
+        return None;
+    }
+    let cleaned = clean_conversation_text(text)?;
+    let label = if role.eq_ignore_ascii_case("user") {
+        "用户"
+    } else {
+        "助手"
+    };
+    Some(format!("[{label}] {cleaned}"))
+}
+
 fn extract_messages_from_json(raw: &str) -> Option<String> {
     let value: serde_json::Value = serde_json::from_str(raw).ok()?;
 
@@ -3556,23 +3723,9 @@ fn extract_messages_from_json(raw: &str) -> Option<String> {
             }
         }
         if let Some(content) = msg.get("content") {
-            if let Some(text) = content.as_str() {
-                let t = text.trim();
-                if !t.is_empty() {
-                    return Some(t.to_string());
-                }
-            }
-            if let Some(parts) = content.get("parts").and_then(|item| item.as_array()) {
-                let merged = parts
-                    .iter()
-                    .filter_map(|item| item.as_str())
-                    .map(str::trim)
-                    .filter(|item| !item.is_empty())
-                    .collect::<Vec<_>>()
-                    .join("\n");
-                if !merged.is_empty() {
-                    return Some(merged);
-                }
+            let merged = collect_text_from_content_value(content);
+            if !merged.is_empty() {
+                return Some(merged);
             }
         }
         if let Some(message) = msg.get("message") {
@@ -3600,21 +3753,27 @@ fn extract_messages_from_json(raw: &str) -> Option<String> {
         for msg in messages {
             if let Some(text) = collect_message_text(msg) {
                 let role = detect_role(msg);
-                lines.push(format!("[{role}] {text}"));
+                if let Some(line) = format_conversation_line(&role, &text) {
+                    lines.push(line);
+                }
             }
         }
     } else if let Some(items) = value.as_array() {
         for msg in items {
             if let Some(text) = collect_message_text(msg) {
                 let role = detect_role(msg);
-                lines.push(format!("[{role}] {text}"));
+                if let Some(line) = format_conversation_line(&role, &text) {
+                    lines.push(line);
+                }
             }
         }
     } else if let Some(mapping) = value.get("mapping").and_then(|item| item.as_object()) {
         for msg in mapping.values() {
             if let Some(text) = collect_message_text(msg) {
                 let role = detect_role(msg);
-                lines.push(format!("[{role}] {text}"));
+                if let Some(line) = format_conversation_line(&role, &text) {
+                    lines.push(line);
+                }
             }
         }
     }
@@ -3637,79 +3796,87 @@ fn extract_messages_from_jsonl(raw: &str) -> Option<String> {
             continue;
         };
 
-        let role = payload
+        let payload_type = payload
+            .get("type")
+            .and_then(|item| item.as_str())
+            .unwrap_or_default();
+        let payload_body = payload.get("payload").unwrap_or(&payload);
+        let body_type = payload_body
+            .get("type")
+            .and_then(|item| item.as_str())
+            .unwrap_or(payload_type);
+        if payload_type == "response_item" {
+            continue;
+        }
+        if payload_type == "event_msg" && !matches!(body_type, "user_message" | "agent_message") {
+            continue;
+        }
+        if matches!(
+            body_type,
+            "function_call" | "function_call_output" | "exec_command" | "token_count" | "task_started"
+        ) {
+            continue;
+        }
+
+        let mut role = payload_body
             .get("role")
             .and_then(|item| item.as_str())
             .or_else(|| {
-                payload
-                    .get("message")
-                    .and_then(|message| message.get("role"))
-                    .and_then(|item| item.as_str())
-            })
-            .or_else(|| {
-                payload
+                payload_body
                     .get("author")
                     .and_then(|author| author.get("role"))
                     .and_then(|item| item.as_str())
             })
+            .or_else(|| payload.get("role").and_then(|item| item.as_str()))
             .map(str::trim)
             .filter(|item| !item.is_empty())
-            .unwrap_or("unknown");
+            .unwrap_or("unknown")
+            .to_string();
 
-        let text = payload
-            .get("text")
-            .and_then(|item| item.as_str())
-            .map(str::to_string)
+        let mut text = payload_body
+            .get("content")
+            .map(collect_text_from_content_value)
+            .filter(|item| !item.trim().is_empty())
             .or_else(|| {
-                payload
+                payload_body
                     .get("message")
-                    .and_then(|message| message.get("content"))
                     .and_then(|item| item.as_str())
                     .map(str::to_string)
             })
-            .or_else(|| {
-                payload
-                    .get("message")
-                    .and_then(|message| message.get("content"))
-                    .and_then(|content| content.as_array())
-                    .map(|parts| {
-                        parts
-                            .iter()
-                            .filter_map(|item| {
-                                item.get("text")
-                                    .and_then(|v| v.as_str())
-                                    .or_else(|| item.as_str())
-                            })
-                            .map(str::trim)
-                            .filter(|item| !item.is_empty())
-                            .collect::<Vec<_>>()
-                            .join("\n")
-                    })
-            })
-            .or_else(|| {
-                payload
-                    .get("content")
-                    .and_then(|content| content.as_array())
-                    .map(|parts| {
-                        parts
-                            .iter()
-                            .filter_map(|item| {
-                                item.get("text")
-                                    .and_then(|v| v.as_str())
-                                    .or_else(|| item.as_str())
-                            })
-                            .map(str::trim)
-                            .filter(|item| !item.is_empty())
-                            .collect::<Vec<_>>()
-                            .join("\n")
-                    })
-            })
+            .or_else(|| payload_body.get("text").and_then(|item| item.as_str()).map(str::to_string))
+            .or_else(|| payload.get("text").and_then(|item| item.as_str()).map(str::to_string))
             .unwrap_or_default();
 
-        if text.trim().is_empty() {
-            continue;
+        if role == "unknown" && payload_type == "event_msg" {
+            if body_type == "user_message" {
+                role = "user".into();
+            } else if body_type == "agent_message" {
+                role = "assistant".into();
+            }
         }
-        lines.push(format!("[{role}] {}", text.trim()));
+        if text.trim().is_empty() {
+            if let Some(message) = payload.get("message") {
+                role = message
+                    .get("role")
+                    .and_then(|item| item.as_str())
+                    .unwrap_or(role.as_str())
+                    .to_string();
+                text = message
+                    .get("content")
+                    .map(collect_text_from_content_value)
+                    .filter(|item| !item.trim().is_empty())
+                    .or_else(|| message.get("text").and_then(|item| item.as_str()).map(str::to_string))
+                    .unwrap_or_default();
+            }
+        }
+
+        let Some(line) = format_conversation_line(&role, &text) else {
+            continue;
+        };
+        lines.push(line);
+        if lines.len() >= 80 {
+            break;
+        }
     }
 
     if lines.is_empty() {
@@ -4564,6 +4731,175 @@ fn kb_item_detail_internal(item_id: &str) -> Result<KbItemDetailResponse, String
     Ok(KbItemDetailResponse { item })
 }
 
+fn rebuild_knowledgebase_fts(conn: &Connection) -> Result<(), String> {
+    conn.execute("DELETE FROM items_fts", [])
+        .map_err(|err| err.to_string())?;
+    conn.execute(
+        "INSERT INTO items_fts(item_id, title, content_text, source_path) SELECT item_id, title, content_text, source_path FROM items",
+        [],
+    )
+    .map_err(|err| err.to_string())?;
+    Ok(())
+}
+
+fn kb_compact_conversations_internal() -> Result<serde_json::Value, String> {
+    let conn = connect_knowledgebase()?;
+    let mut stmt = conn
+        .prepare(
+            r#"
+            SELECT item_id, project_id, title, content_text, source_path, source_tool, session_id, updated_at
+            FROM items
+            WHERE item_type='conversation'
+            ORDER BY source_path, session_id, updated_at DESC
+            "#,
+        )
+        .map_err(|err| err.to_string())?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3).unwrap_or_default(),
+                row.get::<_, String>(4).unwrap_or_default(),
+                row.get::<_, String>(5).unwrap_or_default(),
+                row.get::<_, String>(6).unwrap_or_default(),
+                row.get::<_, String>(7).unwrap_or_default(),
+            ))
+        })
+        .map_err(|err| err.to_string())?;
+
+    let mut groups: HashMap<(String, String, String), Vec<(String, String, String, String, String)>> =
+        HashMap::new();
+    for row in rows {
+        let (item_id, project_id, title, content, source_path, source_tool, session_id, updated_at) =
+            row.map_err(|err| err.to_string())?;
+        let key = (project_id, source_path, session_id);
+        groups
+            .entry(key)
+            .or_default()
+            .push((item_id, title, content, source_tool, updated_at));
+    }
+
+    let mut compacted = 0_i64;
+    let mut removed = 0_i64;
+    for ((project_id, source_path, session_id), entries) in groups {
+        if entries.is_empty() {
+            continue;
+        }
+        let mut seen = HashSet::new();
+        let mut blocks = Vec::new();
+        let mut source_tool = String::new();
+        let mut title = String::new();
+        if Path::new(&source_path).is_file() {
+            if let Ok(raw_content) = fs::read_to_string(&source_path) {
+                if let Some(extracted) = if source_path.ends_with(".jsonl") {
+                    extract_messages_from_jsonl(&raw_content)
+                } else if source_path.ends_with(".json") {
+                    extract_messages_from_json(&raw_content)
+                } else {
+                    None
+                } {
+                    for block in extracted.split("\n\n") {
+                        let normalized = block.trim();
+                        if normalized.is_empty() || conversation_text_noise_score(normalized) >= 5 {
+                            continue;
+                        }
+                        let key = fnv1a64_hex(&normalize_conversation_block(normalized));
+                        if seen.insert(key) {
+                            blocks.push(normalized.to_string());
+                        }
+                        if blocks.len() >= 80 {
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        for (_, entry_title, content, entry_tool, _) in &entries {
+            if title.is_empty() {
+                title = entry_title.clone();
+            }
+            if source_tool.is_empty() {
+                source_tool = entry_tool.clone();
+            }
+            if !blocks.is_empty() {
+                continue;
+            }
+            for block in content.split("\n\n") {
+                let normalized = block.trim();
+                if normalized.is_empty() || conversation_text_noise_score(normalized) >= 5 {
+                    continue;
+                }
+                let key = fnv1a64_hex(&normalize_conversation_block(normalized));
+                if seen.insert(key) {
+                    blocks.push(normalized.to_string());
+                }
+                if blocks.len() >= 80 {
+                    break;
+                }
+            }
+            if blocks.len() >= 80 {
+                break;
+            }
+        }
+        let merged = blocks.join("\n\n");
+        if merged.trim().is_empty() {
+            for (item_id, _, _, _, _) in entries {
+                conn.execute("DELETE FROM items WHERE item_id=?1", params![item_id])
+                    .map_err(|err| err.to_string())?;
+                removed += 1;
+            }
+            continue;
+        }
+        let canonical_meta = KbItemMeta {
+            source_type: "conversation".into(),
+            source_tool: if source_tool.trim().is_empty() {
+                "unknown".into()
+            } else {
+                source_tool
+            },
+            session_id: session_id.clone(),
+            speaker: String::new(),
+            verified: 0,
+            tags: "conversation,auto,compacted".into(),
+        };
+        let canonical_id = kb_upsert_item_with_meta(
+            &conn,
+            &project_id,
+            "conversation",
+            if title.trim().is_empty() {
+                "会话记录"
+            } else {
+                &title
+            },
+            &merged,
+            &source_path,
+            &canonical_meta,
+        )?;
+        compacted += 1;
+        let mut removed_canonical = false;
+        if conversation_text_noise_score(&merged) >= 5 {
+            conn.execute("DELETE FROM items WHERE item_id=?1", params![canonical_id])
+                .map_err(|err| err.to_string())?;
+            removed += 1;
+            removed_canonical = true;
+        }
+        for (item_id, _, _, _, _) in entries {
+            if item_id != canonical_id || removed_canonical {
+                conn.execute("DELETE FROM items WHERE item_id=?1", params![item_id])
+                    .map_err(|err| err.to_string())?;
+                removed += 1;
+            }
+        }
+    }
+    rebuild_knowledgebase_fts(&conn)?;
+    Ok(serde_json::json!({
+        "compacted": compacted,
+        "removed": removed
+    }))
+}
+
 fn kb_register_project_internal(path: &str, name: Option<String>) -> Result<String, String> {
     let root = PathBuf::from(path)
         .canonicalize()
@@ -4762,6 +5098,14 @@ fn handle_knowledgebase_http_request(request: Request) {
                 ),
             }
         }
+        "/api/compact-conversations" => match kb_compact_conversations_internal() {
+            Ok(data) => http_respond_json(request, 200, data.to_string()),
+            Err(err) => http_respond_json(
+                request,
+                500,
+                serde_json::json!({ "error": err }).to_string(),
+            ),
+        },
         _ if path.starts_with("/api/item/") => {
             let item_id = url_decode(path.trim_start_matches("/api/item/"));
             match kb_item_detail_internal(&item_id) {
@@ -6172,6 +6516,11 @@ fn kb_ingest_inbox(path: String) -> Result<serde_json::Value, String> {
 }
 
 #[tauri::command]
+fn kb_compact_conversations() -> Result<serde_json::Value, String> {
+    kb_compact_conversations_internal()
+}
+
+#[tauri::command]
 fn kb_push_event(
     path: String,
     event: serde_json::Value,
@@ -6349,6 +6698,7 @@ pub fn run() {
             kb_trace,
             kb_register_project,
             kb_ingest_inbox,
+            kb_compact_conversations,
             kb_push_event,
             kb_collect_project,
             kb_list_projects
