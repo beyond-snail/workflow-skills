@@ -309,6 +309,11 @@
       gap: 12px;
     }
 
+    .search-layout > aside.card {
+      min-height: 0;
+      grid-template-rows: auto auto auto auto minmax(180px, 1fr) auto auto auto;
+    }
+
     .collector-layout {
       grid-template-columns: 1fr;
       gap: 12px;
@@ -318,20 +323,22 @@
       border: 1px solid var(--line);
       border-radius: 14px;
       background: #fff;
-      padding: 12px;
+      padding: 10px;
       display: grid;
-      gap: 10px;
+      gap: 8px;
       align-content: start;
     }
 
     .search-layout > .card:first-child {
       min-height: 0;
-      grid-template-rows: auto auto auto auto minmax(0, 1fr);
+      min-width: 0;
+      overflow: hidden;
+      grid-template-rows: auto auto auto minmax(0, 1fr);
     }
 
     .collector-layout > .card:first-child {
       min-height: 0;
-      grid-template-rows: auto auto auto minmax(0, 1fr);
+      grid-template-rows: auto auto minmax(0, 1fr);
     }
 
     .card h3 { margin: 0; font-size: 13px; font-weight: 600; }
@@ -396,6 +403,7 @@
       gap: 8px;
       max-height: none;
       min-height: 0;
+      min-width: 0;
       overflow: auto;
       padding-right: 4px;
     }
@@ -406,6 +414,10 @@
       padding: 10px;
       cursor: pointer;
       background: #fff;
+      position: relative;
+      width: 100%;
+      min-width: 0;
+      max-width: 100%;
     }
 
     .result.active {
@@ -414,18 +426,61 @@
       background: #f8fbff;
     }
 
-    .result h4 { margin: 0 0 4px; font-size: 12px; font-weight: 600; }
+    .result-head {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      margin-bottom: 4px;
+      min-width: 0;
+    }
+
+    .result h4 {
+      margin: 0;
+      font-size: 12px;
+      font-weight: 600;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .result-time {
+      display: inline-flex;
+      align-items: center;
+      font-size: 11px;
+      color: #4b5f80;
+      white-space: nowrap;
+      font-family: "IBM Plex Sans", "Noto Sans SC", sans-serif;
+      border: 1px solid #d9e5f5;
+      border-radius: 999px;
+      padding: 1px 6px;
+      background: #f8fbff;
+      min-width: 120px;
+      justify-content: center;
+      font-weight: 600;
+      margin-left: auto;
+      flex: 0 0 auto;
+    }
+
+    .result-time:empty::before {
+      content: "时间未知";
+    }
+
     .result p { margin: 0; font-size: 11px; color: var(--muted); line-height: 1.4; }
     .result .meta-line {
+      min-width: 0;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
     }
     .result .snippet-line {
+      min-width: 0;
       display: -webkit-box;
       -webkit-line-clamp: 2;
       -webkit-box-orient: vertical;
       overflow: hidden;
+      overflow-wrap: anywhere;
+      word-break: break-word;
     }
 
     .trace {
@@ -447,8 +502,48 @@
       background: #fff;
     }
 
-    .kv { font-size: 11px; color: var(--muted); }
-    .kv b { color: #1c2b44; }
+    .detail-meta-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(150px, 0.8fr);
+      column-gap: 18px;
+      row-gap: 6px;
+      align-items: start;
+    }
+
+    .kv {
+      font-size: 11px;
+      color: var(--muted);
+      min-width: 0;
+    }
+    .kv b {
+      color: #1c2b44;
+      white-space: nowrap;
+    }
+    .kv.full {
+      grid-column: 1 / -1;
+    }
+    .kv.right-col {
+      justify-self: stretch;
+      display: grid;
+      grid-template-columns: 38px minmax(0, 1fr);
+      column-gap: 4px;
+      text-align: left;
+    }
+
+    .detail-content {
+      border: 1px solid #d8e2f2;
+      border-radius: 10px;
+      padding: 8px;
+      background: #fff;
+      min-height: 0;
+      height: 100%;
+      overflow: auto;
+      font-size: 11px;
+      color: #2d3f5d;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
 
     .action-row { display: flex; flex-wrap: wrap; gap: 6px; }
 
@@ -460,6 +555,13 @@
       font-size: 11px;
       padding: 6px 9px;
       cursor: pointer;
+    }
+
+    .action-tip {
+      min-height: 16px;
+      color: var(--muted);
+      font-size: 10px;
+      padding-left: 2px;
     }
 
     .table-wrap {
@@ -522,6 +624,8 @@
       .search-layout { grid-template-columns: 1fr; }
       .facet-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .facet-row .facet-reset { grid-column: span 2; }
+      .detail-meta-grid { grid-template-columns: 1fr; }
+      .kv.full { grid-column: auto; }
     }
 
     @media (max-width: 920px) {
@@ -535,7 +639,8 @@
     #spacesMenu,
     .results,
     .trace,
-      .table-wrap {
+    .detail-content,
+    .table-wrap {
       scrollbar-width: none;
       -ms-overflow-style: none;
     }
@@ -543,6 +648,7 @@
     #spacesMenu::-webkit-scrollbar,
     .results::-webkit-scrollbar,
     .trace::-webkit-scrollbar,
+    .detail-content::-webkit-scrollbar,
     .table-wrap::-webkit-scrollbar {
       width: 0;
       height: 0;
@@ -604,7 +710,6 @@
 
       <div class="workspace search-layout active" id="search">
         <article class="card">
-          <h3>全局搜索</h3>
           <div class="searchbar">
             <input id="q" type="text" value="" placeholder="输入任意关键词，例如：支付重试、库存、中断、报表" />
             <button class="btn" id="searchBtn" type="button">搜索</button>
@@ -636,29 +741,32 @@
         </article>
 
         <aside class="card">
-          <h3>预览与追溯</h3>
           <div class="kv"><b>标题：</b><span id="dTitle">请选择一条结果</span></div>
           <div class="kv"><b>摘要：</b><span id="dSnippet">-</span></div>
-          <div class="kv"><b>来源：</b><span id="dSource">-</span></div>
-          <div class="kv"><b>项目：</b><span id="dProject">-</span></div>
-          <div class="kv"><b>工具：</b><span id="dTool">-</span></div>
-          <div class="kv"><b>状态：</b><span id="dVerify">-</span></div>
-          <div class="kv"><b>时间：</b><span id="dTime">-</span></div>
+          <div class="detail-meta-grid">
+            <div class="kv"><b>来源：</b><span id="dSource">-</span></div>
+            <div class="kv right-col"><b>项目：</b><span id="dProject">-</span></div>
+            <div class="kv"><b>工具：</b><span id="dTool">-</span></div>
+            <div class="kv right-col"><b>状态：</b><span id="dVerify">-</span></div>
+            <div class="kv full"><b>时间：</b><span id="dTime">时间未知</span></div>
+          </div>
+          <div class="kv"><b>详细内容：</b></div>
+          <div class="detail-content" id="dContent">请选择一条结果查看全文</div>
 
           <div class="trace" id="trace"></div>
 
           <div class="action-row">
-            <button class="action" type="button">加入收藏</button>
-            <button class="action" type="button">转为决策</button>
-            <button class="action" type="button">建立关联</button>
-            <button class="action" type="button">复制引用</button>
+            <button class="action" id="btnFavorite" type="button">加入收藏</button>
+            <button class="action" id="btnDecision" type="button">转为决策</button>
+            <button class="action" id="btnLink" type="button">建立关联</button>
+            <button class="action" id="btnCopy" type="button">复制引用</button>
           </div>
+          <div class="action-tip" id="actionTip"></div>
         </aside>
       </div>
 
       <div class="workspace collector-layout" id="collector">
         <article class="card">
-          <h3>采集状态</h3>
           <div class="searchbar">
             <input id="projectPath" type="text" placeholder="输入项目绝对路径，例如 /Users/xxx/Documents/erp-finance" />
             <button class="btn" id="collectBtn" type="button">采集项目</button>
@@ -723,7 +831,9 @@
       selected: null,
       projects: [],
       activeProjectId: "all",
-      activeProjectLabel: "全部项目"
+      activeProjectLabel: "全部项目",
+      favorites: new Set(),
+      detailCache: {}
     };
 
     function inferProject(sourcePath) {
@@ -788,8 +898,115 @@
 
     function formatTime(value) {
       const raw = String(value || '').trim();
-      if (!raw) return '-';
-      return raw.replace('T', ' ').replace('Z', '');
+      if (!raw) return '时间未知';
+      let date = null;
+      if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(raw)) {
+        // SQLite CURRENT_TIMESTAMP is UTC: "YYYY-MM-DD HH:MM:SS"
+        date = new Date(raw.replace(' ', 'T') + 'Z');
+      } else {
+        date = new Date(raw);
+      }
+      if (Number.isNaN(date.getTime())) {
+        const fallback = raw.replace('T', ' ').replace('Z', '').trim();
+        return fallback || '时间未知';
+      }
+      const pad = (n) => String(n).padStart(2, '0');
+      return (
+        date.getFullYear() +
+        '-' + pad(date.getMonth() + 1) +
+        '-' + pad(date.getDate()) +
+        ' ' + pad(date.getHours()) +
+        ':' + pad(date.getMinutes()) +
+        ':' + pad(date.getSeconds())
+      );
+    }
+
+    function displayTime(item) {
+      const raw = formatTime(item?.updated_at);
+      if (!raw) return '时间未知';
+      if (raw === '时间未知') return raw;
+      if (/\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(raw)) return raw;
+      return '时间未知';
+    }
+
+    function setActionTip(text, isError = false) {
+      const el = document.getElementById('actionTip');
+      el.textContent = text || '';
+      el.style.color = isError ? '#9d1f39' : '';
+    }
+
+    function saveFavorites() {
+      localStorage.setItem('kb_favorites', JSON.stringify(Array.from(state.favorites)));
+    }
+
+    function loadFavorites() {
+      try {
+        const data = JSON.parse(localStorage.getItem('kb_favorites') || '[]');
+        state.favorites = new Set(Array.isArray(data) ? data.map(String) : []);
+      } catch (_) {
+        state.favorites = new Set();
+      }
+    }
+
+    async function copyText(text) {
+      const value = String(text || '').trim();
+      if (!value) return false;
+      try {
+        if (navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(value);
+          return true;
+        }
+      } catch (_) {}
+      const ta = document.createElement('textarea');
+      ta.value = value;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand('copy');
+      ta.remove();
+      return ok;
+    }
+
+    function updateActionButtons() {
+      const selectedId = state.selected?.item_id || '';
+      const favBtn = document.getElementById('btnFavorite');
+      const enabled = Boolean(selectedId);
+      ['btnFavorite', 'btnDecision', 'btnLink', 'btnCopy'].forEach((id) => {
+        const el = document.getElementById(id);
+        el.disabled = !enabled;
+        el.style.opacity = enabled ? '1' : '0.5';
+        el.style.cursor = enabled ? 'pointer' : 'not-allowed';
+      });
+      favBtn.textContent = enabled && state.favorites.has(String(selectedId)) ? '取消收藏' : '加入收藏';
+    }
+
+    async function renderDetailContent(item) {
+      const out = document.getElementById('dContent');
+      if (!item?.item_id) {
+        out.textContent = '请选择一条结果查看全文';
+        return;
+      }
+      const cacheHit = state.detailCache[item.item_id];
+      if (cacheHit) {
+        out.textContent = cacheHit.content_text || '(无详细内容)';
+        return;
+      }
+      out.textContent = '正在加载详细内容...';
+      try {
+        const res = await fetch('/api/item/' + encodeURIComponent(item.item_id));
+        const data = await res.json();
+        if (!res.ok || !data.item) {
+          out.textContent = '未获取到详细内容';
+          return;
+        }
+        state.detailCache[item.item_id] = data.item;
+        if (state.selected?.item_id === item.item_id) {
+          out.textContent = data.item.content_text || '(无详细内容)';
+        }
+      } catch (_) {
+        out.textContent = '读取详细内容失败';
+      }
     }
 
     async function loadStats() {
@@ -925,8 +1142,10 @@
 
       out.innerHTML = items.map((item) => {
         const selected = state.selected && state.selected.item_id === item.item_id;
+        const showTime = displayTime(item);
+        const rawTime = String(item?.updated_at || '').trim() || 'empty';
         return '<div class="result ' + (selected ? 'active' : '') + '" data-id="' + esc(item.item_id) + '">' +
-          '<h4>' + esc(item.title || '-') + '</h4>' +
+          '<div class="result-head"><h4>' + esc(item.title || '-') + '</h4><span class="result-time" title="raw: ' + esc(rawTime) + '">' + esc(showTime || '时间未知') + '</span></div>' +
           '<p class="meta-line">' + esc(prettyType(item.item_type)) + ' · ' + esc(prettySource(item.source_path)) + '</p>' +
           '<p class="snippet-line">' + esc(item.snippet || '') + '</p>' +
           '</div>';
@@ -941,6 +1160,7 @@
           renderResults(items);
           await renderTrace(selected.item_id);
           renderDetail(selected);
+          renderDetailContent(selected);
         });
       });
 
@@ -948,6 +1168,7 @@
         state.selected = items[0];
       }
       renderDetail(state.selected);
+      renderDetailContent(state.selected);
       renderTrace(state.selected.item_id);
     }
 
@@ -958,7 +1179,8 @@
       document.getElementById('dProject').textContent = item ? projectNameById(item.project_id) : '-';
       document.getElementById('dTool').textContent = item ? inferTool(item) : '-';
       document.getElementById('dVerify').textContent = item ? (inferVerified(item) ? '已验证' : '草稿') : '-';
-      document.getElementById('dTime').textContent = item ? formatTime(item.updated_at) : '-';
+      document.getElementById('dTime').textContent = item ? displayTime(item) : '时间未知';
+      updateActionButtons();
     }
 
     async function renderTrace(itemId) {
@@ -1045,13 +1267,57 @@
       });
 
       document.getElementById('resetFiltersBtn').addEventListener('click', () => {
+        document.getElementById('q').value = '';
         document.getElementById('fType').value = 'all';
         document.getElementById('fTool').value = 'all';
         document.getElementById('fVerify').value = 'all';
         state.activeProjectId = 'all';
         state.activeProjectLabel = '全部项目';
         renderSidebarProjects(state.projects);
-        renderResults(applyFilters(state.allResults));
+        runSearch();
+      });
+
+      document.getElementById('btnFavorite').addEventListener('click', () => {
+        if (!state.selected?.item_id) return;
+        const id = String(state.selected.item_id);
+        if (state.favorites.has(id)) {
+          state.favorites.delete(id);
+          setActionTip('已取消收藏');
+        } else {
+          state.favorites.add(id);
+          setActionTip('已加入收藏');
+        }
+        saveFavorites();
+        updateActionButtons();
+      });
+
+      document.getElementById('btnCopy').addEventListener('click', async () => {
+        if (!state.selected) return;
+        const txt = `[${prettyType(state.selected.item_type)}] ${state.selected.title || '-'}\n项目: ${projectNameById(state.selected.project_id)}\n来源: ${prettySource(state.selected.source_path)}\n时间: ${formatTime(state.selected.updated_at)}\n摘要: ${state.selected.snippet || '-'}`;
+        const ok = await copyText(txt);
+        setActionTip(ok ? '引用已复制到剪贴板' : '复制失败，请检查系统剪贴板权限', !ok);
+      });
+
+      document.getElementById('btnDecision').addEventListener('click', async () => {
+        if (!state.selected) return;
+        const detail = state.detailCache[state.selected.item_id];
+        const txt = [
+          '【决策草案】',
+          '标题：' + (state.selected.title || '-'),
+          '项目：' + projectNameById(state.selected.project_id),
+          '时间：' + formatTime(state.selected.updated_at),
+          '依据摘要：' + (state.selected.snippet || '-'),
+          '详细依据：' + (detail?.content_text || '(请先确认详细内容)')
+        ].join('\n');
+        const ok = await copyText(txt);
+        setActionTip(ok ? '决策草案已复制，可直接粘贴到文档' : '生成决策草案失败', !ok);
+      });
+
+      document.getElementById('btnLink').addEventListener('click', async () => {
+        if (!state.selected) return;
+        const txt = `主记录: ${state.selected.item_id}\n标题: ${state.selected.title || '-'}\n来源: ${state.selected.source_path || '-'}`;
+        const ok = await copyText(txt);
+        setActionTip(ok ? '关联信息已复制，可粘贴到需求/任务建立关联' : '复制关联信息失败', !ok);
       });
 
       document.getElementById('spacesMenu').addEventListener('click', async (event) => {
@@ -1064,6 +1330,8 @@
       });
 
       await Promise.all([loadStats(), loadProjects()]);
+      loadFavorites();
+      updateActionButtons();
       document.getElementById('trace').innerHTML = '<div class="node">请选择一条搜索结果查看追溯链</div>';
 
       setInterval(loadStats, 10000);

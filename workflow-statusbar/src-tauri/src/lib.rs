@@ -225,6 +225,22 @@ struct KbSearchResponse {
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
+struct KbItemDetail {
+    item_id: String,
+    project_id: String,
+    item_type: String,
+    title: String,
+    source_path: String,
+    content_text: String,
+    updated_at: String,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+struct KbItemDetailResponse {
+    item: Option<KbItemDetail>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
 struct KbCollectProjectResult {
     project: String,
     events: i64,
@@ -4329,6 +4345,38 @@ fn kb_trace_internal(item_id: &str) -> Result<KbTraceResponse, String> {
     })
 }
 
+fn kb_item_detail_internal(item_id: &str) -> Result<KbItemDetailResponse, String> {
+    let conn = connect_knowledgebase()?;
+    let mut stmt = conn
+        .prepare(
+            r#"
+            SELECT item_id, project_id, item_type, title, source_path,
+                   COALESCE(content_text, '') AS content_text,
+                   COALESCE(updated_at, '') AS updated_at
+            FROM items
+            WHERE item_id = ?1
+            LIMIT 1
+            "#,
+        )
+        .map_err(|err| err.to_string())?;
+
+    let item = stmt
+        .query_row(params![item_id], |row| {
+            Ok(KbItemDetail {
+                item_id: row.get::<_, String>(0)?,
+                project_id: row.get::<_, String>(1)?,
+                item_type: row.get::<_, String>(2)?,
+                title: row.get::<_, String>(3)?,
+                source_path: row.get::<_, String>(4)?,
+                content_text: row.get::<_, String>(5).unwrap_or_default(),
+                updated_at: row.get::<_, String>(6).unwrap_or_default(),
+            })
+        })
+        .ok();
+
+    Ok(KbItemDetailResponse { item })
+}
+
 fn kb_register_project_internal(path: &str, name: Option<String>) -> Result<String, String> {
     let root = PathBuf::from(path)
         .canonicalize()
@@ -4515,6 +4563,21 @@ fn handle_knowledgebase_http_request(request: Request) {
                 return;
             }
             match kb_collect_project_internal(path.trim()) {
+                Ok(data) => http_respond_json(
+                    request,
+                    200,
+                    serde_json::to_string(&data).unwrap_or_else(|_| "{}".to_string()),
+                ),
+                Err(err) => http_respond_json(
+                    request,
+                    500,
+                    serde_json::json!({ "error": err }).to_string(),
+                ),
+            }
+        }
+        _ if path.starts_with("/api/item/") => {
+            let item_id = url_decode(path.trim_start_matches("/api/item/"));
+            match kb_item_detail_internal(&item_id) {
                 Ok(data) => http_respond_json(
                     request,
                     200,
