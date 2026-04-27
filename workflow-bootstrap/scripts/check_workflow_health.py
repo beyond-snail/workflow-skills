@@ -19,6 +19,8 @@ REQUIRED_FILES = (
     ".ai/runtime/profile/project-profile.yml",
     ".ai/runtime/project-state.json",
     ".ai/runtime/cache/legacy-scan.json",
+    ".ai/runtime/conversations/.gitkeep",
+    ".ai/runtime/inbox/.gitkeep",
     "docs/workflow/requirements/需求池.md",
     "docs/workflow/requirements/任务看板.md",
 )

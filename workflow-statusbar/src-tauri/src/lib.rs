@@ -258,6 +258,9 @@ struct KbProjectStatus {
     event_count: i64,
     document_count: i64,
     conversation_count: i64,
+    memory_count: i64,
+    workflow_count: i64,
+    inbox_count: i64,
     last_item_at: String,
     path_exists: bool,
     has_memory_dir: bool,
@@ -4084,17 +4087,36 @@ fn kb_collect_project_internal(path: &str) -> Result<KbCollectProjectResult, Str
     })
 }
 
+fn any_dir_exists(project_root: &Path, candidates: &[&str]) -> bool {
+    candidates
+        .iter()
+        .any(|candidate| project_root.join(candidate).is_dir())
+}
+
 fn kb_detect_project_capabilities(project_root: &Path) -> (bool, bool, bool, bool, bool) {
     let path_exists = project_root.exists();
     if !path_exists {
         return (false, false, false, false, false);
     }
-    let has_memory_dir = project_root.join(".ai/memory").is_dir();
-    let has_workflow_docs = project_root.join("docs/workflow").is_dir();
-    let has_inbox_dir = project_root.join("knowledge-store/inbox").is_dir()
-        || project_root.join(".ai/runtime/inbox").is_dir();
-    let has_conversation_dir = project_root.join("knowledge-store/conversations").is_dir()
-        || project_root.join(".ai/runtime/conversations").is_dir();
+    let has_memory_dir = any_dir_exists(project_root, &[".ai/memory"]);
+    let has_workflow_docs = any_dir_exists(project_root, &["docs/workflow"]);
+    let has_inbox_dir =
+        any_dir_exists(project_root, &["knowledge-store/inbox", ".ai/runtime/inbox"]);
+    let has_conversation_dir = any_dir_exists(
+        project_root,
+        &[
+            "knowledge-store/conversations",
+            "knowledge-store/chat",
+            ".ai/runtime/conversations",
+            ".ai/runtime/chat",
+            ".ai/memory/conversations",
+            ".ai/memory/chat",
+            ".codex/conversations",
+            ".claude/conversations",
+            ".chatgpt/conversations",
+            ".gemini/conversations",
+        ],
+    );
     (
         path_exists,
         has_memory_dir,
@@ -4114,6 +4136,25 @@ fn kb_project_sync_diagnosis(
     has_inbox_dir: bool,
     has_conversation_dir: bool,
 ) -> (String, String, String) {
+    let mut missing_sources: Vec<&str> = Vec::new();
+    if !has_memory_dir {
+        missing_sources.push("记忆");
+    }
+    if !has_workflow_docs {
+        missing_sources.push("文档");
+    }
+    if !has_inbox_dir {
+        missing_sources.push("收件箱");
+    }
+    if !has_conversation_dir {
+        missing_sources.push("会话");
+    }
+    let missing_text = if missing_sources.is_empty() {
+        String::new()
+    } else {
+        format!("当前未接入：{}", missing_sources.join(" / "))
+    };
+
     if !path_exists {
         return (
             "error".into(),
@@ -4148,7 +4189,12 @@ fn kb_project_sync_diagnosis(
         return (
             "partial".into(),
             "文档已入库，当前项目未发现可读会话目录".into(),
-            "如需补齐多源对话，可接入 Codex/Claude/ChatGPT 会话导出或 runtime 会话目录".into(),
+            format!(
+                "追加采集只会刷新已接入来源；如需补齐多源对话，请先接入会话目录。{}",
+                missing_text
+            )
+            .trim()
+            .into(),
         );
     }
 
@@ -4160,10 +4206,19 @@ fn kb_project_sync_diagnosis(
         );
     }
 
+    let next_action = if missing_sources.is_empty() {
+        "继续按需追加采集，并补做多源样本回归与验收记录".into()
+    } else {
+        format!(
+            "当前追加采集只会刷新已接入来源；若要补齐黄色来源，请先接入对应目录。{}",
+            missing_text
+        )
+    };
+
     (
         "ok".into(),
         "文档与基础知识条目已可采集，当前项目处于可检索状态".into(),
-        "继续按需追加采集，并补做多源样本回归与验收记录".into(),
+        next_action,
     )
 }
 
@@ -4180,6 +4235,9 @@ fn kb_list_projects_internal() -> Result<Vec<KbProjectStatus>, String> {
                 SUM(CASE WHEN i.item_type='event' THEN 1 ELSE 0 END) AS event_count,
                 SUM(CASE WHEN i.item_type='document' THEN 1 ELSE 0 END) AS document_count,
                 SUM(CASE WHEN i.item_type='conversation' THEN 1 ELSE 0 END) AS conversation_count,
+                SUM(CASE WHEN i.source_type='memory' THEN 1 ELSE 0 END) AS memory_count,
+                SUM(CASE WHEN i.source_type='workflow' THEN 1 ELSE 0 END) AS workflow_count,
+                SUM(CASE WHEN i.source_path LIKE '%knowledge-store/inbox%' OR i.source_path LIKE '%/.ai/runtime/inbox/%' OR i.source_type='runtime_event' THEN 1 ELSE 0 END) AS inbox_count,
                 COALESCE(MAX(i.updated_at), '') AS last_item_at
             FROM projects p
             LEFT JOIN items i ON i.project_id = p.project_id
@@ -4198,7 +4256,10 @@ fn kb_list_projects_internal() -> Result<Vec<KbProjectStatus>, String> {
                 event_count: row.get::<_, i64>(4).unwrap_or_default(),
                 document_count: row.get::<_, i64>(5).unwrap_or_default(),
                 conversation_count: row.get::<_, i64>(6).unwrap_or_default(),
-                last_item_at: row.get::<_, String>(7).unwrap_or_default(),
+                memory_count: row.get::<_, i64>(7).unwrap_or_default(),
+                workflow_count: row.get::<_, i64>(8).unwrap_or_default(),
+                inbox_count: row.get::<_, i64>(9).unwrap_or_default(),
+                last_item_at: row.get::<_, String>(10).unwrap_or_default(),
                 path_exists: false,
                 has_memory_dir: false,
                 has_workflow_docs: false,

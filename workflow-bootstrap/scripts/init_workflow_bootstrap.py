@@ -1257,6 +1257,8 @@ def self_check(root: Path, d: Detection) -> tuple[list[str], list[str]]:
         root / ".ai/memory/knowledge/README.md",
         root / ".ai/runtime/profile/project-profile.yml",
         root / ".ai/runtime/project-state.json",
+        root / ".ai/runtime/inbox/.gitkeep",
+        root / ".ai/runtime/conversations/.gitkeep",
         root / f"{d.docs_root}/requirements/需求池.md",
         root / f"{d.docs_root}/requirements/任务看板.md",
     ]
@@ -1358,6 +1360,8 @@ def main() -> int:
         actions.append((rel, writer(root / rel, content, args.dry_run, force=force)))
 
     actions.append((".ai/runtime/cache/.gitkeep", ensure_gitkeep(root / ".ai/runtime/cache/.gitkeep", args.dry_run)))
+    actions.append((".ai/runtime/conversations/.gitkeep", ensure_gitkeep(root / ".ai/runtime/conversations/.gitkeep", args.dry_run)))
+    actions.append((".ai/runtime/inbox/.gitkeep", ensure_gitkeep(root / ".ai/runtime/inbox/.gitkeep", args.dry_run)))
     actions.append((".ai/runtime/state/.gitkeep", ensure_gitkeep(root / ".ai/runtime/state/.gitkeep", args.dry_run)))
     actions.append((".ai/memory/tasks/archived/.gitkeep", ensure_gitkeep(root / ".ai/memory/tasks/archived/.gitkeep", args.dry_run)))
     actions.append((f"{detection.prd_directory}/.gitkeep", ensure_gitkeep(root / detection.prd_directory / ".gitkeep", args.dry_run)))

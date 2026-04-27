@@ -210,6 +210,38 @@
       white-space: nowrap;
     }
 
+    .tag.has-tip {
+      cursor: help;
+    }
+
+    .floating-tip {
+      position: fixed;
+      left: 0;
+      top: 0;
+      z-index: 9999;
+      max-width: 260px;
+      min-width: 180px;
+      padding: 7px 9px;
+      border-radius: 10px;
+      background: rgba(22, 33, 56, 0.96);
+      color: #f7fbff;
+      font-family: "IBM Plex Sans", "Noto Sans SC", sans-serif;
+      font-size: 10px;
+      line-height: 1.45;
+      white-space: normal;
+      text-align: left;
+      box-shadow: 0 12px 24px rgba(16, 24, 40, 0.18);
+      pointer-events: none;
+      opacity: 0;
+      transform: translateY(4px);
+      transition: opacity .14s ease, transform .14s ease;
+    }
+
+    .floating-tip.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
     .t-info { background: var(--accent-soft); border-color: #cfe0ff; color: var(--accent); }
     .t-ok { background: var(--ok-soft); border-color: #c9eddc; color: var(--ok); }
     .t-warn { background: var(--warn-soft); border-color: #f4d6a6; color: var(--warn); }
@@ -783,6 +815,13 @@
       align-items: start;
     }
 
+    .coverage-hint {
+      font-size: 10px;
+      color: #607392;
+      padding-left: 2px;
+      line-height: 1.4;
+    }
+
     .project-toolbar {
       display: flex;
       gap: 8px;
@@ -1143,6 +1182,8 @@
     </section>
   </main>
 
+  <div id="floatingTip" class="floating-tip" hidden></div>
+
   <script>
     function esc(text) {
       return String(text ?? "")
@@ -1175,6 +1216,45 @@
       detailCache: {},
       traceExpanded: false
     };
+
+    function hideFloatingTip() {
+      const tip = document.getElementById('floatingTip');
+      if (!tip) return;
+      tip.classList.remove('visible');
+      tip.hidden = true;
+    }
+
+    function showFloatingTip(target) {
+      const tip = document.getElementById('floatingTip');
+      const message = target?.getAttribute('data-tip') || '';
+      if (!tip || !message) return;
+      tip.textContent = message;
+      tip.hidden = false;
+      const rect = target.getBoundingClientRect();
+      const tipWidth = 260;
+      const left = Math.min(
+        window.innerWidth - tipWidth - 12,
+        Math.max(12, rect.left + rect.width / 2 - tipWidth / 2)
+      );
+      const top = Math.max(12, rect.top - 12);
+      tip.style.left = left + 'px';
+      tip.style.top = top + 'px';
+      requestAnimationFrame(() => {
+        const actualHeight = tip.offsetHeight || 0;
+        tip.style.top = Math.max(12, rect.top - actualHeight - 10) + 'px';
+        tip.classList.add('visible');
+      });
+    }
+
+    function bindFloatingTips(scope = document) {
+      scope.querySelectorAll('.tag.has-tip').forEach((el) => {
+        if (el.dataset.tipBound === '1') return;
+        el.dataset.tipBound = '1';
+        el.addEventListener('mouseenter', () => showFloatingTip(el));
+        el.addEventListener('mouseleave', hideFloatingTip);
+        el.addEventListener('blur', hideFloatingTip);
+      });
+    }
 
     function inferProject(sourcePath) {
       const path = String(sourcePath || "");
@@ -1219,8 +1299,8 @@
     function prettySource(sourcePath) {
       if (!sourcePath) return "未知来源";
       if (sourcePath.includes("workflow-statusbar/runtime")) return "状态栏自动采集";
-      if (sourcePath.includes("knowledge-store/inbox")) return "项目 inbox";
-      if (sourcePath.includes(".ai/runtime/inbox")) return "AI 运行 inbox";
+      if (sourcePath.includes("knowledge-store/inbox")) return "项目收件箱";
+      if (sourcePath.includes(".ai/runtime/inbox")) return "AI 运行收件箱";
       if (sourcePath.includes("knowledge-store/conversations")) return "知识会话";
       if (sourcePath.includes("/.claude/projects/")) return "Claude 会话文件";
       if (sourcePath.includes("/.codex/sessions/")) return "Codex 会话文件";
@@ -1408,23 +1488,45 @@
 
     function diagTag(status) {
       const value = String(status || '').toLowerCase();
-      if (value === 'ok') return '<span class="tag t-ok">正常</span>';
-      if (value === 'partial') return '<span class="tag t-info">待补齐</span>';
-      if (value === 'warning' || value === 'empty') return '<span class="tag t-warn">待处理</span>';
-      if (value === 'error') return '<span class="tag" style="background:#ffe8ee;border-color:#f5bfd0;color:#9d1f39;">异常</span>';
-      return '<span class="tag t-info">未知</span>';
+      if (value === 'ok') return '<span class="tag t-ok has-tip" data-tip="项目当前已具备可检索内容，文档/基础知识采集链路正常。">正常</span>';
+      if (value === 'partial') return '<span class="tag t-info has-tip" data-tip="项目部分来源已接入或已采到，但仍有来源未补齐。">待补齐</span>';
+      if (value === 'warning' || value === 'empty') return '<span class="tag t-warn has-tip" data-tip="项目已发现来源目录，但当前还没有形成足够的有效条目。">待处理</span>';
+      if (value === 'error') return '<span class="tag has-tip" style="background:#ffe8ee;border-color:#f5bfd0;color:#9d1f39;" data-tip="项目路径异常或当前机器无法访问该项目目录。">异常</span>';
+      return '<span class="tag t-info has-tip" data-tip="当前项目状态尚未完成诊断。">未知</span>';
     }
 
-    function boolChip(enabled, label) {
-      return '<span class="tag ' + (enabled ? 't-ok' : 't-warn') + '">' + label + '</span>';
+    function sourceChip(enabled, label) {
+      const text = enabled ? (label + ' 已接入') : (label + ' 未接入');
+      const tip = enabled
+        ? (label + ' 目录或来源入口已被检测到，后续追加采集会扫描这一类来源。')
+        : (label + ' 目录或来源入口当前未检测到；仅执行追加采集不会自动补齐，需要先把对应目录或来源接入。');
+      return '<span class="tag has-tip ' + (enabled ? 't-ok' : 't-warn') + '" data-tip="' + esc(tip) + '">' + text + '</span>';
+    }
+
+    function resultChip(enabled, label) {
+      const text = enabled ? (label + ' 已采到') : (label + ' 未采到');
+      const tip = enabled
+        ? (label + ' 已经有实际入库条目，说明这类来源不只是接入，而且确实产出了内容。')
+        : (label + ' 当前还没有实际入库条目，可能是目录为空、格式不受支持，或尚未产生该类内容。');
+      return '<span class="tag has-tip ' + (enabled ? 't-info' : 't-warn') + '" data-tip="' + esc(tip) + '">' + text + '</span>';
     }
 
     function renderCoverage(item) {
       const parts = [
-        boolChip(item.has_memory_dir, '记忆'),
-        boolChip(item.has_workflow_docs, '文档'),
-        boolChip(item.has_inbox_dir, 'Inbox'),
-        boolChip(item.has_conversation_dir, '会话')
+        sourceChip(item.has_memory_dir, '记忆'),
+        sourceChip(item.has_workflow_docs, '文档'),
+        sourceChip(item.has_inbox_dir, '收件箱'),
+        sourceChip(item.has_conversation_dir, '会话')
+      ];
+      return '<div class="coverage-row">' + parts.join('') + '</div>';
+    }
+
+    function renderCollectedState(item) {
+      const parts = [
+        resultChip(Number(item.memory_count || 0) > 0, '记忆'),
+        resultChip(Number(item.workflow_count || 0) > 0, '文档'),
+        resultChip(Number(item.inbox_count || 0) > 0, '收件箱'),
+        resultChip(Number(item.conversation_count || 0) > 0, '会话')
       ];
       return '<div class="coverage-row">' + parts.join('') + '</div>';
     }
@@ -1463,6 +1565,8 @@
             '</div>' +
             '<div class="project-main">' +
               renderCoverage(item) +
+              renderCollectedState(item) +
+              '<div class="coverage-hint">上排看来源是否已接入，下排看该来源是否已经实际采到内容。</div>' +
               '<div class="project-metrics">' +
                 '<div class="metric-box"><b>' + Number(item.item_count || 0) + '</b><span>总条数</span></div>' +
                 '<div class="metric-box"><b>' + Number(item.event_count || 0) + '</b><span>事件</span></div>' +
@@ -1489,6 +1593,7 @@
       document.getElementById('colDocs').textContent = docCount;
       document.getElementById('colConvs').textContent = convCount;
 
+      bindFloatingTips(document.getElementById('projectRows'));
       renderSidebarProjects(state.projects);
       updateSearchOverview();
     }
@@ -1656,6 +1761,10 @@
     }
 
     async function init() {
+      bindFloatingTips(document);
+      window.addEventListener('scroll', hideFloatingTip, true);
+      window.addEventListener('resize', hideFloatingTip);
+
       document.getElementById('searchBtn').addEventListener('click', runSearch);
       document.getElementById('q').addEventListener('keydown', (event) => {
         if (event.key === 'Enter') runSearch();
