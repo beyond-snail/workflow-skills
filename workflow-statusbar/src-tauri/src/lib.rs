@@ -1,4 +1,4 @@
-use chrono::{Datelike, Local};
+use chrono::{Datelike, Local, TimeZone};
 use dirs::home_dir;
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
@@ -3915,6 +3915,39 @@ fn file_modified_unix(path: &Path) -> i64 {
         .unwrap_or_default()
 }
 
+fn format_sqlite_time_from_unix(ts: i64) -> String {
+    Local
+        .timestamp_opt(ts, 0)
+        .single()
+        .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
+        .unwrap_or_default()
+}
+
+fn source_file_time_text(path: &Path) -> String {
+    let ts = file_modified_unix(path);
+    if ts > 0 {
+        format_sqlite_time_from_unix(ts)
+    } else {
+        String::new()
+    }
+}
+
+fn kb_set_item_updated_at(
+    conn: &Connection,
+    item_id: &str,
+    updated_at: &str,
+) -> Result<(), String> {
+    if updated_at.trim().is_empty() {
+        return Ok(());
+    }
+    conn.execute(
+        "UPDATE items SET updated_at=?2 WHERE item_id=?1",
+        params![item_id, updated_at.trim()],
+    )
+    .map_err(|err| err.to_string())?;
+    Ok(())
+}
+
 fn resolve_claude_rollout_path(
     home: &Path,
     thread_id: &str,
@@ -3982,7 +4015,7 @@ fn kb_auto_collect_conversation_file(
     let project_id = kb_upsert_project(conn, &project_name, &project_path)?;
 
     let title = format!("{source_tool} 会话 {}", session_id.trim());
-    let _ = kb_upsert_item_with_meta(
+    let item_id = kb_upsert_item_with_meta(
         conn,
         &project_id,
         "conversation",
@@ -3998,6 +4031,7 @@ fn kb_auto_collect_conversation_file(
             tags: format!("conversation,auto,{source_tool}"),
         },
     )?;
+    kb_set_item_updated_at(conn, &item_id, &source_file_time_text(file_path))?;
     Ok(true)
 }
 
@@ -4876,6 +4910,11 @@ fn kb_compact_conversations_internal() -> Result<serde_json::Value, String> {
             &merged,
             &source_path,
             &canonical_meta,
+        )?;
+        kb_set_item_updated_at(
+            &conn,
+            &canonical_id,
+            &source_file_time_text(Path::new(&source_path)),
         )?;
         compacted += 1;
         let mut removed_canonical = false;

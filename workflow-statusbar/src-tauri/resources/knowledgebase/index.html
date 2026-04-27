@@ -1176,7 +1176,7 @@
 
           <div class="meta">
             <span id="count">0 条结果</span>
-            <span>排序：相关度 + 新鲜度</span>
+            <span>排序：相关度 + 内容时间</span>
           </div>
           <div class="results" id="results"></div>
         </article>
@@ -1197,7 +1197,7 @@
               <div class="kv"><b>来源</b><span id="dSource">-</span></div>
               <div class="kv"><b>项目</b><span id="dProject">-</span></div>
               <div class="kv"><b>工具</b><span id="dTool">-</span></div>
-              <div class="kv"><b>时间</b><span id="dTime">时间未知</span></div>
+              <div class="kv"><b>内容时间</b><span id="dTime">时间未知</span></div>
             </div>
           </div>
 
@@ -1997,7 +1997,7 @@
           '【决策草案】',
           '标题：' + (state.selected.title || '-'),
           '项目：' + projectNameById(state.selected.project_id),
-          '时间：' + formatTime(state.selected.updated_at),
+          '内容时间：' + formatTime(state.selected.updated_at),
           '依据摘要：' + (state.selected.snippet || '-'),
           '详细依据：' + (detail?.content_text || '(请先确认详细内容)')
         ].join('\n');
