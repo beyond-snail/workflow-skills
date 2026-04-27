@@ -1,4 +1,4 @@
-use chrono::{Datelike, Local, TimeZone};
+use chrono::{Datelike, Local, Utc};
 use dirs::home_dir;
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
@@ -3916,10 +3916,8 @@ fn file_modified_unix(path: &Path) -> i64 {
 }
 
 fn format_sqlite_time_from_unix(ts: i64) -> String {
-    Local
-        .timestamp_opt(ts, 0)
-        .single()
-        .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
+    chrono::DateTime::from_timestamp(ts, 0)
+        .map(|dt| dt.with_timezone(&Utc).format("%Y-%m-%d %H:%M:%S").to_string())
         .unwrap_or_default()
 }
 
