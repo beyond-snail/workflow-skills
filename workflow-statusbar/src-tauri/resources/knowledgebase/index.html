@@ -312,7 +312,11 @@
 
     .search-layout > aside.card {
       min-height: 0;
-      grid-template-rows: auto auto auto auto minmax(180px, 1fr) auto auto auto;
+    }
+
+    .search-layout > aside.card.detail-card {
+      grid-template-rows: auto auto minmax(0, 1fr) auto;
+      align-content: stretch;
     }
 
     .collector-layout {
@@ -520,26 +524,84 @@
       border: 1px dashed var(--line-strong);
       border-radius: 10px;
       background: #fbfdff;
-      padding: 10px;
+      padding: 8px;
       display: grid;
-      gap: 8px;
-      max-height: 220px;
+      gap: 6px;
+      max-height: 150px;
       overflow: auto;
     }
 
     .trace .node {
       border: 1px solid #d8e2f2;
       border-radius: 8px;
-      padding: 8px;
+      padding: 7px 8px;
       font-size: 11px;
       background: #fff;
+      line-height: 1.45;
+    }
+
+    .detail-card {
+      min-height: 0;
+    }
+
+    .detail-hero {
+      border: 1px solid #dbe6f6;
+      border-radius: 12px;
+      background: linear-gradient(180deg, #fcfdff, #f7fbff);
+      padding: 9px 11px;
+      display: grid;
+      gap: 4px;
+    }
+
+    .detail-hero-top {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      align-items: flex-start;
+      flex-wrap: wrap;
+    }
+
+    .detail-hero h3 {
+      margin: 0;
+      font-size: 14px;
+      color: #1f3152;
+    }
+
+    .detail-snippet {
+      margin: 0;
+      font-size: 11px;
+      color: #526786;
+      line-height: 1.45;
+      display: none;
+    }
+
+    .detail-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      align-items: center;
+    }
+
+    .detail-section-label {
+      margin: 0;
+      font-size: 10px;
+      color: #5b6f8f;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+      font-weight: 700;
+    }
+
+    .detail-meta-card {
+      border: 1px solid #dde7f4;
+      border-radius: 10px;
+      background: #fbfdff;
+      padding: 8px 10px;
     }
 
     .detail-meta-grid {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) minmax(150px, 0.8fr);
-      column-gap: 18px;
-      row-gap: 6px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 0 16px;
       align-items: start;
     }
 
@@ -547,26 +609,47 @@
       font-size: 11px;
       color: var(--muted);
       min-width: 0;
+      display: grid;
+      grid-template-columns: 42px minmax(0, 1fr);
+      column-gap: 8px;
+      align-items: center;
+      padding: 8px 0;
+    }
+    .kv:nth-child(-n+2) {
+      border-bottom: 1px solid #e5edf8;
     }
     .kv b {
       color: #1c2b44;
       white-space: nowrap;
+      font-size: 10px;
+      letter-spacing: .03em;
+      text-transform: uppercase;
+      line-height: 1.2;
+    }
+    .kv span {
+      display: block;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: #506582;
+      line-height: 1.2;
     }
     .kv.full {
       grid-column: 1 / -1;
     }
-    .kv.right-col {
-      justify-self: stretch;
+
+    .detail-content-block {
+      min-height: 0;
       display: grid;
-      grid-template-columns: 38px minmax(0, 1fr);
-      column-gap: 4px;
-      text-align: left;
+      grid-template-rows: auto minmax(0, 1fr);
+      gap: 4px;
     }
 
     .detail-content {
       border: 1px solid #d8e2f2;
       border-radius: 10px;
-      padding: 8px;
+      padding: 9px 10px;
       background: #fff;
       min-height: 0;
       height: 100%;
@@ -578,7 +661,46 @@
       word-break: break-word;
     }
 
-    .action-row { display: flex; flex-wrap: wrap; gap: 6px; }
+    .trace-block {
+      display: grid;
+      gap: 4px;
+      align-content: start;
+    }
+
+    .trace-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .trace-toggle {
+      border: 1px solid #d2dff3;
+      border-radius: 999px;
+      background: #fff;
+      color: #526684;
+      font-size: 10px;
+      font-weight: 600;
+      padding: 3px 8px;
+      cursor: pointer;
+    }
+
+    .trace.is-collapsed {
+      max-height: 78px;
+    }
+
+    .detail-footer {
+      display: grid;
+      gap: 6px;
+      align-content: end;
+      margin-top: auto;
+    }
+
+    .action-row {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 6px;
+    }
 
     .action {
       border: 1px solid #d0dced;
@@ -586,15 +708,19 @@
       background: #fff;
       color: #364761;
       font-size: 11px;
-      padding: 6px 9px;
+      padding: 7px 8px;
       cursor: pointer;
+      min-width: 0;
     }
 
     .action-tip {
-      min-height: 16px;
       color: var(--muted);
       font-size: 10px;
       padding-left: 2px;
+    }
+
+    .action-tip:empty {
+      display: none;
     }
 
     .collector-board {
@@ -811,8 +937,9 @@
       .overview-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .facet-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .facet-row .facet-reset { grid-column: span 2; }
-      .detail-meta-grid { grid-template-columns: 1fr; }
+      .detail-meta-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .kv.full { grid-column: auto; }
+      .action-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     }
 
     @media (max-width: 920px) {
@@ -828,6 +955,11 @@
       .project-actions { width: 100%; justify-content: flex-start; }
       .project-actions button { flex: 1 1 140px; }
       .summary-item { grid-template-columns: 1fr; gap: 6px; }
+      .detail-hero-top { align-items: flex-start; }
+      .detail-meta-grid { grid-template-columns: 1fr; gap: 6px; }
+      .kv:nth-child(-n+2) { border-bottom: none; }
+      .kv { grid-template-columns: 42px minmax(0, 1fr); }
+      .action-row { grid-template-columns: 1fr 1fr; }
     }
 
     #spacesMenu,
@@ -941,28 +1073,48 @@
           <div class="results" id="results"></div>
         </article>
 
-        <aside class="card">
-          <div class="kv"><b>标题：</b><span id="dTitle">请选择一条结果</span></div>
-          <div class="kv"><b>摘要：</b><span id="dSnippet">-</span></div>
-          <div class="detail-meta-grid">
-            <div class="kv"><b>来源：</b><span id="dSource">-</span></div>
-            <div class="kv right-col"><b>项目：</b><span id="dProject">-</span></div>
-            <div class="kv"><b>工具：</b><span id="dTool">-</span></div>
-            <div class="kv right-col"><b>状态：</b><span id="dVerify">-</span></div>
-            <div class="kv full"><b>时间：</b><span id="dTime">时间未知</span></div>
+        <aside class="card detail-card">
+          <div class="detail-hero">
+            <div class="detail-hero-top">
+              <h3 id="dTitle">请选择一条结果</h3>
+              <div class="detail-tags">
+                <span class="tag t-info" id="dTypeTag">记录</span>
+                <span class="tag t-ok" id="dVerifyTag">未选择</span>
+              </div>
+            </div>
           </div>
-          <div class="kv"><b>详细内容：</b></div>
-          <div class="detail-content" id="dContent">请选择一条结果查看全文</div>
 
-          <div class="trace" id="trace"></div>
-
-          <div class="action-row">
-            <button class="action" id="btnFavorite" type="button">加入收藏</button>
-            <button class="action" id="btnDecision" type="button">转为决策</button>
-            <button class="action" id="btnLink" type="button">建立关联</button>
-            <button class="action" id="btnCopy" type="button">复制引用</button>
+          <div class="detail-meta-card">
+            <div class="detail-meta-grid">
+              <div class="kv"><b>来源</b><span id="dSource">-</span></div>
+              <div class="kv"><b>项目</b><span id="dProject">-</span></div>
+              <div class="kv"><b>工具</b><span id="dTool">-</span></div>
+              <div class="kv"><b>时间</b><span id="dTime">时间未知</span></div>
+            </div>
           </div>
-          <div class="action-tip" id="actionTip"></div>
+
+          <div class="detail-content-block">
+            <div class="detail-section-label">详细内容</div>
+            <div class="detail-content" id="dContent">请选择一条结果查看全文</div>
+          </div>
+
+          <div class="detail-footer">
+            <div class="trace-block">
+              <div class="trace-head">
+                <div class="detail-section-label">关联追溯</div>
+                <button class="trace-toggle" id="traceToggleBtn" type="button">展开</button>
+              </div>
+              <div class="trace is-collapsed" id="trace"></div>
+            </div>
+
+            <div class="action-row">
+              <button class="action" id="btnFavorite" type="button">加入收藏</button>
+              <button class="action" id="btnDecision" type="button">转为决策</button>
+              <button class="action" id="btnLink" type="button">建立关联</button>
+              <button class="action" id="btnCopy" type="button">复制引用</button>
+            </div>
+            <div class="action-tip" id="actionTip"></div>
+          </div>
         </aside>
       </div>
 
@@ -1020,7 +1172,8 @@
       activeProjectId: "all",
       activeProjectLabel: "全部项目",
       favorites: new Set(),
-      detailCache: {}
+      detailCache: {},
+      traceExpanded: false
     };
 
     function inferProject(sourcePath) {
@@ -1426,25 +1579,28 @@
 
     function renderDetail(item) {
       document.getElementById('dTitle').textContent = item?.title || '请选择一条结果';
-      document.getElementById('dSnippet').textContent = item?.snippet || '-';
       document.getElementById('dSource').textContent = item ? prettySource(item.source_path) : '-';
       document.getElementById('dProject').textContent = item ? projectNameById(item.project_id) : '-';
       document.getElementById('dTool').textContent = item ? inferTool(item) : '-';
-      document.getElementById('dVerify').textContent = item ? (inferVerified(item) ? '已验证' : '草稿') : '-';
       document.getElementById('dTime').textContent = item ? displayTime(item) : '时间未知';
+      document.getElementById('dTypeTag').textContent = item ? prettyType(item.item_type) : '记录';
+      document.getElementById('dVerifyTag').textContent = item ? (inferVerified(item) ? '已验证' : '草稿') : '未选择';
       updateActionButtons();
     }
 
     async function renderTrace(itemId) {
       const out = document.getElementById('trace');
+      state.traceExpanded = false;
       if (!itemId) {
         out.innerHTML = '<div class="node">暂无追溯信息</div>';
+        syncTraceToggle();
         return;
       }
       const res = await fetch('/api/trace/' + encodeURIComponent(itemId));
       const data = await res.json();
       if (!data.item) {
         out.innerHTML = '<div class="node">暂无追溯信息</div>';
+        syncTraceToggle();
         return;
       }
 
@@ -1458,6 +1614,15 @@
         lines.push('<div class="node">暂无关联节点（后续采集更多需求/任务后会自动连起来）</div>');
       }
       out.innerHTML = lines.join('');
+      syncTraceToggle();
+    }
+
+    function syncTraceToggle() {
+      const trace = document.getElementById('trace');
+      const btn = document.getElementById('traceToggleBtn');
+      if (!trace || !btn) return;
+      trace.classList.toggle('is-collapsed', !state.traceExpanded);
+      btn.textContent = state.traceExpanded ? '收起' : '展开';
     }
 
     async function runSearch() {
@@ -1527,6 +1692,11 @@
         state.activeProjectLabel = '全部项目';
         renderSidebarProjects(state.projects);
         runSearch();
+      });
+
+      document.getElementById('traceToggleBtn').addEventListener('click', () => {
+        state.traceExpanded = !state.traceExpanded;
+        syncTraceToggle();
       });
 
       document.getElementById('btnFavorite').addEventListener('click', () => {
