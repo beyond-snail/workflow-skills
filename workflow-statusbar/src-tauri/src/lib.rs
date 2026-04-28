@@ -294,6 +294,81 @@ struct KbTraceResponse {
     related_items: Vec<KbTraceItem>,
 }
 
+#[derive(Clone, Serialize, Deserialize, Debug)]
+struct KbPromptTemplateSource {
+    template_id: String,
+    item_id: String,
+    source_kind: String,
+    source_title: String,
+    source_path: String,
+    evidence_excerpt: String,
+    confidence: f64,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+struct KbPromptTemplateSummary {
+    id: String,
+    name: String,
+    category: String,
+    target_tools: String,
+    task_goal: String,
+    status: String,
+    source_count: i64,
+    updated_at: String,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+struct KbPromptTemplateDetail {
+    id: String,
+    name: String,
+    category: String,
+    target_tools: String,
+    role_prompt: String,
+    task_goal: String,
+    variables_json: String,
+    context_requirements: String,
+    output_format: String,
+    quality_bar: String,
+    donts: String,
+    example_input: String,
+    example_output: String,
+    status: String,
+    created_at: String,
+    updated_at: String,
+    sources: Vec<KbPromptTemplateSource>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+struct KbPromptTemplateListResponse {
+    templates: Vec<KbPromptTemplateSummary>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+struct KbKnowledgeUnit {
+    id: String,
+    unit_type: String,
+    title: String,
+    summary: String,
+    category: String,
+    source_item_id: String,
+    template_id: String,
+    weight: f64,
+    status: String,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+struct KbKnowledgeUnitLink {
+    from_id: String,
+    to_id: String,
+    relation_type: String,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+struct KbKnowledgeUnitsResponse {
+    units: Vec<KbKnowledgeUnit>,
+    links: Vec<KbKnowledgeUnitLink>,
+}
+
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 enum AlertProviderMode {
@@ -3204,6 +3279,438 @@ fn ensure_knowledgebase_schema_migration(conn: &Connection) -> Result<(), String
         [],
     )
     .map_err(|err| err.to_string())?;
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS prompt_templates (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          category TEXT NOT NULL,
+          target_tools TEXT NOT NULL DEFAULT '通用',
+          role_prompt TEXT NOT NULL DEFAULT '',
+          task_goal TEXT NOT NULL DEFAULT '',
+          variables_json TEXT NOT NULL DEFAULT '',
+          context_requirements TEXT NOT NULL DEFAULT '',
+          output_format TEXT NOT NULL DEFAULT '',
+          quality_bar TEXT NOT NULL DEFAULT '',
+          donts TEXT NOT NULL DEFAULT '',
+          example_input TEXT NOT NULL DEFAULT '',
+          example_output TEXT NOT NULL DEFAULT '',
+          status TEXT NOT NULL DEFAULT 'candidate',
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS prompt_template_sources (
+          template_id TEXT NOT NULL,
+          item_id TEXT NOT NULL DEFAULT '',
+          source_kind TEXT NOT NULL DEFAULT '',
+          evidence_excerpt TEXT NOT NULL DEFAULT '',
+          confidence REAL NOT NULL DEFAULT 0,
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY(template_id, item_id, evidence_excerpt)
+        );
+        CREATE TABLE IF NOT EXISTS knowledge_units (
+          id TEXT PRIMARY KEY,
+          unit_type TEXT NOT NULL,
+          title TEXT NOT NULL,
+          summary TEXT NOT NULL DEFAULT '',
+          category TEXT NOT NULL DEFAULT '',
+          source_item_id TEXT NOT NULL DEFAULT '',
+          template_id TEXT NOT NULL DEFAULT '',
+          weight REAL NOT NULL DEFAULT 1,
+          status TEXT NOT NULL DEFAULT 'active',
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_prompt_templates_status ON prompt_templates(status, category);
+        CREATE INDEX IF NOT EXISTS idx_prompt_sources_template ON prompt_template_sources(template_id);
+        CREATE INDEX IF NOT EXISTS idx_knowledge_units_status ON knowledge_units(status, unit_type, category);
+        "#,
+    )
+    .map_err(|err| err.to_string())?;
+    seed_v3_knowledge_assets(conn)?;
+    Ok(())
+}
+
+fn compact_text_chars(value: &str, limit: usize) -> String {
+    let normalized = value.split_whitespace().collect::<Vec<_>>().join(" ");
+    let mut out = normalized.chars().take(limit).collect::<String>();
+    if normalized.chars().count() > limit {
+        out.push('…');
+    }
+    out
+}
+
+fn infer_prompt_category(text: &str) -> &'static str {
+    let lower = text.to_ascii_lowercase();
+    if text.contains("UI") || text.contains("界面") || text.contains("原型") || text.contains("视觉") {
+        "UI 设计"
+    } else if text.contains("测试") || text.contains("验收") || text.contains("验证") {
+        "测试验收"
+    } else if text.contains("workflow") || text.contains("需求池") || text.contains("任务看板") || text.contains("治理") {
+        "工作流治理"
+    } else if text.contains("修复") || text.contains("根因") || text.contains("问题定位") || lower.contains("bug") {
+        "问题修复"
+    } else if text.contains("审查") || text.contains("review") || text.contains("风险") {
+        "代码审查"
+    } else {
+        "开发实现"
+    }
+}
+
+fn prompt_template_copy_text(template: &KbPromptTemplateDetail) -> String {
+    let mut out = format!(
+        r#"# {}
+
+适用场景：{}
+适合模型/工具：{}
+
+角色设定：
+{}
+
+任务目标：
+{}
+
+输入变量：
+{}
+
+上下文要求：
+{}
+
+输出格式：
+{}
+
+质量标准：
+{}
+
+禁忌/不要做：
+{}
+
+示例输入：
+{}
+
+示例输出：
+{}
+"#,
+        template.name,
+        template.category,
+        template.target_tools,
+        template.role_prompt,
+        template.task_goal,
+        template.variables_json,
+        template.context_requirements,
+        template.output_format,
+        template.quality_bar,
+        template.donts,
+        template.example_input,
+        template.example_output,
+    );
+    if !template.sources.is_empty() {
+        out.push_str("\n来源证据：\n");
+        for source in &template.sources {
+            out.push_str(&format!(
+                "- {}｜{}｜{}\n",
+                source.source_kind, source.source_title, source.evidence_excerpt
+            ));
+        }
+    }
+    out
+}
+
+fn seed_prompt_template(
+    conn: &Connection,
+    id: &str,
+    name: &str,
+    category: &str,
+    target_tools: &str,
+    role_prompt: &str,
+    task_goal: &str,
+    variables_json: &str,
+    context_requirements: &str,
+    output_format: &str,
+    quality_bar: &str,
+    donts: &str,
+    example_input: &str,
+    example_output: &str,
+    status: &str,
+) -> Result<(), String> {
+    conn.execute(
+        r#"
+        INSERT OR IGNORE INTO prompt_templates(
+          id, name, category, target_tools, role_prompt, task_goal, variables_json,
+          context_requirements, output_format, quality_bar, donts, example_input,
+          example_output, status
+        ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
+        "#,
+        params![
+            id,
+            name,
+            category,
+            target_tools,
+            role_prompt,
+            task_goal,
+            variables_json,
+            context_requirements,
+            output_format,
+            quality_bar,
+            donts,
+            example_input,
+            example_output,
+            status
+        ],
+    )
+    .map_err(|err| err.to_string())?;
+    Ok(())
+}
+
+fn seed_knowledge_unit(
+    conn: &Connection,
+    id: &str,
+    unit_type: &str,
+    title: &str,
+    summary: &str,
+    category: &str,
+    template_id: &str,
+    weight: f64,
+) -> Result<(), String> {
+    conn.execute(
+        r#"
+        INSERT OR IGNORE INTO knowledge_units(
+          id, unit_type, title, summary, category, template_id, weight, status
+        ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, 'active')
+        "#,
+        params![id, unit_type, title, summary, category, template_id, weight],
+    )
+    .map_err(|err| err.to_string())?;
+    Ok(())
+}
+
+fn seed_v3_knowledge_assets(conn: &Connection) -> Result<(), String> {
+    seed_prompt_template(
+        conn,
+        "tpl-dev-handoff",
+        "需求交接给开发 AI",
+        "开发实现",
+        "Codex / 通用",
+        "你是熟悉本仓库协作约定的高级开发执行 AI，必须先检索历史、分析影响范围，再实施改动。",
+        "把已审核需求转成可执行实现，并完成验证、证据和记忆沉淀。",
+        "{{repo_path}}、{{req_id}}、{{task_id}}、{{acceptance}}",
+        "先读取 AGENTS.md、PROJECT_CONTEXT、需求池、任务看板和命中的 .ai/memory。",
+        "按“分析结论 / 改动摘要 / 验证结果 / 未覆盖风险 / 记忆沉淀”输出。",
+        "至少完成最小构建验证；不越界修改；有复用价值的结论写入 .ai/memory。",
+        "不要跳过人工审核门；不要修改无关文件；不要用主观描述替代验证结果。",
+        "请在 {{repo_path}} 按 {{task_id}} 开始实现，先检索历史并锁定边界。",
+        "输出涉及文件、SQL/API 链路、调用链、根因结论、改动与验证。",
+        "verified",
+    )?;
+    seed_prompt_template(
+        conn,
+        "tpl-ui-prototype-review",
+        "知识库页面原型重整",
+        "UI 设计",
+        "Codex / Claude",
+        "你是产品型前端设计师，熟悉深色科技工作台、信息密度控制和可复用 AI 工作流。",
+        "把资料浏览器重整为知识图谱中枢、提示词工程、搜索工作台、采集中心。",
+        "{{prototype_path}}、{{core_tabs}}、{{visual_direction}}",
+        "读取 V3 PRD、产品设计、技术设计、旧原型和当前运行页布局。",
+        "输出可交互页面或实现方案，明确默认页、三栏区、候选审核和复制动作。",
+        "默认页突出语义图谱；提示词工程是核心；搜索/采集保持已有好用布局。",
+        "不要做营销页；不要引入重型 3D；不要让搜索和采集抢默认首页。",
+        "你先做个 V3 原型看看，搜索中心和采集中心布局参考现有页面。",
+        "给出页面结构、交互闭环、视觉方向和可验证文件。",
+        "reviewed",
+    )?;
+    seed_prompt_template(
+        conn,
+        "tpl-test-acceptance",
+        "实现后验收话术",
+        "测试验收",
+        "通用",
+        "你是负责验收闭环的测试与发布 AI，关注命令结果、接口结果、截图证据和未覆盖风险。",
+        "按任务验收标准执行验证，并将结果回写到测试记录和任务记忆。",
+        "{{build_command}}、{{api_smoke}}、{{ui_flow}}、{{risk_note}}",
+        "读取任务看板验收标准、技术设计验证建议和 .ai/memory/tasks/**/verify.md。",
+        "输出验证命令、实际结果、证据位置、失败定位、未覆盖风险。",
+        "失败要明确失败点；未执行要说明原因；验证结论必须可追溯。",
+        "不要只说“看起来正常”；不要省略失败日志；不要提前标 done。",
+        "请按 {{task_id}} 验收本轮实现。",
+        "输出验证表格、证据链接、剩余风险和状态建议。",
+        "candidate",
+    )?;
+
+    seed_knowledge_unit(
+        conn,
+        "ku-prompt-engineering",
+        "theme",
+        "提示词工程",
+        "把历史对话、文档和 AI 回复整理为可审核、可复制、可复用的个人提示词工程资产。",
+        "提示词工程",
+        "",
+        1.0,
+    )?;
+    seed_knowledge_unit(
+        conn,
+        "ku-dev-handoff",
+        "template",
+        "开发交接模板",
+        "把需求、边界、调用链、验证和沉淀要求一次性交给开发 AI。",
+        "开发实现",
+        "tpl-dev-handoff",
+        0.92,
+    )?;
+    seed_knowledge_unit(
+        conn,
+        "ku-ui-iteration",
+        "theme",
+        "UI 体验迭代",
+        "保留现有搜索/采集布局，新增提示词工程与语义图谱工作区。",
+        "UI 设计",
+        "tpl-ui-prototype-review",
+        0.86,
+    )?;
+    seed_knowledge_unit(
+        conn,
+        "ku-test-acceptance",
+        "template",
+        "测试验收模板",
+        "沉淀构建、API、UI、迁移和风险验证话术。",
+        "测试验收",
+        "tpl-test-acceptance",
+        0.82,
+    )?;
+    seed_knowledge_unit(
+        conn,
+        "ku-workflow-governance",
+        "theme",
+        "工作流治理",
+        "以需求池、任务看板、memory 和人工审核门管理需求执行。",
+        "工作流治理",
+        "",
+        0.78,
+    )?;
+    seed_knowledge_unit(
+        conn,
+        "ku-evidence",
+        "evidence",
+        "来源证据",
+        "模板必须能回到原始会话、文档或任务记忆。",
+        "来源证据",
+        "",
+        0.72,
+    )?;
+
+    extract_prompt_candidates(conn)?;
+    Ok(())
+}
+
+fn extract_prompt_candidates(conn: &Connection) -> Result<(), String> {
+    let candidate_count = conn
+        .query_row(
+            "SELECT COUNT(*) FROM prompt_templates WHERE status='candidate'",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap_or(0);
+    if candidate_count >= 12 {
+        return Ok(());
+    }
+
+    let mut stmt = conn
+        .prepare(
+            r#"
+            SELECT item_id, item_type, title, content_text, source_path, source_tool
+            FROM items
+            WHERE item_type IN ('conversation', 'document', 'event')
+              AND (
+                title LIKE '%提示词%' OR content_text LIKE '%提示词%'
+                OR content_text LIKE '%模板%' OR content_text LIKE '%交接%'
+                OR content_text LIKE '%验收%' OR content_text LIKE '%先分析后改%'
+                OR content_text LIKE '%不要%' OR content_text LIKE '%输出格式%'
+                OR content_text LIKE '%workflow%' OR content_text LIKE '%知识图谱%'
+              )
+            ORDER BY updated_at DESC
+            LIMIT 24
+            "#,
+        )
+        .map_err(|err| err.to_string())?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3).unwrap_or_default(),
+                row.get::<_, String>(4).unwrap_or_default(),
+                row.get::<_, String>(5).unwrap_or_default(),
+            ))
+        })
+        .map_err(|err| err.to_string())?;
+
+    for row in rows {
+        let (item_id, item_type, title, content, _source_path, source_tool) =
+            row.map_err(|err| err.to_string())?;
+        let joined = format!("{title}\n{content}");
+        let category = infer_prompt_category(&joined);
+        let excerpt = compact_text_chars(&joined, 180);
+        if excerpt.trim().is_empty() {
+            continue;
+        }
+        let id = format!(
+            "cand-{}",
+            fnv1a64_hex(&format!("{item_id}:{category}:{excerpt}"))
+        );
+        let display_title = compact_text_chars(&title, 26);
+        let name = if display_title.trim().is_empty() {
+            format!("候选：{category}话术")
+        } else {
+            format!("候选：{category} - {display_title}")
+        };
+        seed_prompt_template(
+            conn,
+            &id,
+            &name,
+            category,
+            if source_tool.trim().is_empty() {
+                "通用"
+            } else {
+                &source_tool
+            },
+            "请根据来源片段整理角色设定，并补充职责边界。",
+            &format!("把来源中的高价值话术整理成“{category}”场景可复用模板。"),
+            "{{输入材料}}、{{任务目标}}、{{验收标准}}",
+            "保留来源证据；补齐上下文要求；人工审核后才进入正式库。",
+            "结构化提示词，包含角色、目标、变量、上下文、输出格式、质量标准和禁忌。",
+            "复制后 AI 能一次理解任务；字段不完整时保持候选状态。",
+            "不要自动视为已验证；不要丢失来源证据。",
+            &excerpt,
+            "待人工整理。",
+            "candidate",
+        )?;
+        conn.execute(
+            r#"
+            INSERT OR IGNORE INTO prompt_template_sources(
+              template_id, item_id, source_kind, evidence_excerpt, confidence
+            ) VALUES(?1, ?2, ?3, ?4, ?5)
+            "#,
+            params![id, item_id, item_type, excerpt, 0.72_f64],
+        )
+        .map_err(|err| err.to_string())?;
+        conn.execute(
+            r#"
+            INSERT OR IGNORE INTO knowledge_units(
+              id, unit_type, title, summary, category, source_item_id, template_id, weight, status
+            ) VALUES(?1, 'template', ?2, ?3, ?4, ?5, ?6, 0.48, 'active')
+            "#,
+            params![
+                format!("ku-{id}"),
+                name,
+                compact_text_chars(&excerpt, 72),
+                category,
+                item_id,
+                id
+            ],
+        )
+        .map_err(|err| err.to_string())?;
+    }
     Ok(())
 }
 
@@ -4763,6 +5270,219 @@ fn kb_item_detail_internal(item_id: &str) -> Result<KbItemDetailResponse, String
     Ok(KbItemDetailResponse { item })
 }
 
+fn kb_prompt_templates_internal(status: Option<&str>) -> Result<KbPromptTemplateListResponse, String> {
+    let conn = connect_knowledgebase()?;
+    let mut templates = Vec::new();
+    let status_filter = status.map(str::trim).filter(|item| !item.is_empty());
+    let sql = if status_filter.is_some() {
+        r#"
+        SELECT t.id, t.name, t.category, t.target_tools, t.task_goal, t.status,
+               COUNT(s.template_id) AS source_count, COALESCE(t.updated_at, '') AS updated_at
+        FROM prompt_templates t
+        LEFT JOIN prompt_template_sources s ON s.template_id = t.id
+        WHERE t.status = ?1
+        GROUP BY t.id
+        ORDER BY CASE t.status
+          WHEN 'verified' THEN 0
+          WHEN 'reviewed' THEN 1
+          WHEN 'candidate' THEN 2
+          ELSE 3
+        END, t.updated_at DESC, t.name
+        "#
+    } else {
+        r#"
+        SELECT t.id, t.name, t.category, t.target_tools, t.task_goal, t.status,
+               COUNT(s.template_id) AS source_count, COALESCE(t.updated_at, '') AS updated_at
+        FROM prompt_templates t
+        LEFT JOIN prompt_template_sources s ON s.template_id = t.id
+        GROUP BY t.id
+        ORDER BY CASE t.status
+          WHEN 'verified' THEN 0
+          WHEN 'reviewed' THEN 1
+          WHEN 'candidate' THEN 2
+          ELSE 3
+        END, t.updated_at DESC, t.name
+        "#
+    };
+    let mut stmt = conn.prepare(sql).map_err(|err| err.to_string())?;
+    let mut rows = if let Some(filter) = status_filter {
+        stmt.query(params![filter]).map_err(|err| err.to_string())?
+    } else {
+        stmt.query([]).map_err(|err| err.to_string())?
+    };
+    while let Some(row) = rows.next().map_err(|err| err.to_string())? {
+        templates.push(KbPromptTemplateSummary {
+            id: row.get::<_, String>(0).map_err(|err| err.to_string())?,
+            name: row.get::<_, String>(1).map_err(|err| err.to_string())?,
+            category: row.get::<_, String>(2).map_err(|err| err.to_string())?,
+            target_tools: row.get::<_, String>(3).map_err(|err| err.to_string())?,
+            task_goal: row.get::<_, String>(4).map_err(|err| err.to_string())?,
+            status: row.get::<_, String>(5).map_err(|err| err.to_string())?,
+            source_count: row.get::<_, i64>(6).unwrap_or(0),
+            updated_at: row.get::<_, String>(7).unwrap_or_default(),
+        });
+    }
+    Ok(KbPromptTemplateListResponse { templates })
+}
+
+fn kb_prompt_template_detail_internal(id: &str) -> Result<Option<KbPromptTemplateDetail>, String> {
+    let conn = connect_knowledgebase()?;
+    let mut stmt = conn
+        .prepare(
+            r#"
+            SELECT id, name, category, target_tools, role_prompt, task_goal, variables_json,
+                   context_requirements, output_format, quality_bar, donts, example_input,
+                   example_output, status, COALESCE(created_at, ''), COALESCE(updated_at, '')
+            FROM prompt_templates
+            WHERE id=?1
+            LIMIT 1
+            "#,
+        )
+        .map_err(|err| err.to_string())?;
+    let mut template = match stmt.query_row(params![id], |row| {
+        Ok(KbPromptTemplateDetail {
+            id: row.get::<_, String>(0)?,
+            name: row.get::<_, String>(1)?,
+            category: row.get::<_, String>(2)?,
+            target_tools: row.get::<_, String>(3)?,
+            role_prompt: row.get::<_, String>(4)?,
+            task_goal: row.get::<_, String>(5)?,
+            variables_json: row.get::<_, String>(6)?,
+            context_requirements: row.get::<_, String>(7)?,
+            output_format: row.get::<_, String>(8)?,
+            quality_bar: row.get::<_, String>(9)?,
+            donts: row.get::<_, String>(10)?,
+            example_input: row.get::<_, String>(11)?,
+            example_output: row.get::<_, String>(12)?,
+            status: row.get::<_, String>(13)?,
+            created_at: row.get::<_, String>(14).unwrap_or_default(),
+            updated_at: row.get::<_, String>(15).unwrap_or_default(),
+            sources: Vec::new(),
+        })
+    }) {
+        Ok(item) => item,
+        Err(rusqlite::Error::QueryReturnedNoRows) => return Ok(None),
+        Err(err) => return Err(err.to_string()),
+    };
+
+    let mut source_stmt = conn
+        .prepare(
+            r#"
+            SELECT s.template_id, s.item_id, s.source_kind,
+                   COALESCE(i.title, '') AS source_title,
+                   COALESCE(i.source_path, '') AS source_path,
+                   s.evidence_excerpt, s.confidence
+            FROM prompt_template_sources s
+            LEFT JOIN items i ON i.item_id = s.item_id
+            WHERE s.template_id = ?1
+            ORDER BY s.confidence DESC, s.created_at DESC
+            LIMIT 12
+            "#,
+        )
+        .map_err(|err| err.to_string())?;
+    let source_rows = source_stmt
+        .query_map(params![id], |row| {
+            Ok(KbPromptTemplateSource {
+                template_id: row.get::<_, String>(0)?,
+                item_id: row.get::<_, String>(1)?,
+                source_kind: row.get::<_, String>(2)?,
+                source_title: row.get::<_, String>(3).unwrap_or_default(),
+                source_path: row.get::<_, String>(4).unwrap_or_default(),
+                evidence_excerpt: row.get::<_, String>(5).unwrap_or_default(),
+                confidence: row.get::<_, f64>(6).unwrap_or(0.0),
+            })
+        })
+        .map_err(|err| err.to_string())?;
+    for row in source_rows {
+        template.sources.push(row.map_err(|err| err.to_string())?);
+    }
+
+    Ok(Some(template))
+}
+
+fn kb_prompt_template_copy_internal(id: &str) -> Result<serde_json::Value, String> {
+    let template = kb_prompt_template_detail_internal(id)?
+        .ok_or_else(|| "prompt_template_not_found".to_string())?;
+    Ok(serde_json::json!({
+        "id": id,
+        "text": prompt_template_copy_text(&template)
+    }))
+}
+
+fn kb_prompt_template_status_internal(id: &str, status: &str) -> Result<serde_json::Value, String> {
+    let allowed = ["candidate", "reviewed", "verified", "deprecated"];
+    if !allowed.contains(&status) {
+        return Err("invalid_status".into());
+    }
+    let conn = connect_knowledgebase()?;
+    let changed = conn
+        .execute(
+            "UPDATE prompt_templates SET status=?2, updated_at=CURRENT_TIMESTAMP WHERE id=?1",
+            params![id, status],
+        )
+        .map_err(|err| err.to_string())?;
+    Ok(serde_json::json!({
+        "id": id,
+        "status": status,
+        "changed": changed
+    }))
+}
+
+fn kb_knowledge_units_internal() -> Result<KbKnowledgeUnitsResponse, String> {
+    let conn = connect_knowledgebase()?;
+    let mut stmt = conn
+        .prepare(
+            r#"
+            SELECT id, unit_type, title, summary, category, source_item_id, template_id, weight, status
+            FROM knowledge_units
+            WHERE status='active'
+            ORDER BY weight DESC, updated_at DESC
+            LIMIT 36
+            "#,
+        )
+        .map_err(|err| err.to_string())?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok(KbKnowledgeUnit {
+                id: row.get::<_, String>(0)?,
+                unit_type: row.get::<_, String>(1)?,
+                title: row.get::<_, String>(2)?,
+                summary: row.get::<_, String>(3).unwrap_or_default(),
+                category: row.get::<_, String>(4).unwrap_or_default(),
+                source_item_id: row.get::<_, String>(5).unwrap_or_default(),
+                template_id: row.get::<_, String>(6).unwrap_or_default(),
+                weight: row.get::<_, f64>(7).unwrap_or(1.0),
+                status: row.get::<_, String>(8).unwrap_or_else(|_| "active".into()),
+            })
+        })
+        .map_err(|err| err.to_string())?;
+    let mut units = Vec::new();
+    for row in rows {
+        units.push(row.map_err(|err| err.to_string())?);
+    }
+    let hub_id = units
+        .iter()
+        .find(|unit| unit.id == "ku-prompt-engineering")
+        .map(|unit| unit.id.clone());
+    let mut links = Vec::new();
+    if let Some(hub) = hub_id {
+        for unit in &units {
+            if unit.id != hub {
+                links.push(KbKnowledgeUnitLink {
+                    from_id: hub.clone(),
+                    to_id: unit.id.clone(),
+                    relation_type: if unit.unit_type == "template" {
+                        "contains_template".into()
+                    } else {
+                        "relates_to".into()
+                    },
+                });
+            }
+        }
+    }
+    Ok(KbKnowledgeUnitsResponse { units, links })
+}
+
 fn rebuild_knowledgebase_fts(conn: &Connection) -> Result<(), String> {
     conn.execute("DELETE FROM items_fts", [])
         .map_err(|err| err.to_string())?;
@@ -5054,7 +5774,7 @@ fn query_param(url_query: &str, key: &str) -> Option<String> {
 }
 
 fn handle_knowledgebase_http_request(request: Request) {
-    if request.method() != &Method::Get {
+    if request.method() != &Method::Get && request.method() != &Method::Post {
         http_respond_json(
             request,
             405,
@@ -5143,6 +5863,90 @@ fn handle_knowledgebase_http_request(request: Request) {
                 serde_json::json!({ "error": err }).to_string(),
             ),
         },
+        "/api/prompt-templates" => {
+            let status = query_param(query, "status");
+            match kb_prompt_templates_internal(status.as_deref()) {
+                Ok(data) => http_respond_json(
+                    request,
+                    200,
+                    serde_json::to_string(&data).unwrap_or_else(|_| "{}".to_string()),
+                ),
+                Err(err) => http_respond_json(
+                    request,
+                    500,
+                    serde_json::json!({ "error": err }).to_string(),
+                ),
+            }
+        }
+        "/api/prompt-candidates" => match kb_prompt_templates_internal(Some("candidate")) {
+            Ok(data) => http_respond_json(
+                request,
+                200,
+                serde_json::to_string(&data).unwrap_or_else(|_| "{}".to_string()),
+            ),
+            Err(err) => http_respond_json(
+                request,
+                500,
+                serde_json::json!({ "error": err }).to_string(),
+            ),
+        },
+        "/api/knowledge-units" => match kb_knowledge_units_internal() {
+            Ok(data) => http_respond_json(
+                request,
+                200,
+                serde_json::to_string(&data).unwrap_or_else(|_| "{}".to_string()),
+            ),
+            Err(err) => http_respond_json(
+                request,
+                500,
+                serde_json::json!({ "error": err }).to_string(),
+            ),
+        },
+        _ if path.starts_with("/api/prompt-template/") && path.ends_with("/copy") => {
+            let id = url_decode(
+                path.trim_start_matches("/api/prompt-template/")
+                    .trim_end_matches("/copy"),
+            );
+            match kb_prompt_template_copy_internal(&id) {
+                Ok(data) => http_respond_json(request, 200, data.to_string()),
+                Err(err) => http_respond_json(
+                    request,
+                    500,
+                    serde_json::json!({ "error": err }).to_string(),
+                ),
+            }
+        }
+        _ if path.starts_with("/api/prompt-template/") && path.ends_with("/status") => {
+            let id = url_decode(
+                path.trim_start_matches("/api/prompt-template/")
+                    .trim_end_matches("/status"),
+            );
+            let status = query_param(query, "status").unwrap_or_else(|| "reviewed".into());
+            match kb_prompt_template_status_internal(&id, status.trim()) {
+                Ok(data) => http_respond_json(request, 200, data.to_string()),
+                Err(err) => http_respond_json(
+                    request,
+                    500,
+                    serde_json::json!({ "error": err }).to_string(),
+                ),
+            }
+        }
+        _ if path.starts_with("/api/prompt-template/") => {
+            let id = url_decode(path.trim_start_matches("/api/prompt-template/"));
+            match kb_prompt_template_detail_internal(&id) {
+                Ok(data) => http_respond_json(
+                    request,
+                    200,
+                    serde_json::to_string(&serde_json::json!({ "template": data }))
+                        .unwrap_or_else(|_| "{}".to_string()),
+                ),
+                Err(err) => http_respond_json(
+                    request,
+                    500,
+                    serde_json::json!({ "error": err }).to_string(),
+                ),
+            }
+        }
         _ if path.starts_with("/api/item/") => {
             let item_id = url_decode(path.trim_start_matches("/api/item/"));
             match kb_item_detail_internal(&item_id) {

@@ -514,6 +514,7 @@
     .t-info { background: var(--accent-soft); border-color: #cfe0ff; color: var(--accent); }
     .t-ok { background: var(--ok-soft); border-color: #c9eddc; color: var(--ok); }
     .t-warn { background: var(--warn-soft); border-color: #f4d6a6; color: var(--warn); }
+    .t-danger { background: var(--danger-soft); border-color: #f2c4d0; color: var(--danger); }
 
     .kpi {
       display: grid;
@@ -1997,9 +1998,168 @@
       line-height: 1.6;
     }
 
+    .prompt-layout {
+      grid-template-columns: 270px minmax(0, 0.9fr) minmax(360px, 1.1fr);
+      gap: 10px;
+      min-height: 0;
+    }
+
+    .prompt-filter-card,
+    .prompt-list-card,
+    .prompt-editor-card {
+      min-height: 0;
+      overflow: hidden;
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+    }
+
+    .prompt-head {
+      padding-bottom: 10px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .prompt-head h3 {
+      margin: 0;
+      font-size: 15px;
+    }
+
+    .prompt-head p {
+      margin: 5px 0 0;
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.5;
+    }
+
+    .prompt-scroll {
+      min-height: 0;
+      overflow: auto;
+      padding-top: 10px;
+      scrollbar-width: none;
+    }
+
+    .prompt-scroll::-webkit-scrollbar {
+      width: 0;
+      height: 0;
+      display: none;
+    }
+
+    .prompt-filter-group,
+    .prompt-list,
+    .prompt-sources {
+      display: grid;
+      gap: 8px;
+    }
+
+    .prompt-filter {
+      border: 1px solid transparent;
+      border-radius: 10px;
+      background: transparent;
+      color: #31435f;
+      padding: 8px 9px;
+      font-size: 12px;
+      text-align: left;
+      cursor: pointer;
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .prompt-filter.active {
+      background: #e9f6f7;
+      border-color: #bfe5e8;
+      color: #0b6d78;
+      font-weight: 700;
+    }
+
+    .prompt-card {
+      border: 1px solid #dbe7f5;
+      border-radius: 12px;
+      background: #fff;
+      padding: 11px;
+      cursor: pointer;
+      transition: .16s ease;
+    }
+
+    .prompt-card:hover,
+    .prompt-card.active {
+      border-color: #91cfd8;
+      background: linear-gradient(180deg, #ffffff, #f4fbfc);
+    }
+
+    .prompt-card h4 {
+      margin: 0;
+      font-size: 13px;
+      line-height: 1.4;
+    }
+
+    .prompt-card p {
+      margin: 7px 0 0;
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.5;
+    }
+
+    .prompt-meta {
+      margin-top: 8px;
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .prompt-field-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .prompt-field {
+      border: 1px solid #dbe7f5;
+      border-radius: 11px;
+      background: #fbfdff;
+      padding: 9px;
+      min-width: 0;
+    }
+
+    .prompt-field.full {
+      grid-column: 1 / -1;
+    }
+
+    .prompt-field b {
+      display: block;
+      color: #536782;
+      font-size: 10px;
+      margin-bottom: 5px;
+    }
+
+    .prompt-field span {
+      display: block;
+      color: var(--ink);
+      font-size: 12px;
+      line-height: 1.55;
+      white-space: pre-wrap;
+    }
+
+    .prompt-source {
+      border-left: 3px solid #0ea8a3;
+      background: #f5fbfc;
+      border-radius: 10px;
+      padding: 9px 10px;
+      font-size: 11px;
+      color: #4d5f7d;
+      line-height: 1.55;
+    }
+
+    .prompt-source b {
+      display: block;
+      color: var(--ink);
+      margin-bottom: 4px;
+    }
+
     @media (max-width: 1220px) {
       .search-layout { grid-template-columns: 1fr; }
       .graph-layout { grid-template-columns: 1fr; }
+      .prompt-layout { grid-template-columns: 1fr; }
       .overview-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .facet-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .facet-row .facet-reset { grid-column: span 2; }
@@ -2154,6 +2314,7 @@
         <div class="tabs">
           <button class="tab" data-target="search">搜索工作台</button>
           <button class="tab active" data-target="graph">知识图谱中枢</button>
+          <button class="tab" data-target="prompt">提示词工程</button>
           <button class="tab" data-target="collector">采集中心</button>
         </div>
         <span class="status"><i class="dot"></i>采集服务运行中</span>
@@ -2328,6 +2489,44 @@
         </aside>
       </div>
 
+      <div class="workspace prompt-layout" id="prompt">
+        <aside class="card prompt-filter-card">
+          <div class="prompt-head">
+            <h3>提示词工程</h3>
+            <p>把已采集资料整理成候选、模板和可复制话术。</p>
+          </div>
+          <div class="prompt-scroll">
+            <div class="prompt-filter-group" id="promptFilters">
+              <button class="prompt-filter active" data-prompt-status="all"><span>全部</span><span class="tag t-info" id="promptAllCount">0</span></button>
+              <button class="prompt-filter" data-prompt-status="candidate"><span>候选</span><span class="tag t-warn" id="promptCandidateCount">0</span></button>
+              <button class="prompt-filter" data-prompt-status="reviewed"><span>已整理</span><span class="tag t-info" id="promptReviewedCount">0</span></button>
+              <button class="prompt-filter" data-prompt-status="verified"><span>已验证</span><span class="tag t-ok" id="promptVerifiedCount">0</span></button>
+              <button class="prompt-filter" data-prompt-status="deprecated"><span>废弃</span><span class="tag t-danger" id="promptDeprecatedCount">0</span></button>
+            </div>
+          </div>
+        </aside>
+
+        <article class="card prompt-list-card">
+          <div class="prompt-head">
+            <h3>模板 / 候选列表</h3>
+            <p id="promptListMeta">正在加载模板库...</p>
+          </div>
+          <div class="prompt-scroll">
+            <div class="prompt-list" id="promptList"></div>
+          </div>
+        </article>
+
+        <aside class="card prompt-editor-card">
+          <div class="prompt-head">
+            <h3 id="promptDetailTitle">请选择模板</h3>
+            <p id="promptDetailMeta">候选通过人工审核后才进入正式库。</p>
+          </div>
+          <div class="prompt-scroll" id="promptDetail">
+            <div class="hint">左侧选择模板或候选，查看字段、来源证据，并复制为可直接交给 AI 的完整话术。</div>
+          </div>
+        </aside>
+      </div>
+
       <div class="workspace collector-layout" id="collector">
         <article class="card">
           <div class="searchbar">
@@ -2402,6 +2601,13 @@
       traceExpanded: false
     };
 
+    const promptState = {
+      templates: [],
+      activeStatus: 'all',
+      selectedId: '',
+      detail: null
+    };
+
     const graphState = {
       width: 0,
       height: 0,
@@ -2423,6 +2629,8 @@
       lastMetricsBucket: -1,
       lastFrameTime: 0,
       ambientNodes: [],
+      semanticUnits: [],
+      semanticLinks: [],
       animationFrameId: 0,
       pauseUntil: 0,
       resumeUntil: 0,
@@ -2882,8 +3090,58 @@
       return (graphCompactText(firstSnippet, 84) || '这组真实记录已从当前知识库结果中聚合为一个图谱节点。') + more;
     }
 
+    function graphCategoryFromUnit(unit) {
+      const type = String(unit?.unit_type || '').toLowerCase();
+      const category = String(unit?.category || '');
+      if (type === 'decision') return 'decision';
+      if (type === 'risk' || /风险|修复|问题/.test(category)) return 'risk';
+      if (type === 'evidence' || /证据|来源/.test(category)) return 'evidence';
+      if (type === 'template' || /实现|设计|验收|提示词/.test(category)) return 'solution';
+      return 'theme';
+    }
+
+    function graphBuildSemanticNodes() {
+      const slots = [
+        { x: 0, y: 0, z: 0, size: 14 },
+        { x: -92, y: -34, z: 42, size: 10.8 },
+        { x: 88, y: -42, z: 38, size: 10.2 },
+        { x: -64, y: 76, z: -28, size: 9.4 },
+        { x: 70, y: 76, z: -24, size: 9.4 },
+        { x: -136, y: 22, z: -44, size: 8.2 },
+        { x: 136, y: 18, z: -42, size: 8.2 },
+        { x: -28, y: -104, z: 64, size: 8.4 },
+        { x: 34, y: 112, z: -58, size: 8.4 },
+        { x: 118, y: -88, z: 58, size: 7.6 }
+      ];
+      return (graphState.semanticUnits || []).slice(0, 10).map((unit, index) => {
+        const slot = slots[index] || slots[slots.length - 1];
+        return {
+          id: String(unit.id || 'ku-' + index),
+          label: unit.title || '语义知识',
+          category: graphCategoryFromUnit(unit),
+          cluster: unit.category || unit.unit_type || '语义节点',
+          projectKey: 'all',
+          source: unit.template_id ? 'prompt_templates' : 'knowledge_units',
+          time: '',
+          searchKeyword: unit.title || unit.category || '',
+          summary: unit.summary || '这是从原始 items / links 整理出来的语义知识节点。',
+          related: [
+            { label: '节点类型', type: 'type', note: unit.unit_type || '-' },
+            { label: '场景分类', type: 'category', note: unit.category || '-' },
+            { label: '模板关联', type: 'template', note: unit.template_id || '无直接模板' }
+          ],
+          evidence: [
+            { title: '语义来源', text: unit.source_item_id ? `来源条目：${unit.source_item_id}` : '系统整理层生成' },
+            { title: '复用价值', text: unit.template_id ? '可在提示词工程页查看并复制模板。' : '可作为图谱主题继续聚合模板和证据。' }
+          ],
+          x: slot.x, y: slot.y, z: slot.z,
+          size: slot.size
+        };
+      });
+    }
+
     function graphBuildRealNodes() {
-      const nodes = [];
+      const nodes = graphBuildSemanticNodes();
       const projectItems = Array.isArray(state.projects) ? state.projects.slice(0, 4) : [];
       const resultSource = Array.isArray(state.allResults) && state.allResults.length ? state.allResults : graphState.seedResults;
       const resultItems = Array.isArray(resultSource) ? resultSource.filter((item) => matchProjectBySelection(item, state.activeProjectId || 'all')) : [];
@@ -2997,14 +3255,28 @@
     }
 
     async function graphLoadSeedResults() {
-      if (Array.isArray(state.allResults) && state.allResults.length) return;
       try {
-        const res = await fetch('/api/search?q=');
-        const data = await res.json();
-        graphState.seedResults = Array.isArray(data.items) ? data.items : [];
+        const requests = [fetch('/api/knowledge-units')];
+        if (!Array.isArray(state.allResults) || !state.allResults.length) {
+          requests.unshift(fetch('/api/search?q='));
+        }
+        const responses = await Promise.all(requests);
+        const unitRes = responses[responses.length - 1];
+        if (responses.length > 1) {
+          const data = await responses[0].json();
+          graphState.seedResults = Array.isArray(data.items) ? data.items : [];
+        }
+        const unitData = await unitRes.json();
+        graphState.semanticUnits = Array.isArray(unitData.units) ? unitData.units : [];
+        graphState.semanticLinks = Array.isArray(unitData.links) ? unitData.links : [];
+        if (graphState.semanticUnits.some((unit) => unit.id === 'ku-prompt-engineering')) {
+          graphState.selectedId = 'ku-prompt-engineering';
+        }
         graphRefreshCoreNodes();
       } catch (_) {
         graphState.seedResults = [];
+        graphState.semanticUnits = [];
+        graphState.semanticLinks = [];
       }
     }
 
@@ -3039,6 +3311,14 @@
         ['theme-core', 'evidence-readme'],
         ['theme-core', 'erp-theme']
       ].forEach(([source, target]) => addEdge(source, target));
+
+      (graphState.semanticLinks || []).forEach((link) => {
+        addEdge(String(link.from_id || ''), String(link.to_id || ''));
+      });
+
+      if (ids.has('ku-prompt-engineering')) {
+        ['theme-core', 'theme-search', 'theme-graph'].forEach((source) => addEdge(source, 'ku-prompt-engineering'));
+      }
 
       const projectNodeByKey = new Map();
       graphNodes.forEach((node) => {
@@ -3990,6 +4270,148 @@
       await Promise.all([loadStats(), loadProjects(), runSearch()]);
     }
 
+    function promptStatusLabel(status) {
+      return ({
+        candidate: '候选',
+        reviewed: '已整理',
+        verified: '已验证',
+        deprecated: '废弃'
+      })[status] || status || '-';
+    }
+
+    function promptTagClass(status) {
+      if (status === 'verified') return 't-ok';
+      if (status === 'candidate') return 't-warn';
+      if (status === 'deprecated') return 't-danger';
+      return 't-info';
+    }
+
+    function renderPromptCounts() {
+      const counts = { all: promptState.templates.length, candidate: 0, reviewed: 0, verified: 0, deprecated: 0 };
+      promptState.templates.forEach((item) => {
+        if (counts[item.status] !== undefined) counts[item.status] += 1;
+      });
+      document.getElementById('promptAllCount').textContent = counts.all;
+      document.getElementById('promptCandidateCount').textContent = counts.candidate;
+      document.getElementById('promptReviewedCount').textContent = counts.reviewed;
+      document.getElementById('promptVerifiedCount').textContent = counts.verified;
+      document.getElementById('promptDeprecatedCount').textContent = counts.deprecated;
+    }
+
+    function renderPromptList() {
+      renderPromptCounts();
+      const list = document.getElementById('promptList');
+      const filtered = promptState.templates.filter((item) => {
+        return promptState.activeStatus === 'all' || item.status === promptState.activeStatus;
+      });
+      document.getElementById('promptListMeta').textContent = `显示 ${filtered.length} / ${promptState.templates.length} 个模板`;
+      if (!filtered.length) {
+        list.innerHTML = '<div class="hint">当前筛选下没有模板。可以先切回“全部”或“候选”。</div>';
+        return;
+      }
+      list.innerHTML = filtered.map((item) => `
+        <article class="prompt-card ${item.id === promptState.selectedId ? 'active' : ''}" data-template-id="${esc(item.id)}">
+          <h4>${esc(item.name)}</h4>
+          <p>${esc(item.task_goal || '暂无任务目标')}</p>
+          <div class="prompt-meta">
+            <span class="tag ${promptTagClass(item.status)}">${esc(promptStatusLabel(item.status))}</span>
+            <span class="tag t-info">${esc(item.category)}</span>
+            <span class="tag t-info">${Number(item.source_count || 0)} 来源</span>
+          </div>
+        </article>
+      `).join('');
+      list.querySelectorAll('[data-template-id]').forEach((card) => {
+        card.addEventListener('click', () => {
+          loadPromptDetail(card.getAttribute('data-template-id') || '');
+        });
+      });
+    }
+
+    async function loadPromptTemplates() {
+      const res = await fetch('/api/prompt-templates');
+      const data = await res.json();
+      promptState.templates = Array.isArray(data.templates) ? data.templates : [];
+      if (!promptState.selectedId && promptState.templates.length) {
+        promptState.selectedId = promptState.templates[0].id;
+      }
+      renderPromptList();
+      if (promptState.selectedId) await loadPromptDetail(promptState.selectedId);
+    }
+
+    function renderPromptDetail(template) {
+      promptState.detail = template;
+      document.getElementById('promptDetailTitle').textContent = template?.name || '请选择模板';
+      document.getElementById('promptDetailMeta').textContent = template
+        ? `${promptStatusLabel(template.status)} · ${template.category} · ${template.target_tools}`
+        : '候选通过人工审核后才进入正式库。';
+      if (!template) {
+        document.getElementById('promptDetail').innerHTML = '<div class="hint">请选择模板或候选。</div>';
+        return;
+      }
+      document.getElementById('promptDetail').innerHTML = `
+        <div class="prompt-field-grid">
+          <div class="prompt-field"><b>角色设定</b><span>${esc(template.role_prompt)}</span></div>
+          <div class="prompt-field"><b>任务目标</b><span>${esc(template.task_goal)}</span></div>
+          <div class="prompt-field"><b>输入变量</b><span>${esc(template.variables_json)}</span></div>
+          <div class="prompt-field"><b>上下文要求</b><span>${esc(template.context_requirements)}</span></div>
+          <div class="prompt-field full"><b>输出格式</b><span>${esc(template.output_format)}</span></div>
+          <div class="prompt-field"><b>质量标准</b><span>${esc(template.quality_bar)}</span></div>
+          <div class="prompt-field"><b>禁忌 / 不要做</b><span>${esc(template.donts)}</span></div>
+          <div class="prompt-field full"><b>示例输入</b><span>${esc(template.example_input)}</span></div>
+          <div class="prompt-field full"><b>示例输出</b><span>${esc(template.example_output)}</span></div>
+        </div>
+        <div class="prompt-sources" style="margin-top:10px;">
+          ${(template.sources || []).length ? template.sources.map((source) => `
+            <div class="prompt-source">
+              <b>${esc(source.source_title || source.source_kind || '来源证据')}</b>
+              ${esc(source.evidence_excerpt || '')}
+            </div>
+          `).join('') : '<div class="hint">暂无来源条目；内置模板会在后续人工验证中补充来源证据。</div>'}
+        </div>
+        <div class="action-row" style="margin-top:10px;">
+          <button class="action" id="promptApproveBtn" type="button">通过审核</button>
+          <button class="action" id="promptVerifyBtn" type="button">标记验证</button>
+          <button class="action" id="promptDeprecateBtn" type="button">标记废弃</button>
+          <button class="action" id="promptCopyBtn" type="button">复制模板</button>
+        </div>
+      `;
+      document.getElementById('promptCopyBtn').addEventListener('click', copyActivePromptTemplate);
+      document.getElementById('promptApproveBtn').addEventListener('click', () => updatePromptStatus('reviewed'));
+      document.getElementById('promptVerifyBtn').addEventListener('click', () => updatePromptStatus('verified'));
+      document.getElementById('promptDeprecateBtn').addEventListener('click', () => updatePromptStatus('deprecated'));
+    }
+
+    async function loadPromptDetail(id) {
+      if (!id) return;
+      promptState.selectedId = id;
+      renderPromptList();
+      const res = await fetch('/api/prompt-template/' + encodeURIComponent(id));
+      const data = await res.json();
+      renderPromptDetail(data.template || null);
+    }
+
+    async function copyActivePromptTemplate() {
+      if (!promptState.selectedId) return;
+      const res = await fetch('/api/prompt-template/' + encodeURIComponent(promptState.selectedId) + '/copy');
+      const data = await res.json();
+      const ok = await copyText(data.text || '');
+      document.getElementById('promptDetailMeta').textContent = ok ? '模板已复制，可直接粘贴给 AI 使用。' : '复制失败，请检查剪贴板权限。';
+    }
+
+    async function updatePromptStatus(status) {
+      if (!promptState.selectedId) return;
+      const res = await fetch('/api/prompt-template/' + encodeURIComponent(promptState.selectedId) + '/status?status=' + encodeURIComponent(status), {
+        method: 'POST'
+      });
+      if (!res.ok) {
+        document.getElementById('promptDetailMeta').textContent = '状态更新失败。';
+        return;
+      }
+      await loadPromptTemplates();
+      await graphLoadSeedResults();
+      graphRefreshCoreNodes();
+    }
+
     async function init() {
       bindFloatingTips(document);
       window.addEventListener('scroll', hideFloatingTip, true);
@@ -4024,6 +4446,15 @@
 
       document.getElementById('compactConversationsBtn').addEventListener('click', () => {
         compactConversations();
+      });
+
+      document.getElementById('promptFilters').addEventListener('click', (event) => {
+        if (!(event.target instanceof Element)) return;
+        const btn = event.target.closest('button[data-prompt-status]');
+        if (!btn) return;
+        promptState.activeStatus = btn.getAttribute('data-prompt-status') || 'all';
+        document.querySelectorAll('.prompt-filter').forEach((item) => item.classList.toggle('active', item === btn));
+        renderPromptList();
       });
 
       document.getElementById('resetFiltersBtn').addEventListener('click', () => {
@@ -4208,7 +4639,7 @@
         setActiveWorkspace('search');
       });
 
-      await Promise.all([loadStats(), loadProjects()]);
+      await Promise.all([loadStats(), loadProjects(), loadPromptTemplates()]);
       await graphLoadSeedResults();
       loadFavorites();
       updateActionButtons();
