@@ -4529,9 +4529,19 @@
       return latest.length > 11 ? latest.slice(5, 16) : latest;
     }
 
+    function promptCardSourceLabel(item) {
+      const isCandidate = item?.status === 'candidate' || String(item?.id || '').startsWith('cand-');
+      if (!isCandidate) return `整理 ${promptLatestLabel([item])}`;
+      const sourceBits = [item.source_project, item.source_tool].map((part) => String(part || '').trim()).filter(Boolean);
+      const sourceAt = promptLatestLabel([{ updated_at: item.source_updated_at || '' }]);
+      if (sourceBits.length) return `来源 ${sourceBits.join(' · ')}`;
+      if (sourceAt !== '-') return `来源 ${sourceAt}`;
+      return `${Number(item.source_count || 0)} 来源`;
+    }
+
     function promptIsDevHandoff(item) {
       const text = `${item?.name || ''} ${item?.category || ''} ${item?.task_goal || ''}`.toLowerCase();
-      return ['开发', '交接', '实现', 'handoff', 'codex'].some((keyword) => text.includes(keyword));
+      return ['开发', '交接', '实现', 'handoff'].some((keyword) => text.includes(keyword));
     }
 
     function promptVisibleTemplates() {
@@ -4552,7 +4562,9 @@
           const aScore = (needDev ? aDev * 1000 : 0) + Number(a.source_count || 0) * 10 + (aDev * 3);
           const bScore = (needDev ? bDev * 1000 : 0) + Number(b.source_count || 0) * 10 + (bDev * 3);
           if (aScore !== bScore) return bScore - aScore;
-          return String(b.updated_at || '').localeCompare(String(a.updated_at || ''));
+          const aTime = String(a.source_updated_at || a.updated_at || '');
+          const bTime = String(b.source_updated_at || b.updated_at || '');
+          return bTime.localeCompare(aTime);
         });
     }
 
@@ -4655,7 +4667,7 @@
             <span class="tag ${promptTagClass(item.status)}">${esc(promptStatusLabel(item.status))}</span>
             <span class="tag t-info">${esc(item.category)}</span>
             <span class="tag t-info">${Number(item.source_count || 0)} 来源</span>
-            <span class="tag t-info">${esc(promptLatestLabel([item]))}</span>
+            <span class="tag t-info">${esc(promptCardSourceLabel(item))}</span>
           </div>
         </article>
       `).join('');

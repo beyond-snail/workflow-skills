@@ -317,6 +317,9 @@ struct KbPromptTemplateSummary {
     status: String,
     source_count: i64,
     updated_at: String,
+    source_project: String,
+    source_tool: String,
+    source_updated_at: String,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -5301,7 +5304,32 @@ fn kb_prompt_templates_internal(status: Option<&str>) -> Result<KbPromptTemplate
     let sql = if status_filter.is_some() {
         r#"
         SELECT t.id, t.name, t.category, t.target_tools, t.task_goal, t.status,
-               COUNT(s.template_id) AS source_count, COALESCE(t.updated_at, '') AS updated_at
+               COUNT(s.template_id) AS source_count, COALESCE(t.updated_at, '') AS updated_at,
+               COALESCE((
+                 SELECT p.name
+                 FROM prompt_template_sources s2
+                 LEFT JOIN items i2 ON i2.item_id = s2.item_id
+                 LEFT JOIN projects p ON p.project_id = i2.project_id
+                 WHERE s2.template_id = t.id
+                 ORDER BY COALESCE(i2.updated_at, '') DESC, s2.created_at DESC
+                 LIMIT 1
+               ), '') AS source_project,
+               COALESCE((
+                 SELECT i2.source_tool
+                 FROM prompt_template_sources s2
+                 LEFT JOIN items i2 ON i2.item_id = s2.item_id
+                 WHERE s2.template_id = t.id
+                 ORDER BY COALESCE(i2.updated_at, '') DESC, s2.created_at DESC
+                 LIMIT 1
+               ), '') AS source_tool,
+               COALESCE((
+                 SELECT i2.updated_at
+                 FROM prompt_template_sources s2
+                 LEFT JOIN items i2 ON i2.item_id = s2.item_id
+                 WHERE s2.template_id = t.id
+                 ORDER BY COALESCE(i2.updated_at, '') DESC, s2.created_at DESC
+                 LIMIT 1
+               ), '') AS source_updated_at
         FROM prompt_templates t
         LEFT JOIN prompt_template_sources s ON s.template_id = t.id
         WHERE t.status = ?1
@@ -5316,7 +5344,32 @@ fn kb_prompt_templates_internal(status: Option<&str>) -> Result<KbPromptTemplate
     } else {
         r#"
         SELECT t.id, t.name, t.category, t.target_tools, t.task_goal, t.status,
-               COUNT(s.template_id) AS source_count, COALESCE(t.updated_at, '') AS updated_at
+               COUNT(s.template_id) AS source_count, COALESCE(t.updated_at, '') AS updated_at,
+               COALESCE((
+                 SELECT p.name
+                 FROM prompt_template_sources s2
+                 LEFT JOIN items i2 ON i2.item_id = s2.item_id
+                 LEFT JOIN projects p ON p.project_id = i2.project_id
+                 WHERE s2.template_id = t.id
+                 ORDER BY COALESCE(i2.updated_at, '') DESC, s2.created_at DESC
+                 LIMIT 1
+               ), '') AS source_project,
+               COALESCE((
+                 SELECT i2.source_tool
+                 FROM prompt_template_sources s2
+                 LEFT JOIN items i2 ON i2.item_id = s2.item_id
+                 WHERE s2.template_id = t.id
+                 ORDER BY COALESCE(i2.updated_at, '') DESC, s2.created_at DESC
+                 LIMIT 1
+               ), '') AS source_tool,
+               COALESCE((
+                 SELECT i2.updated_at
+                 FROM prompt_template_sources s2
+                 LEFT JOIN items i2 ON i2.item_id = s2.item_id
+                 WHERE s2.template_id = t.id
+                 ORDER BY COALESCE(i2.updated_at, '') DESC, s2.created_at DESC
+                 LIMIT 1
+               ), '') AS source_updated_at
         FROM prompt_templates t
         LEFT JOIN prompt_template_sources s ON s.template_id = t.id
         GROUP BY t.id
@@ -5344,6 +5397,9 @@ fn kb_prompt_templates_internal(status: Option<&str>) -> Result<KbPromptTemplate
             status: row.get::<_, String>(5).map_err(|err| err.to_string())?,
             source_count: row.get::<_, i64>(6).unwrap_or(0),
             updated_at: row.get::<_, String>(7).unwrap_or_default(),
+            source_project: row.get::<_, String>(8).unwrap_or_default(),
+            source_tool: row.get::<_, String>(9).unwrap_or_default(),
+            source_updated_at: row.get::<_, String>(10).unwrap_or_default(),
         });
     }
     Ok(KbPromptTemplateListResponse { templates })
