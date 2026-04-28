@@ -363,6 +363,14 @@
       min-height: 28px;
     }
 
+    .graph-guide-note {
+      border-top: 1px solid rgba(198, 214, 233, 0.72);
+      padding-top: 8px;
+      color: #5d708a;
+      font-size: 11px;
+      line-height: 1.65;
+    }
+
     .graph-kpi-grid {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1772,6 +1780,12 @@
       min-width: 0;
     }
 
+    .action:disabled {
+      opacity: .46;
+      cursor: not-allowed;
+      background: #f7f9fc;
+    }
+
     .action-tip {
       color: var(--muted);
       font-size: 10px;
@@ -2277,18 +2291,13 @@
           </section>
 
           <section class="section">
-            <h3>图谱层级</h3>
+            <h3>节点图例</h3>
             <div class="graph-layer-list" id="graphLayerList"></div>
           </section>
 
           <section class="section">
-            <h3>关系类型</h3>
-            <div class="graph-rel-list-mini">
-              <div class="graph-rel-chip"><span>引用</span><span>REF</span></div>
-              <div class="graph-rel-chip"><span>支持</span><span>SUP</span></div>
-              <div class="graph-rel-chip"><span>冲突</span><span>CON</span></div>
-              <div class="graph-rel-chip"><span>演进</span><span>EVO</span></div>
-            </div>
+            <h3>图谱说明</h3>
+            <div class="graph-guide-note">颜色只辅助识别主题、模板、风险和证据。真正有用的判断放在右侧：看摘要、来源、关联模板，再决定查看、复制或回到搜索追溯。</div>
           </section>
 
           <section class="section">
@@ -2470,10 +2479,10 @@
           <div class="graph-meta-card">
             <div class="detail-section-label">元信息</div>
             <div class="graph-meta-list">
-              <div class="graph-meta-item"><label>主题簇</label><span id="graphDetailCluster">Knowledge Orchestration</span></div>
-              <div class="graph-meta-item"><label>所属项目</label><span id="graphDetailProject">skill</span></div>
-              <div class="graph-meta-item"><label>原始来源</label><span id="graphDetailSource">workflow / memory / testing</span></div>
-              <div class="graph-meta-item"><label>最近激活</label><span id="graphDetailTime">2026-04-27 22:02</span></div>
+              <div class="graph-meta-item"><label>场景</label><span id="graphDetailCluster">Knowledge Orchestration</span></div>
+              <div class="graph-meta-item"><label>状态</label><span id="graphDetailProject">可整理</span></div>
+              <div class="graph-meta-item"><label>来源</label><span id="graphDetailSource">workflow / memory / testing</span></div>
+              <div class="graph-meta-item"><label>关联模板</label><span id="graphDetailTime">无直接模板</span></div>
             </div>
           </div>
 
@@ -2483,8 +2492,10 @@
           </div>
 
           <div class="graph-actions action-row">
+            <button class="action" id="graphOpenPromptBtn" type="button">查看模板</button>
+            <button class="action" id="graphCopyPromptBtn" type="button">复制模板</button>
+            <button class="action" id="graphJumpSearchBtn" type="button">查看来源</button>
             <button class="action" id="graphResetBtn" type="button">重置视角</button>
-            <button class="action" id="graphJumpSearchBtn" type="button">在搜索中定位</button>
           </div>
         </aside>
       </div>
@@ -3100,6 +3111,57 @@
       return 'theme';
     }
 
+    function graphReadableKnowledgeTitle(title, category, unitType) {
+      const raw = String(title || '').trim();
+      const cat = String(category || '').trim();
+      const type = String(unitType || '').toLowerCase();
+      if (!raw) return cat ? `${cat}知识节点` : '语义知识节点';
+      if (/^候选[：:]/.test(raw)) {
+        const scene = raw
+          .replace(/^候选[：:]\s*/, '')
+          .replace(/\s*[-—]\s*(?:codex|claude|chatgpt|gemini)\s*会话\s*[0-9a-f-]+.*$/i, '')
+          .replace(/\s*[-—]\s*[^-—]{0,18}会话\s*[0-9a-f-]+.*$/i, '')
+          .replace(/\s+/g, ' ')
+          .trim();
+        return `${scene || cat || 'AI 协作'}提示词候选`;
+      }
+      const cleaned = raw
+        .replace(/\b(?:codex|claude|chatgpt|gemini)\s*会话\s*[0-9a-f-]+/ig, 'AI 协作会话')
+        .replace(/[0-9a-f]{8}-[0-9a-f-]{12,}/ig, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+      if (type === 'template' && !/模板|提示词/.test(cleaned)) return `${cleaned}模板`;
+      return graphCompactText(cleaned || raw, 24);
+    }
+
+    function graphNodeStatusText(node) {
+      const id = String(node?.templateId || node?.id || '');
+      if (id.startsWith('cand-') || /候选/.test(node?.rawTitle || node?.label || '')) return '候选 / 待整理';
+      if (node?.templateId) return '可复用模板';
+      if (String(node?.unitType || '').toLowerCase() === 'risk' || node?.category === 'risk') return '需关注';
+      if (node?.id?.startsWith('project-')) return node.cluster || '项目状态';
+      if (node?.id?.startsWith('item-group-')) return '可继续沉淀';
+      return '语义知识节点';
+    }
+
+    function graphNodeSourceText(node) {
+      const source = String(node?.source || '');
+      if (source === 'prompt_templates') return '提示词工程库';
+      if (source === 'knowledge_units') return '语义知识整理层';
+      if (source === 'api/projects') return '采集中心项目状态';
+      return source || '知识库记录';
+    }
+
+    function graphNodeTemplateText(node) {
+      const id = String(node?.templateId || '').trim();
+      if (!id) return '无直接模板';
+      return id.startsWith('cand-') ? '候选模板，可进入提示词工程整理' : '正式模板，可直接查看或复制';
+    }
+
+    function graphSelectedNode() {
+      return graphCoreNodes.find((node) => node.id === graphState.selectedId) || graphCoreNodes.find((node) => graphVisible(node)) || graphCoreNodes[0];
+    }
+
     function graphBuildSemanticNodes() {
       const slots = [
         { x: 0, y: 0, z: 0, size: 14 },
@@ -3115,23 +3177,29 @@
       ];
       return (graphState.semanticUnits || []).slice(0, 10).map((unit, index) => {
         const slot = slots[index] || slots[slots.length - 1];
+        const rawTitle = unit.title || '语义知识';
+        const readableTitle = graphReadableKnowledgeTitle(rawTitle, unit.category, unit.unit_type);
         return {
           id: String(unit.id || 'ku-' + index),
-          label: unit.title || '语义知识',
+          label: readableTitle,
+          rawTitle,
           category: graphCategoryFromUnit(unit),
           cluster: unit.category || unit.unit_type || '语义节点',
           projectKey: 'all',
           source: unit.template_id ? 'prompt_templates' : 'knowledge_units',
           time: '',
           searchKeyword: unit.title || unit.category || '',
+          templateId: unit.template_id || '',
+          sourceItemId: unit.source_item_id || '',
+          unitType: unit.unit_type || '',
           summary: unit.summary || '这是从原始 items / links 整理出来的语义知识节点。',
           related: [
-            { label: '节点类型', type: 'type', note: unit.unit_type || '-' },
-            { label: '场景分类', type: 'category', note: unit.category || '-' },
-            { label: '模板关联', type: 'template', note: unit.template_id || '无直接模板' }
+            { label: '整理状态', type: 'status', note: unit.template_id ? graphNodeTemplateText({ templateId: unit.template_id }) : '还没有绑定到提示词模板' },
+            { label: '适用场景', type: 'category', note: unit.category || '未分类' },
+            { label: '可执行动作', type: 'action', note: unit.template_id ? '可查看模板详情，必要时复制完整提示词。' : '可回到搜索查看来源，再继续整理为知识单元。' }
           ],
           evidence: [
-            { title: '语义来源', text: unit.source_item_id ? `来源条目：${unit.source_item_id}` : '系统整理层生成' },
+            { title: '来源证据', text: unit.source_item_id ? `来自已入库条目：${unit.source_item_id}` : '由系统整理层从现有知识库归纳生成' },
             { title: '复用价值', text: unit.template_id ? '可在提示词工程页查看并复制模板。' : '可作为图谱主题继续聚合模板和证据。' }
           ],
           x: slot.x, y: slot.y, z: slot.z,
@@ -3571,21 +3639,27 @@
     function graphUpdateDetail(nodeId) {
       const selected = graphCoreNodes.find((node) => node.id === nodeId && graphVisible(node)) || graphCoreNodes.find((node) => graphVisible(node)) || graphCoreNodes[0];
       graphState.selectedId = selected.id;
-      const meta = GRAPH_META[selected.category];
-      document.getElementById('graphDetailTitle').textContent = selected.label;
-      document.getElementById('graphDetailSummary').textContent = graphCompactText(selected.summary, 78);
+      const meta = GRAPH_META[selected.category] || GRAPH_META.theme;
+      const title = graphReadableKnowledgeTitle(selected.label, selected.cluster, selected.unitType);
+      document.getElementById('graphDetailTitle').textContent = title;
+      document.getElementById('graphDetailSummary').textContent = graphCompactText(selected.summary, 96);
       document.getElementById('graphDetailCluster').textContent = selected.cluster;
-      document.getElementById('graphDetailProject').textContent = selected.projectKey;
-      document.getElementById('graphDetailSource').textContent = selected.source;
-      document.getElementById('graphDetailTime').textContent = selected.time;
+      document.getElementById('graphDetailProject').textContent = graphNodeStatusText(selected);
+      document.getElementById('graphDetailSource').textContent = graphNodeSourceText(selected);
+      document.getElementById('graphDetailTime').textContent = selected.templateId ? graphNodeTemplateText(selected) : (selected.time || '无直接模板');
       document.getElementById('graphDetailBadge').innerHTML = '<span class="graph-badge-dot" style="color:' + meta.color + ';background:' + meta.color + '"></span><span>' + meta.label + '</span>';
-      document.getElementById('graphRelations').innerHTML = selected.related.map((rel) =>
-        '<div class="graph-rel-item"><strong>' + esc(rel.label) + '</strong><em>' + esc(rel.type) + '</em><p>' + esc(graphCompactText(rel.note, 42)) + '</p></div>'
+      document.getElementById('graphRelations').innerHTML = (selected.related || []).map((rel) =>
+        '<div class="graph-rel-item"><strong>' + esc(rel.label) + '</strong><p>' + esc(graphCompactText(rel.note, 68)) + '</p></div>'
+      ).join('') || '<div class="graph-rel-item"><strong>暂无关系链</strong><p>这个节点还没有足够的关联证据。</p></div>';
+      document.getElementById('graphRail').innerHTML = (selected.evidence || []).map((item) =>
+        '<div class="graph-rail-card"><h4>' + esc(item.title) + '</h4><p>' + esc(graphCompactText(item.text, 58)) + '</p></div>'
       ).join('');
-      document.getElementById('graphRail').innerHTML = selected.evidence.map((item) =>
-        '<div class="graph-rail-card"><h4>' + esc(item.title) + '</h4><p>' + esc(graphCompactText(item.text, 46)) + '</p></div>'
-      ).join('');
-      document.getElementById('graphFocusLabel').textContent = selected.label + ' · ' + selected.cluster;
+      document.getElementById('graphFocusLabel').textContent = title + ' · ' + selected.cluster;
+      const hasTemplate = Boolean(selected.templateId);
+      const openBtn = document.getElementById('graphOpenPromptBtn');
+      const copyBtn = document.getElementById('graphCopyPromptBtn');
+      if (openBtn) openBtn.disabled = !hasTemplate;
+      if (copyBtn) copyBtn.disabled = !hasTemplate;
     }
 
     function graphDraw() {
@@ -4561,10 +4635,26 @@
       });
 
       document.getElementById('graphJumpSearchBtn').addEventListener('click', async () => {
-        const selected = graphCoreNodes.find((node) => node.id === graphState.selectedId) || graphCoreNodes[0];
+        const selected = graphSelectedNode();
         document.getElementById('q').value = selected.searchKeyword || '';
         setActiveWorkspace('search');
         await runSearch();
+      });
+
+      document.getElementById('graphOpenPromptBtn').addEventListener('click', async () => {
+        const selected = graphSelectedNode();
+        if (!selected?.templateId) return;
+        setActiveWorkspace('prompt');
+        await loadPromptDetail(selected.templateId);
+      });
+
+      document.getElementById('graphCopyPromptBtn').addEventListener('click', async () => {
+        const selected = graphSelectedNode();
+        if (!selected?.templateId) return;
+        const res = await fetch('/api/prompt-template/' + encodeURIComponent(selected.templateId) + '/copy');
+        const data = await res.json();
+        const ok = await copyText(data.text || '');
+        document.getElementById('graphDetailSummary').textContent = ok ? '模板已复制，可直接粘贴给 AI 使用。' : '复制失败，请检查剪贴板权限。';
       });
 
       document.getElementById('graphDetailToggleBtn').addEventListener('click', () => {
