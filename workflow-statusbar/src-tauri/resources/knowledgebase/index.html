@@ -26,6 +26,7 @@
       --danger-soft: #ffe8ee;
       --ok: #0d7f5b;
       --ok-soft: #e4f8ef;
+      --sidebar-width: 296px;
       --radius: 16px;
       --shadow: 0 10px 30px rgba(22, 41, 73, 0.08);
     }
@@ -47,14 +48,13 @@
     .app {
       height: 100vh;
       display: grid;
-      grid-template-columns: 296px minmax(0, 1fr);
+      grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
       gap: 10px;
       padding: 10px;
     }
 
     .app.graph-mode {
-      grid-template-columns: 224px minmax(0, 1fr);
-      padding: 8px;
+      grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
       background:
         radial-gradient(circle at 19% 18%, rgba(37, 111, 219, 0.10), transparent 26%),
         radial-gradient(circle at 78% 78%, rgba(14, 168, 163, 0.10), transparent 28%);
@@ -79,8 +79,15 @@
 
     .app.graph-mode .sidebar {
       grid-template-rows: auto minmax(0, 1fr);
-      background: rgba(247, 251, 255, 0.72);
-      box-shadow: none;
+    }
+
+    .knowledge-sidebar {
+      min-height: 0;
+      height: 100%;
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr) auto;
+      gap: 8px;
+      overflow: hidden;
     }
 
     .brand {
@@ -162,6 +169,7 @@
 
     .graph-sidebar {
       display: none;
+      height: 100%;
       min-height: 0;
       grid-template-rows: auto minmax(0, 1fr);
       gap: 8px;
@@ -182,28 +190,6 @@
         linear-gradient(145deg, #fbfdff, #f3f8ff);
     }
 
-    .app.graph-mode .graph-brand {
-      display: none;
-    }
-
-    .graph-brand h1 {
-      font-size: 16px;
-    }
-
-    .app.graph-mode .graph-brand h1 {
-      font-size: 15px;
-      letter-spacing: 0;
-    }
-
-    .graph-brand p {
-      line-height: 1.6;
-      font-size: 11px;
-    }
-
-    .app.graph-mode .graph-brand p {
-      display: none;
-    }
-
     .graph-control-scroll {
       min-height: 0;
       overflow: auto;
@@ -211,26 +197,6 @@
       align-content: start;
       gap: 8px;
       scrollbar-width: none;
-    }
-
-    .app.graph-mode .graph-control-scroll {
-      gap: 4px;
-    }
-
-    .app.graph-mode .graph-control-scroll .section {
-      border: 0;
-      background: transparent;
-      padding: 7px 6px;
-      border-radius: 0;
-      border-top: 1px solid rgba(180, 202, 228, 0.42);
-    }
-
-    .app.graph-mode .graph-control-scroll .section h3 {
-      margin-bottom: 6px;
-      color: #506785;
-      font-size: 10px;
-      letter-spacing: .08em;
-      text-transform: uppercase;
     }
 
     .graph-control-scroll::-webkit-scrollbar {
@@ -246,11 +212,6 @@
       overflow: auto;
       padding-right: 2px;
       scrollbar-width: none;
-    }
-
-    .app.graph-mode .graph-project-menu {
-      gap: 2px;
-      max-height: 236px;
     }
 
     .graph-project-menu::-webkit-scrollbar {
@@ -277,24 +238,10 @@
       cursor: pointer;
     }
 
-    .app.graph-mode .graph-project-menu button {
-      min-height: 24px;
-      border-color: transparent;
-      background: transparent;
-      padding: 4px 2px;
-      color: #3e5472;
-      font-size: 11px;
-    }
-
     .graph-project-menu button.active {
       border-color: #b9d1f7;
       background: linear-gradient(180deg, #eef5ff, #e8f1ff);
       color: #1c4fa8;
-    }
-
-    .app.graph-mode .graph-project-menu button.active {
-      border-color: rgba(73, 129, 219, 0.22);
-      background: rgba(228, 239, 255, 0.72);
     }
 
     .graph-project-menu button .name {
@@ -326,16 +273,6 @@
       color: #30425e;
       font-size: 12px;
       font-weight: 600;
-    }
-
-    .app.graph-mode .graph-layer-item,
-    .app.graph-mode .graph-rel-chip {
-      min-height: 24px;
-      border-color: transparent;
-      background: transparent;
-      padding: 3px 0;
-      color: #3d526f;
-      font-size: 11px;
     }
 
     .graph-layer-item span:first-child,
@@ -384,21 +321,11 @@
       padding: 7px;
     }
 
-    .app.graph-mode .graph-kpi-grid div {
-      border: 0;
-      background: transparent;
-      padding: 2px 0;
-    }
-
     .graph-kpi-grid b {
       display: block;
       margin-bottom: 3px;
       font-size: 16px;
       line-height: 1;
-    }
-
-    .app.graph-mode .graph-kpi-grid b {
-      font-size: 14px;
     }
 
     .graph-kpi-grid span {
@@ -546,14 +473,6 @@
       grid-template-rows: auto 1fr;
       gap: 10px;
       min-height: 0;
-    }
-
-    .app.graph-mode .main {
-      padding: 0;
-      gap: 8px;
-      border: none;
-      background: transparent;
-      box-shadow: none;
     }
 
     .top {
@@ -823,14 +742,6 @@
     .app.graph-mode .graph-hud-card span {
       color: #9eb7cd;
       font-size: 10px;
-    }
-
-    .app.graph-mode .graph-hud-card:first-child {
-      opacity: .82;
-    }
-
-    .app.graph-mode .graph-hud-card:first-child b {
-      display: none;
     }
 
     .app.graph-mode .graph-hud-pill {
@@ -2480,10 +2391,6 @@
             </div>
             <div class="graph-hud">
               <div class="graph-hud-card">
-                <b>当前项目视角</b>
-                <span id="graphProjectLabel">全部项目</span>
-              </div>
-              <div class="graph-hud-card">
                 <b>当前聚焦</b>
                 <span id="graphFocusLabel">知识中枢 · Knowledge Orchestration</span>
                 <div class="graph-hud-metrics">
@@ -2664,7 +2571,6 @@
         graphState.lastFrameTime = 0;
         requestAnimationFrame(() => {
           graphResize();
-          graphUpdateProjectLabel();
           graphUpdateMetrics();
           graphUpdateDetail(graphState.selectedId);
           graphDraw();
@@ -3110,7 +3016,7 @@
 
     function graphEnsureAmbientNodes() {
       if (graphState.ambientNodes.length) return graphState.ambientNodes;
-      graphState.ambientNodes = Array.from({ length: 96 }, (_, index) => graphCreateAmbientNode(index));
+      graphState.ambientNodes = Array.from({ length: 54 }, (_, index) => graphCreateAmbientNode(index));
       return graphState.ambientNodes;
     }
 
@@ -3221,12 +3127,24 @@
       return '语义知识节点';
     }
 
+    function graphNodeProjectText(node) {
+      const raw = String(node?.projectKey || '').trim();
+      if (!raw) return '全部项目';
+      if (raw === 'all') return '全部项目';
+      return raw;
+    }
+
     function graphNodeSourceText(node) {
       const source = String(node?.source || '');
-      if (source === 'prompt_templates') return '提示词工程库';
-      if (source === 'knowledge_units') return '语义知识整理层';
-      if (source === 'api/projects') return '采集中心项目状态';
-      return source || '知识库记录';
+      const sourceText =
+        source === 'prompt_templates' ? '提示词工程库'
+        : source === 'knowledge_units' ? '语义知识整理层'
+        : source === 'api/projects' ? '采集中心项目状态'
+        : source || '知识库记录';
+      const project = graphNodeProjectText(node);
+      if (project === '全部项目') return `${project} · ${sourceText}`;
+      if (sourceText.toLowerCase().includes(project.toLowerCase())) return sourceText;
+      return `${project} · ${sourceText}`;
     }
 
     function graphNodeTemplateText(node) {
@@ -3241,7 +3159,6 @@
 
     function graphBuildSemanticNodes() {
       const slots = [
-        { x: 0, y: 0, z: 0, size: 14 },
         { x: -92, y: -34, z: 42, size: 10.8 },
         { x: 88, y: -42, z: 38, size: 10.2 },
         { x: -64, y: 76, z: -28, size: 9.4 },
@@ -3250,7 +3167,8 @@
         { x: 136, y: 18, z: -42, size: 8.2 },
         { x: -28, y: -104, z: 64, size: 8.4 },
         { x: 34, y: 112, z: -58, size: 8.4 },
-        { x: 118, y: -88, z: 58, size: 7.6 }
+        { x: 118, y: -88, z: 58, size: 7.6 },
+        { x: -118, y: -84, z: 54, size: 7.4 }
       ];
       return (graphState.semanticUnits || []).slice(0, 10).map((unit, index) => {
         const slot = slots[index] || slots[slots.length - 1];
@@ -3423,9 +3341,7 @@
         const unitData = await unitRes.json();
         graphState.semanticUnits = Array.isArray(unitData.units) ? unitData.units : [];
         graphState.semanticLinks = Array.isArray(unitData.links) ? unitData.links : [];
-        if (graphState.semanticUnits.some((unit) => unit.id === 'ku-prompt-engineering')) {
-          graphState.selectedId = 'ku-prompt-engineering';
-        }
+        if (state.activeProjectId === 'all' && graphState.selectedId === 'ku-prompt-engineering') graphState.selectedId = 'theme-core';
         graphRefreshCoreNodes();
       } catch (_) {
         graphState.seedResults = [];
@@ -3500,20 +3416,8 @@
 
     function graphBuildProximityEdges(addEdge) {
       const visibleCore = graphNodes.filter((node) => !node.ambient);
-      const ambient = graphNodes.filter((node) => node.ambient);
-      ambient.forEach((source) => {
-        const candidates = visibleCore
-          .concat(ambient.filter((item) => item.id !== source.id && graphRand(Number(source.id.replace('ambient-', '')) + Number(item.id.replace('ambient-', '')) + 13) > 0.74))
-          .map((target) => ({ id: target.id, d: graphDistance(source, target) }))
-          .filter((item) => item.d < 64)
-          .sort((a, b) => a.d - b.d);
-        const limit = source.category === 'evidence' ? 2 : 3;
-        for (let i = 0; i < Math.min(limit, candidates.length); i += 1) {
-          addEdge(source.id, candidates[i].id);
-        }
-      });
       visibleCore.forEach((source) => {
-        const candidates = graphNodes
+        const candidates = visibleCore
           .filter((target) => target.id !== source.id)
           .map((target) => ({ id: target.id, d: graphDistance(source, target) }))
           .filter((item) => item.d < 104)
@@ -3578,6 +3482,15 @@
     }
 
 
+    function graphEdgePhase(edge) {
+      const raw = String(edge.key || `${edge.source}:${edge.target}`);
+      let hash = 0;
+      for (let i = 0; i < raw.length; i += 1) {
+        hash = (hash * 31 + raw.charCodeAt(i)) % 997;
+      }
+      return hash / 997;
+    }
+
     function graphDrawNeuralField(ctx, projectedItems, related) {
       const centerX = graphState.width / 2;
       const centerY = graphState.height * 0.52;
@@ -3602,16 +3515,36 @@
         const near = focused || related.has(edge.source) || related.has(edge.target);
         const ambient = source.node.ambient || target.node.ambient;
         const coreBridge = !ambient && (source.node.id === 'theme-core' || target.node.id === 'theme-core');
-        const alpha = focused ? 0.78 : near ? 0.20 : ambient ? 0.038 : coreBridge ? 0.055 : 0.10;
+        const alpha = focused ? 0.80 : near ? 0.24 : ambient ? 0.018 : coreBridge ? 0.075 : 0.13;
         const gradient = ctx.createLinearGradient(source.projected.x, source.projected.y, target.projected.x, target.projected.y);
         gradient.addColorStop(0, graphRgba(GRAPH_META[source.node.category].color, alpha));
         gradient.addColorStop(1, graphRgba(GRAPH_META[target.node.category].color, alpha));
         ctx.strokeStyle = gradient;
-        ctx.lineWidth = focused ? 1.45 : ambient ? 0.56 : coreBridge ? 0.68 : 0.78;
+        ctx.lineWidth = focused ? 1.55 : ambient ? 0.42 : coreBridge ? 0.76 : 0.86;
         ctx.beginPath();
         ctx.moveTo(source.projected.x, source.projected.y);
         ctx.lineTo(target.projected.x, target.projected.y);
         ctx.stroke();
+
+        if (ambient) return;
+        const dx = target.projected.x - source.projected.x;
+        const dy = target.projected.y - source.projected.y;
+        const length = Math.sqrt(dx * dx + dy * dy);
+        if (length < 16) return;
+        const flowSpeed = focused ? 0.28 : near ? 0.20 : 0.12;
+        const phase = (graphState.tick * flowSpeed + graphEdgePhase(edge)) % 1;
+        const pulseX = source.projected.x + dx * phase;
+        const pulseY = source.projected.y + dy * phase;
+        const pulseAlpha = focused ? 0.92 : near ? 0.58 : coreBridge ? 0.34 : 0.26;
+        const pulseRadius = focused ? 2.7 : near ? 2.15 : 1.65;
+        ctx.save();
+        ctx.shadowBlur = focused ? 16 : 9;
+        ctx.shadowColor = GRAPH_META[target.node.category].color;
+        ctx.fillStyle = graphRgba(GRAPH_META[target.node.category].color, pulseAlpha);
+        ctx.beginPath();
+        ctx.arc(pulseX, pulseY, pulseRadius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
       });
     }
 
@@ -3650,33 +3583,61 @@
       if (item.node.ambient) return false;
       if (isSelected || isHover) return true;
       if (item.node.id === 'theme-core') return true;
-      if (item.node.category === 'theme') return item.projected.scale > 0.92;
-      if (isRelated) return item.projected.scale > 1.02 && visibleCoreCount <= 18;
-      return visibleCoreCount <= 12 && item.projected.scale > 1.02;
+      if (item.node.category === 'theme') return item.projected.scale > 0.72;
+      if (item.node.id?.startsWith('project-')) return item.projected.scale > 0.74;
+      if (item.node.templateId) return item.projected.scale > 0.78;
+      if (isRelated) return item.projected.scale > 0.82;
+      return visibleCoreCount <= 36 && item.projected.scale > 0.88;
+    }
+
+    function graphLabelSubtitle(node) {
+      if (!node || node.ambient) return '';
+      if (node.templateId) return graphNodeTemplateText(node);
+      if (node.id?.startsWith('project-')) return `${node.itemCount || 0} 条内容`;
+      if (node.id?.startsWith('item-group-')) return `${node.itemCount || 0} 条聚合记录`;
+      if (node.category === 'risk') return '需关注';
+      if (node.category === 'evidence') return '来源证据';
+      return node.cluster || graphNodeStatusText(node);
     }
 
     function graphDrawNodeLabel(ctx, item, radius, meta, isSelected, isHover) {
       const label = graphLabelText(item.node);
       if (!label) return;
-      const fontSize = Math.max(9, Math.round(10.5 * Math.min(item.projected.scale, 1.12)));
+      const showSubtitle = isSelected || isHover || item.node.id === 'theme-core' || item.projected.scale > 1.02;
+      const subtitle = showSubtitle ? graphCompactText(graphLabelSubtitle(item.node), 18) : '';
+      const fontSize = Math.max(9, Math.round(10.2 * Math.min(item.projected.scale, 1.1)));
+      const subFontSize = Math.max(8, fontSize - 2);
       const x = item.projected.x + radius + 7;
       const y = item.projected.y - radius - 4;
       ctx.save();
       ctx.font = `${fontSize}px IBM Plex Sans, Noto Sans SC, sans-serif`;
       ctx.textBaseline = 'middle';
       ctx.lineJoin = 'round';
-      ctx.strokeStyle = 'rgba(3, 10, 17, 0.78)';
-      ctx.lineWidth = isSelected || isHover ? 4 : 3;
+      const labelWidth = Math.max(ctx.measureText(label).width, subtitle ? ctx.measureText(subtitle).width : 0);
+      if (isSelected || isHover) {
+        ctx.fillStyle = 'rgba(4, 12, 22, 0.58)';
+        ctx.strokeStyle = graphRgba(meta.color, 0.26);
+        ctx.lineWidth = 1;
+        const boxHeight = subtitle ? 32 : 22;
+        ctx.beginPath();
+        ctx.roundRect(x - 6, y - 11, labelWidth + 13, boxHeight, 7);
+        ctx.fill();
+        ctx.stroke();
+      }
+      ctx.strokeStyle = 'rgba(3, 10, 17, 0.86)';
+      ctx.lineWidth = isSelected || isHover ? 4 : 3.4;
       ctx.strokeText(label, x, y);
       ctx.fillStyle = isSelected ? '#ffffff' : isHover ? graphRgba(meta.color, 0.95) : 'rgba(224, 239, 252, 0.76)';
       ctx.fillText(label, x, y);
+      if (subtitle) {
+        ctx.font = `${subFontSize}px IBM Plex Sans, Noto Sans SC, sans-serif`;
+        ctx.strokeStyle = 'rgba(3, 10, 17, 0.82)';
+        ctx.lineWidth = 3;
+        ctx.strokeText(subtitle, x, y + 13);
+        ctx.fillStyle = isSelected || isHover ? 'rgba(210, 232, 246, 0.78)' : 'rgba(176, 203, 224, 0.55)';
+        ctx.fillText(subtitle, x, y + 13);
+      }
       ctx.restore();
-    }
-
-    function graphUpdateProjectLabel() {
-      const label = state.activeProjectId === 'all' ? '全部项目' : (state.activeProjectLabel || projectNameById(state.activeProjectId) || '全部项目');
-      const el = document.getElementById('graphProjectLabel');
-      if (el) el.textContent = label;
     }
 
     function graphSyncDetailPanel() {
@@ -3820,9 +3781,9 @@
         const isSelected = graphState.selectedId === item.node.id;
         const isHover = graphState.hoverId === item.node.id;
         const isRelated = related.has(item.node.id);
-        const radius = Math.max(1.6, item.node.size * item.projected.scale * (item.node.ambient ? 0.62 : 0.86));
-        const alpha = item.node.ambient ? 0.24 : 0.86;
-        ctx.shadowBlur = isSelected ? 30 : isHover ? 22 : isRelated ? 16 : item.node.ambient ? 4 : 9;
+        const radius = Math.max(1.2, item.node.size * item.projected.scale * (item.node.ambient ? 0.38 : 0.86));
+        const alpha = item.node.ambient ? 0.105 : 0.86;
+        ctx.shadowBlur = isSelected ? 30 : isHover ? 22 : isRelated ? 16 : item.node.ambient ? 0 : 9;
         ctx.shadowColor = meta.color;
         ctx.fillStyle = graphRgba(meta.color, alpha);
         ctx.beginPath();
@@ -4276,7 +4237,6 @@
       bindFloatingTips(document.getElementById('projectRows'));
       renderSidebarProjects(state.projects);
       updateSearchOverview();
-      graphUpdateProjectLabel();
       graphRefreshCoreNodes();
     }
 
@@ -4427,7 +4387,6 @@
       state.activeProjectId = projectId || 'all';
       state.activeProjectLabel = projectName || '全部项目';
       renderSidebarProjects(state.projects);
-      graphUpdateProjectLabel();
       graphUpdateDetail(graphState.selectedId);
       setActiveWorkspace('search');
       await runSearch();
@@ -4437,7 +4396,6 @@
       state.activeProjectId = projectId || 'all';
       state.activeProjectLabel = projectName || '全部项目';
       renderSidebarProjects(state.projects);
-      graphUpdateProjectLabel();
       graphRefreshCoreNodes();
       graphUpdateDetail(graphState.selectedId);
     }
@@ -4712,7 +4670,6 @@
 
       buildGraphData();
       graphResize();
-      graphUpdateProjectLabel();
       graphSyncDetailPanel();
       graphRefreshCoreNodes();
       graphUpdateDetail(graphState.selectedId);
@@ -4904,7 +4861,6 @@
       await graphLoadSeedResults();
       loadFavorites();
       updateActionButtons();
-      graphUpdateProjectLabel();
       graphUpdateDetail(graphState.selectedId);
       setActiveWorkspace('graph');
       document.getElementById('trace').innerHTML = '<div class="node">请选择一条搜索结果查看追溯链</div>';
