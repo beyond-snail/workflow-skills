@@ -2054,6 +2054,41 @@
       line-height: 1.55;
     }
 
+    .prompt-review-gate {
+      border: 1px solid #dbe7f5;
+      border-radius: 10px;
+      background: #fbfdff;
+      padding: 9px;
+      display: grid;
+      gap: 7px;
+    }
+
+    .prompt-review-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      color: #263b58;
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .prompt-review-meter {
+      height: 7px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: #e8eff8;
+    }
+
+    .prompt-review-meter i {
+      display: block;
+      width: 0%;
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, #0ea8a3, #2d6dff);
+      transition: width .2s ease;
+    }
+
     .prompt-card {
       border: 1px solid #dbe7f5;
       border-radius: 12px;
@@ -2136,6 +2171,14 @@
       display: block;
       color: var(--ink);
       margin-bottom: 4px;
+    }
+
+    .prompt-source span {
+      display: block;
+      color: #5f718d;
+      font-size: 10px;
+      margin-bottom: 5px;
+      overflow-wrap: anywhere;
     }
 
     @media (max-width: 1220px) {
@@ -2492,6 +2535,11 @@
               </div>
               <div class="prompt-origin-note" id="promptOriginNote">整理来源：启动时初始化少量人工种子模板，再从已入库 items 中按提示词、模板、交接、验收、workflow、知识图谱等关键词抽取候选；候选不会自动变正式模板。</div>
               <div class="prompt-origin-note" id="promptProjectContext">当前展示全局模板库；左侧项目点击只切换上下文，不跳转搜索。</div>
+              <div class="prompt-review-gate">
+                <div class="prompt-review-head"><span>审核门</span><span id="promptReviewStatus">-</span></div>
+                <div class="prompt-review-meter"><i id="promptReviewMeter"></i></div>
+                <div class="prompt-origin-note" id="promptReviewNote">至少 10 个模板通过审核，其中 3 个用于开发交接场景。</div>
+              </div>
             </div>
           </div>
         </aside>
@@ -2599,7 +2647,8 @@
       activeStatus: 'all',
       selectedId: '',
       detail: null,
-      projectContext: '全部项目'
+      projectContext: '全部项目',
+      review: null
     };
 
     const graphState = {
@@ -4452,6 +4501,23 @@
       return latest.length > 11 ? latest.slice(5, 16) : latest;
     }
 
+    function renderPromptReviewGate() {
+      const stats = promptState.review?.stats || {};
+      const required = Math.max(1, Number(stats.required_total || 10));
+      const approved = Number(stats.approved || 0);
+      const devApproved = Number(stats.approved_dev_handoff || 0);
+      const devRequired = Number(stats.required_dev_handoff || 3);
+      const percent = Math.max(0, Math.min(100, Math.round((approved / required) * 100)));
+      const statusEl = document.getElementById('promptReviewStatus');
+      const meterEl = document.getElementById('promptReviewMeter');
+      const noteEl = document.getElementById('promptReviewNote');
+      if (statusEl) statusEl.textContent = `${approved}/${required}`;
+      if (meterEl) meterEl.style.width = `${percent}%`;
+      if (noteEl) {
+        noteEl.textContent = `还差 ${Number(stats.remaining_total || 0)} 个通过审核模板；开发交接 ${devApproved}/${devRequired}，还差 ${Number(stats.remaining_dev_handoff || 0)} 个。来源证据 ${Number(stats.source_count || 0)} 条，已绑定模板 ${Number(stats.templates_with_sources || 0)} 个。`;
+      }
+    }
+
     function renderPromptOriginSummary() {
       const templates = promptState.templates || [];
       const extracted = templates.filter((item) => String(item.id || '').startsWith('cand-')).length;
@@ -4469,6 +4535,7 @@
       if (contextEl) {
         contextEl.textContent = `当前上下文：${promptState.projectContext || '全部项目'}。提示词工程暂按全局模板库展示，点击项目不会跳转搜索。`;
       }
+      renderPromptReviewGate();
     }
 
     function renderPromptCounts() {
@@ -4517,8 +4584,12 @@
     }
 
     async function loadPromptTemplates() {
-      const res = await fetch('/api/prompt-templates');
+      const [res, reviewRes] = await Promise.all([
+        fetch('/api/prompt-templates'),
+        fetch('/api/prompt-review')
+      ]);
       const data = await res.json();
+      promptState.review = reviewRes.ok ? await reviewRes.json() : null;
       promptState.templates = Array.isArray(data.templates) ? data.templates : [];
       if (!promptState.selectedId && promptState.templates.length) {
         promptState.selectedId = promptState.templates[0].id;
@@ -4559,6 +4630,7 @@
           ${(template.sources || []).length ? template.sources.map((source) => `
             <div class="prompt-source">
               <b>${esc(source.source_title || source.source_kind || '来源证据')}</b>
+              <span>${esc(source.source_project || '未知项目')} · ${esc(source.source_tool || '未知工具')} · ${esc(prettySource(source.source_path || ''))}</span>
               ${esc(source.evidence_excerpt || '')}
             </div>
           `).join('') : '<div class="hint">暂无来源条目；内置模板会在后续人工验证中补充来源证据。</div>'}

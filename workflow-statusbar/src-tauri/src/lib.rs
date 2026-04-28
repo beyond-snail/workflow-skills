@@ -301,6 +301,8 @@ struct KbPromptTemplateSource {
     source_kind: String,
     source_title: String,
     source_path: String,
+    source_project: String,
+    source_tool: String,
     evidence_excerpt: String,
     confidence: f64,
 }
@@ -341,6 +343,28 @@ struct KbPromptTemplateDetail {
 #[derive(Clone, Serialize, Deserialize, Debug)]
 struct KbPromptTemplateListResponse {
     templates: Vec<KbPromptTemplateSummary>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+struct KbPromptReviewStats {
+    required_total: i64,
+    required_dev_handoff: i64,
+    total: i64,
+    candidate: i64,
+    reviewed: i64,
+    verified: i64,
+    deprecated: i64,
+    approved: i64,
+    approved_dev_handoff: i64,
+    remaining_total: i64,
+    remaining_dev_handoff: i64,
+    source_count: i64,
+    templates_with_sources: i64,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+struct KbPromptReviewResponse {
+    stats: KbPromptReviewStats,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -5325,6 +5349,83 @@ fn kb_prompt_templates_internal(status: Option<&str>) -> Result<KbPromptTemplate
     Ok(KbPromptTemplateListResponse { templates })
 }
 
+fn kb_prompt_review_internal() -> Result<KbPromptReviewResponse, String> {
+    let conn = connect_knowledgebase()?;
+    let (total, candidate, reviewed, verified, deprecated, approved, approved_dev_handoff): (
+        i64,
+        i64,
+        i64,
+        i64,
+        i64,
+        i64,
+        i64,
+    ) = conn
+        .query_row(
+            r#"
+            SELECT
+              COUNT(*),
+              SUM(CASE WHEN status='candidate' THEN 1 ELSE 0 END),
+              SUM(CASE WHEN status='reviewed' THEN 1 ELSE 0 END),
+              SUM(CASE WHEN status='verified' THEN 1 ELSE 0 END),
+              SUM(CASE WHEN status='deprecated' THEN 1 ELSE 0 END),
+              SUM(CASE WHEN status IN ('reviewed', 'verified') THEN 1 ELSE 0 END),
+              SUM(CASE
+                WHEN status IN ('reviewed', 'verified')
+                 AND (category LIKE '%开发%' OR name LIKE '%交接%' OR task_goal LIKE '%开发%')
+                THEN 1 ELSE 0 END)
+            FROM prompt_templates
+            "#,
+            [],
+            |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1).unwrap_or(0),
+                    row.get::<_, i64>(2).unwrap_or(0),
+                    row.get::<_, i64>(3).unwrap_or(0),
+                    row.get::<_, i64>(4).unwrap_or(0),
+                    row.get::<_, i64>(5).unwrap_or(0),
+                    row.get::<_, i64>(6).unwrap_or(0),
+                ))
+            },
+        )
+        .map_err(|err| err.to_string())?;
+    let source_count = conn
+        .query_row("SELECT COUNT(*) FROM prompt_template_sources", [], |row| {
+            row.get::<_, i64>(0)
+        })
+        .unwrap_or(0);
+    let templates_with_sources = conn
+        .query_row(
+            r#"
+            SELECT COUNT(*) FROM (
+              SELECT template_id FROM prompt_template_sources GROUP BY template_id
+            )
+            "#,
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap_or(0);
+    let required_total = 10_i64;
+    let required_dev_handoff = 3_i64;
+    Ok(KbPromptReviewResponse {
+        stats: KbPromptReviewStats {
+            required_total,
+            required_dev_handoff,
+            total,
+            candidate,
+            reviewed,
+            verified,
+            deprecated,
+            approved,
+            approved_dev_handoff,
+            remaining_total: (required_total - approved).max(0),
+            remaining_dev_handoff: (required_dev_handoff - approved_dev_handoff).max(0),
+            source_count,
+            templates_with_sources,
+        },
+    })
+}
+
 fn kb_prompt_template_detail_internal(id: &str) -> Result<Option<KbPromptTemplateDetail>, String> {
     let conn = connect_knowledgebase()?;
     let mut stmt = conn
@@ -5371,9 +5472,12 @@ fn kb_prompt_template_detail_internal(id: &str) -> Result<Option<KbPromptTemplat
             SELECT s.template_id, s.item_id, s.source_kind,
                    COALESCE(i.title, '') AS source_title,
                    COALESCE(i.source_path, '') AS source_path,
+                   COALESCE(p.name, '') AS source_project,
+                   COALESCE(i.source_tool, '') AS source_tool,
                    s.evidence_excerpt, s.confidence
             FROM prompt_template_sources s
             LEFT JOIN items i ON i.item_id = s.item_id
+            LEFT JOIN projects p ON p.project_id = i.project_id
             WHERE s.template_id = ?1
             ORDER BY s.confidence DESC, s.created_at DESC
             LIMIT 12
@@ -5388,8 +5492,10 @@ fn kb_prompt_template_detail_internal(id: &str) -> Result<Option<KbPromptTemplat
                 source_kind: row.get::<_, String>(2)?,
                 source_title: row.get::<_, String>(3).unwrap_or_default(),
                 source_path: row.get::<_, String>(4).unwrap_or_default(),
-                evidence_excerpt: row.get::<_, String>(5).unwrap_or_default(),
-                confidence: row.get::<_, f64>(6).unwrap_or(0.0),
+                source_project: row.get::<_, String>(5).unwrap_or_default(),
+                source_tool: row.get::<_, String>(6).unwrap_or_default(),
+                evidence_excerpt: row.get::<_, String>(7).unwrap_or_default(),
+                confidence: row.get::<_, f64>(8).unwrap_or(0.0),
             })
         })
         .map_err(|err| err.to_string())?;
@@ -5879,6 +5985,18 @@ fn handle_knowledgebase_http_request(request: Request) {
             }
         }
         "/api/prompt-candidates" => match kb_prompt_templates_internal(Some("candidate")) {
+            Ok(data) => http_respond_json(
+                request,
+                200,
+                serde_json::to_string(&data).unwrap_or_else(|_| "{}".to_string()),
+            ),
+            Err(err) => http_respond_json(
+                request,
+                500,
+                serde_json::json!({ "error": err }).to_string(),
+            ),
+        },
+        "/api/prompt-review" => match kb_prompt_review_internal() {
             Ok(data) => http_respond_json(
                 request,
                 200,
