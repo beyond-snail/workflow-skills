@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>知识中枢</title>
+  <link rel="icon" href="data:," />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
@@ -51,6 +52,14 @@
       padding: 10px;
     }
 
+    .app.graph-mode {
+      grid-template-columns: 224px minmax(0, 1fr);
+      padding: 8px;
+      background:
+        radial-gradient(circle at 19% 18%, rgba(37, 111, 219, 0.10), transparent 26%),
+        radial-gradient(circle at 78% 78%, rgba(14, 168, 163, 0.10), transparent 28%);
+    }
+
     .panel {
       background: var(--panel);
       border: 1px solid var(--line);
@@ -66,6 +75,12 @@
       min-height: 0;
       overflow: hidden;
       background: linear-gradient(180deg, #fdfefe 0%, #f7fbff 100%);
+    }
+
+    .app.graph-mode .sidebar {
+      grid-template-rows: auto minmax(0, 1fr);
+      background: rgba(247, 251, 255, 0.72);
+      box-shadow: none;
     }
 
     .brand {
@@ -143,6 +158,260 @@
     .sidebar-footer {
       display: grid;
       gap: 8px;
+    }
+
+    .graph-sidebar {
+      display: none;
+      min-height: 0;
+      grid-template-rows: auto minmax(0, 1fr);
+      gap: 8px;
+    }
+
+    .app.graph-mode .knowledge-sidebar {
+      display: none;
+    }
+
+    .app.graph-mode .graph-sidebar {
+      display: grid;
+    }
+
+    .graph-brand {
+      border-color: #cfe0f4;
+      background:
+        radial-gradient(circle at 18% 20%, rgba(14, 168, 163, 0.10), transparent 34%),
+        linear-gradient(145deg, #fbfdff, #f3f8ff);
+    }
+
+    .app.graph-mode .graph-brand {
+      display: none;
+    }
+
+    .graph-brand h1 {
+      font-size: 16px;
+    }
+
+    .app.graph-mode .graph-brand h1 {
+      font-size: 15px;
+      letter-spacing: 0;
+    }
+
+    .graph-brand p {
+      line-height: 1.6;
+      font-size: 11px;
+    }
+
+    .app.graph-mode .graph-brand p {
+      display: none;
+    }
+
+    .graph-control-scroll {
+      min-height: 0;
+      overflow: auto;
+      display: grid;
+      align-content: start;
+      gap: 8px;
+      scrollbar-width: none;
+    }
+
+    .app.graph-mode .graph-control-scroll {
+      gap: 4px;
+    }
+
+    .app.graph-mode .graph-control-scroll .section {
+      border: 0;
+      background: transparent;
+      padding: 7px 6px;
+      border-radius: 0;
+      border-top: 1px solid rgba(180, 202, 228, 0.42);
+    }
+
+    .app.graph-mode .graph-control-scroll .section h3 {
+      margin-bottom: 6px;
+      color: #506785;
+      font-size: 10px;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+
+    .graph-control-scroll::-webkit-scrollbar {
+      width: 0;
+      height: 0;
+      display: none;
+    }
+
+    .graph-project-menu {
+      display: grid;
+      gap: 5px;
+      max-height: 238px;
+      overflow: auto;
+      padding-right: 2px;
+      scrollbar-width: none;
+    }
+
+    .app.graph-mode .graph-project-menu {
+      gap: 2px;
+      max-height: 236px;
+    }
+
+    .graph-project-menu::-webkit-scrollbar {
+      width: 0;
+      height: 0;
+      display: none;
+    }
+
+    .graph-project-menu button {
+      min-height: 30px;
+      border: 1px solid #d8e4f2;
+      border-radius: 9px;
+      background: rgba(255, 255, 255, 0.86);
+      color: #405574;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 6px 8px;
+      font-family: "IBM Plex Sans", "Noto Sans SC", sans-serif;
+      font-size: 12px;
+      font-weight: 600;
+      line-height: 1.2;
+      cursor: pointer;
+    }
+
+    .app.graph-mode .graph-project-menu button {
+      min-height: 24px;
+      border-color: transparent;
+      background: transparent;
+      padding: 4px 2px;
+      color: #3e5472;
+      font-size: 11px;
+    }
+
+    .graph-project-menu button.active {
+      border-color: #b9d1f7;
+      background: linear-gradient(180deg, #eef5ff, #e8f1ff);
+      color: #1c4fa8;
+    }
+
+    .app.graph-mode .graph-project-menu button.active {
+      border-color: rgba(73, 129, 219, 0.22);
+      background: rgba(228, 239, 255, 0.72);
+    }
+
+    .graph-project-menu button .name {
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      text-align: left;
+    }
+
+    .graph-layer-list,
+    .graph-rel-list-mini {
+      display: grid;
+      gap: 6px;
+    }
+
+    .graph-layer-item,
+    .graph-rel-chip {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      min-height: 31px;
+      border: 1px solid #d9e5f3;
+      border-radius: 10px;
+      background: #fff;
+      padding: 7px 9px;
+      color: #30425e;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .app.graph-mode .graph-layer-item,
+    .app.graph-mode .graph-rel-chip {
+      min-height: 24px;
+      border-color: transparent;
+      background: transparent;
+      padding: 3px 0;
+      color: #3d526f;
+      font-size: 11px;
+    }
+
+    .graph-layer-item span:first-child,
+    .graph-rel-chip span:first-child {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .graph-layer-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      box-shadow: 0 0 10px currentColor;
+      flex: 0 0 auto;
+    }
+
+    .graph-rel-chip {
+      color: #50637c;
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      min-height: 28px;
+    }
+
+    .graph-kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 6px;
+    }
+
+    .graph-kpi-grid div {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #fff;
+      padding: 7px;
+    }
+
+    .app.graph-mode .graph-kpi-grid div {
+      border: 0;
+      background: transparent;
+      padding: 2px 0;
+    }
+
+    .graph-kpi-grid b {
+      display: block;
+      margin-bottom: 3px;
+      font-size: 16px;
+      line-height: 1;
+    }
+
+    .app.graph-mode .graph-kpi-grid b {
+      font-size: 14px;
+    }
+
+    .graph-kpi-grid span {
+      color: var(--muted);
+      font-size: 9px;
+    }
+
+    .graph-return {
+      width: 100%;
+      border: 1px solid #cfdcf0;
+      border-radius: 10px;
+      background: #fff;
+      color: #30425e;
+      padding: 8px 10px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .app.graph-mode .graph-return {
+      display: none;
     }
 
     .sidebar-footer .section {
@@ -270,6 +539,14 @@
       min-height: 0;
     }
 
+    .app.graph-mode .main {
+      padding: 0;
+      gap: 8px;
+      border: none;
+      background: transparent;
+      box-shadow: none;
+    }
+
     .top {
       display: flex;
       justify-content: space-between;
@@ -280,6 +557,12 @@
       border-radius: 12px;
       background: #fbfdff;
       padding: 8px 10px;
+    }
+
+    .app.graph-mode .top {
+      border-color: #cfdded;
+      background: rgba(251, 253, 255, 0.94);
+      box-shadow: 0 12px 30px rgba(22, 41, 73, 0.08);
     }
 
     .tabs {
@@ -354,6 +637,680 @@
     .collector-layout {
       grid-template-columns: 1fr;
       gap: 12px;
+    }
+
+    .graph-layout {
+      grid-template-columns: minmax(0, 1fr) 332px;
+      gap: 12px;
+      min-height: 0;
+      transition: grid-template-columns .26s ease;
+    }
+
+    .app.graph-mode .graph-layout {
+      grid-template-columns: minmax(0, 1fr) 288px;
+      gap: 8px;
+    }
+
+    .graph-layout.graph-detail-collapsed {
+      grid-template-columns: minmax(0, 1fr) 52px;
+    }
+
+    .app.graph-mode .graph-layout.graph-detail-collapsed {
+      grid-template-columns: minmax(0, 1fr) 52px;
+    }
+
+    .graph-layout > .card {
+      min-height: 0;
+    }
+
+    .graph-stage {
+      position: relative;
+      overflow: hidden;
+      border-radius: 22px;
+      min-height: 0;
+      background:
+        radial-gradient(circle at 50% 52%, rgba(86, 240, 255, 0.15), transparent 21%),
+        radial-gradient(circle at 28% 36%, rgba(82, 122, 255, 0.18), transparent 28%),
+        radial-gradient(circle at 72% 64%, rgba(164, 134, 255, 0.11), transparent 28%),
+        radial-gradient(circle at 50% 106%, rgba(255, 82, 186, 0.06), transparent 26%),
+        linear-gradient(180deg, #050d15, #07121d 48%, #03070d);
+      border: 1px solid rgba(128, 208, 238, 0.16);
+      box-shadow: 0 32px 80px rgba(0, 0, 0, 0.26);
+    }
+
+    .app.graph-mode .graph-stage {
+      border-radius: 18px;
+    }
+
+    .graph-stage::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px);
+      background-size: 72px 72px;
+      mask-image: radial-gradient(circle at center, rgba(0,0,0,0.95), transparent 82%);
+      opacity: .16;
+      pointer-events: none;
+    }
+
+    .graph-stage::after {
+      content: "";
+      position: absolute;
+      inset: 12% 14% 14%;
+      background:
+        radial-gradient(ellipse at 42% 45%, rgba(74, 202, 255, 0.16), transparent 34%),
+        radial-gradient(ellipse at 60% 56%, rgba(138, 116, 255, 0.12), transparent 34%);
+      filter: blur(38px);
+      opacity: .58;
+      pointer-events: none;
+    }
+
+    .graph-hero {
+      position: absolute;
+      inset: 18px 18px auto 18px;
+      z-index: 3;
+      display: flex;
+      justify-content: space-between;
+      gap: 14px;
+      align-items: flex-start;
+      pointer-events: none;
+    }
+
+    .graph-copy,
+    .graph-hud,
+    .graph-side-toggle,
+    .graph-bottom,
+    .graph-legend {
+      pointer-events: auto;
+    }
+
+    .graph-copy {
+      max-width: 560px;
+    }
+
+    .app.graph-mode .graph-copy {
+      display: none;
+    }
+
+    .graph-eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 11px;
+      letter-spacing: .18em;
+      text-transform: uppercase;
+      color: #7de8f7;
+    }
+
+    .graph-eyebrow::before {
+      content: "";
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #7de8f7, #76a8ff);
+      box-shadow: 0 0 16px rgba(125, 232, 247, 0.5);
+    }
+
+    .graph-copy h2 {
+      margin: 10px 0 8px;
+      color: #edf7ff;
+      font-size: 46px;
+      line-height: .94;
+      letter-spacing: -.05em;
+      text-wrap: balance;
+      text-shadow: 0 10px 34px rgba(10, 20, 32, 0.28);
+    }
+
+    .app.graph-mode .graph-copy h2 {
+      margin: 6px 0 4px;
+      max-width: 300px;
+      font-size: 16px;
+      line-height: 1.18;
+      letter-spacing: 0;
+    }
+
+    .graph-copy p {
+      margin: 0;
+      color: #abc0d1;
+      font-size: 14px;
+      line-height: 1.7;
+      max-width: 520px;
+    }
+
+    .app.graph-mode .graph-copy p {
+      display: none;
+    }
+
+    .app.graph-mode .graph-eyebrow {
+      font-size: 9px;
+      letter-spacing: .16em;
+    }
+
+    .app.graph-mode .graph-hud {
+      min-width: 0;
+      max-width: 260px;
+      gap: 3px;
+      justify-items: end;
+    }
+
+    .app.graph-mode .graph-hud-card {
+      border-color: transparent;
+      background: transparent;
+      padding: 0;
+      text-align: right;
+      backdrop-filter: none;
+    }
+
+    .app.graph-mode .graph-hud-card b {
+      display: inline;
+      margin: 0 6px 0 0;
+      color: #dcefff;
+      font-size: 10px;
+    }
+
+    .app.graph-mode .graph-hud-card span {
+      color: #9eb7cd;
+      font-size: 10px;
+    }
+
+    .app.graph-mode .graph-hud-card:first-child {
+      opacity: .82;
+    }
+
+    .app.graph-mode .graph-hud-card:first-child b {
+      display: none;
+    }
+
+    .app.graph-mode .graph-hud-pill {
+      border-color: rgba(149, 188, 216, 0.14);
+      background: rgba(255, 255, 255, 0.035);
+      padding: 3px 6px;
+      font-size: 9px;
+    }
+
+    .graph-hud {
+      display: grid;
+      gap: 8px;
+      min-width: 250px;
+    }
+
+    .graph-hud-card,
+    .graph-bottom,
+    .graph-legend {
+      border: 1px solid rgba(149, 188, 216, 0.18);
+      border-radius: 16px;
+      background: rgba(8, 20, 31, 0.78);
+      backdrop-filter: blur(16px);
+      color: #edf7ff;
+    }
+
+    .graph-hud-card {
+      padding: 10px 12px;
+    }
+
+    .graph-hud-card b {
+      display: block;
+      margin-bottom: 5px;
+      font-size: 13px;
+    }
+
+    .graph-hud-card span {
+      color: #96aec4;
+      font-size: 12px;
+      line-height: 1.6;
+    }
+
+    .graph-hud-metrics {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 6px;
+    }
+
+    .graph-hud-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 9px;
+      border-radius: 999px;
+      border: 1px solid rgba(149, 188, 216, 0.18);
+      background: rgba(255,255,255,0.05);
+      color: #d7e8f6;
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 10px;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+
+    .graph-hud-pill b {
+      margin: 0;
+      font-size: 10px;
+      color: #7de8f7;
+    }
+
+    .graph-side-toggle {
+      position: absolute;
+      right: -14px;
+      top: 50%;
+      transform: translateY(-50%);
+      z-index: 5;
+      width: 28px;
+      height: 80px;
+      border: 1px solid #d6e3f1;
+      border-radius: 999px;
+      background: linear-gradient(180deg, rgba(255,255,255,0.96), rgba(243,248,255,0.96));
+      color: #335173;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 12px 24px rgba(27, 45, 70, 0.12);
+      cursor: pointer;
+      transition: transform .22s ease, background .22s ease, color .22s ease;
+    }
+
+    .graph-side-toggle:hover {
+      background: linear-gradient(180deg, #ffffff, #eef6ff);
+      color: #1f63b5;
+      transform: translateY(-50%) scale(1.02);
+    }
+
+    .graph-side-toggle span {
+      writing-mode: vertical-rl;
+      text-orientation: mixed;
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 10px;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+
+    .graph-canvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      display: block;
+      cursor: grab;
+      z-index: 2;
+      touch-action: none;
+      user-select: none;
+    }
+
+    .graph-canvas.dragging {
+      cursor: grabbing;
+    }
+
+    .graph-guide {
+      position: absolute;
+      left: 24px;
+      top: 186px;
+      z-index: 3;
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 12px;
+      border: 1px solid rgba(149, 188, 216, 0.18);
+      border-radius: 999px;
+      background: rgba(8, 20, 31, 0.54);
+      backdrop-filter: blur(14px);
+      color: #cddfee;
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 10px;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      pointer-events: none;
+    }
+
+    .app.graph-mode .graph-guide {
+      display: none;
+    }
+
+    .graph-guide b {
+      color: #7de8f7;
+      font-weight: 600;
+    }
+
+    .graph-bottom-wrap {
+      position: absolute;
+      left: 18px;
+      right: 18px;
+      bottom: 18px;
+      z-index: 3;
+      display: flex;
+      justify-content: space-between;
+      align-items: end;
+      gap: 14px;
+      pointer-events: none;
+    }
+
+    .graph-legend,
+    .graph-bottom {
+      pointer-events: auto;
+      padding: 12px 14px;
+    }
+
+    .graph-legend-items {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px 14px;
+      margin-top: 8px;
+    }
+
+    .graph-legend-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: #96aec4;
+      font-size: 12px;
+    }
+
+    .graph-swatch {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      box-shadow: 0 0 12px currentColor;
+    }
+
+    .graph-bottom {
+      min-width: 360px;
+      max-width: 460px;
+    }
+
+    .app.graph-mode .graph-bottom-wrap {
+      display: none;
+    }
+
+    .app.graph-mode .graph-legend,
+    .app.graph-mode .graph-bottom {
+      padding: 9px 11px;
+      border-color: rgba(149, 188, 216, 0.10);
+      background: rgba(8, 20, 31, 0.34);
+    }
+
+    .app.graph-mode .graph-legend {
+      max-width: 300px;
+    }
+
+    .app.graph-mode .graph-legend-items {
+      gap: 7px 10px;
+    }
+
+    .app.graph-mode .graph-legend-item {
+      font-size: 11px;
+    }
+
+    .app.graph-mode .graph-bottom {
+      min-width: 220px;
+      max-width: 300px;
+      opacity: .82;
+    }
+
+    .graph-rail {
+      margin-top: 8px;
+      display: flex;
+      gap: 8px;
+      overflow: auto;
+      padding-bottom: 2px;
+    }
+
+    .graph-rail-card {
+      flex: 0 0 220px;
+      border: 1px solid rgba(149, 188, 216, 0.16);
+      border-radius: 14px;
+      background: rgba(255,255,255,0.03);
+      padding: 11px;
+    }
+
+    .app.graph-mode .graph-rail-card {
+      flex-basis: 150px;
+      padding: 7px;
+      border-color: rgba(149, 188, 216, 0.10);
+      border-radius: 10px;
+      background: rgba(255,255,255,0.025);
+    }
+
+    .app.graph-mode .graph-rail-card h4 {
+      margin-bottom: 4px;
+      font-size: 10px;
+    }
+
+    .app.graph-mode .graph-rail-card p {
+      font-size: 9px;
+      line-height: 1.35;
+    }
+
+    .graph-rail-card h4 {
+      margin: 0 0 6px;
+      font-size: 13px;
+      color: #edf7ff;
+    }
+
+    .graph-rail-card p {
+      margin: 0;
+      color: #96aec4;
+      font-size: 12px;
+      line-height: 1.6;
+    }
+
+    .graph-detail-card {
+      grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+      align-content: stretch;
+      background:
+        linear-gradient(180deg, rgba(255,255,255,0.98), rgba(247,251,255,0.98)),
+        linear-gradient(135deg, rgba(125, 232, 247, 0.08), transparent 36%);
+      border-color: #d8e6f4;
+      box-shadow: 0 20px 50px rgba(28, 48, 77, 0.10);
+      position: relative;
+      overflow: visible;
+      transition: padding .24s ease, gap .24s ease, opacity .22s ease;
+    }
+
+    .app.graph-mode .graph-detail-card {
+      gap: 8px;
+      padding: 10px;
+      border-color: rgba(214, 226, 240, 0.78);
+      background: rgba(251, 253, 255, 0.82);
+      box-shadow: none;
+    }
+
+    .graph-detail-card::before {
+      content: "";
+      display: block;
+      height: 3px;
+      border-radius: 999px;
+      background: linear-gradient(90deg, #72f7ff, #688cff 54%, #b99cff);
+      margin-bottom: 2px;
+    }
+
+    .app.graph-mode .graph-detail-card::before {
+      display: none;
+    }
+
+    .app.graph-mode .graph-detail-card .graph-eyebrow,
+    .app.graph-mode .graph-detail-card .detail-section-label,
+    .app.graph-mode .graph-actions {
+      display: none;
+    }
+
+    .graph-detail-head h3 {
+      margin: 6px 0 8px;
+      font-size: 28px;
+      line-height: 1.02;
+      letter-spacing: -.04em;
+      color: #182842;
+    }
+
+    .app.graph-mode .graph-detail-head h3 {
+      font-size: 20px;
+      line-height: 1.12;
+      letter-spacing: 0;
+    }
+
+    .graph-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: #fbfdff;
+      padding: 7px 11px;
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 11px;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    .graph-badge-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: currentColor;
+      box-shadow: 0 0 12px currentColor;
+    }
+
+    .graph-summary-card,
+    .graph-meta-card,
+    .graph-rel-card {
+      border: 1px solid #dde7f4;
+      border-radius: 12px;
+      background: linear-gradient(180deg, #fcfeff, #f8fbff);
+      padding: 10px 11px;
+      display: grid;
+      gap: 8px;
+    }
+
+    .app.graph-mode .graph-summary-card,
+    .app.graph-mode .graph-meta-card,
+    .app.graph-mode .graph-rel-card {
+      border: 0;
+      border-top: 1px solid rgba(185, 206, 230, 0.62);
+      border-radius: 0;
+      background: transparent;
+      padding: 8px 0 0;
+      gap: 6px;
+    }
+
+    .graph-summary-card p {
+      margin: 0;
+      color: #4f627b;
+      font-size: 13px;
+      line-height: 1.72;
+    }
+
+    .app.graph-mode .graph-summary-card p {
+      font-size: 11px;
+      line-height: 1.55;
+    }
+
+    .graph-meta-list,
+    .graph-rel-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .app.graph-mode .graph-meta-list,
+    .app.graph-mode .graph-rel-list {
+      gap: 5px;
+    }
+
+    .graph-meta-item,
+    .graph-rel-item {
+      border: 1px solid #dbe6f4;
+      border-radius: 10px;
+      background: #fff;
+      padding: 10px;
+    }
+
+    .app.graph-mode .graph-meta-item,
+    .app.graph-mode .graph-rel-item {
+      border: 0;
+      background: transparent;
+      padding: 3px 0;
+    }
+
+    .graph-meta-item label,
+    .graph-rel-item em {
+      display: block;
+      margin-bottom: 5px;
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 10px;
+      letter-spacing: .13em;
+      text-transform: uppercase;
+      color: var(--muted);
+      font-style: normal;
+    }
+
+    .app.graph-mode .graph-meta-item label,
+    .app.graph-mode .graph-rel-item em {
+      margin-bottom: 3px;
+      font-size: 9px;
+      letter-spacing: .12em;
+    }
+
+    .graph-meta-item span,
+    .graph-rel-item p {
+      display: block;
+      margin: 0;
+      color: #1f334d;
+      font-size: 12px;
+      line-height: 1.68;
+    }
+
+    .app.graph-mode .graph-meta-item span,
+    .app.graph-mode .graph-rel-item p {
+      font-size: 11px;
+      line-height: 1.5;
+    }
+
+    .graph-rel-item strong {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 13px;
+      color: #213550;
+    }
+
+    .app.graph-mode .graph-rel-item strong {
+      margin-bottom: 3px;
+      font-size: 12px;
+    }
+
+    .graph-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .graph-layout.graph-detail-collapsed .graph-detail-card {
+      padding: 12px 10px;
+      gap: 0;
+    }
+
+    .graph-layout.graph-detail-collapsed .graph-detail-card > :not(.graph-side-toggle) {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .graph-layout.graph-detail-collapsed .graph-detail-card::before {
+      opacity: 0;
+    }
+
+    .graph-layout.graph-detail-collapsed .graph-side-toggle {
+      right: 12px;
+      top: 18px;
+      transform: none;
+      height: 118px;
+      background: linear-gradient(180deg, rgba(8, 20, 31, 0.94), rgba(14, 30, 48, 0.94));
+      color: #d9ecfb;
+      border-color: rgba(149, 188, 216, 0.22);
+      box-shadow: 0 18px 32px rgba(8, 16, 28, 0.30);
+    }
+
+    .graph-layout.graph-detail-collapsed .graph-side-toggle:hover {
+      background: linear-gradient(180deg, rgba(10, 26, 40, 0.98), rgba(22, 42, 66, 0.98));
+      color: #ffffff;
+      transform: scale(1.02);
     }
 
     .card {
@@ -1042,12 +1999,23 @@
 
     @media (max-width: 1220px) {
       .search-layout { grid-template-columns: 1fr; }
+      .graph-layout { grid-template-columns: 1fr; }
       .overview-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .facet-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .facet-row .facet-reset { grid-column: span 2; }
       .detail-meta-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .kv.full { grid-column: auto; }
       .action-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .graph-stage { min-height: 74vh; }
+      .graph-hero,
+      .graph-bottom-wrap {
+        flex-direction: column;
+        align-items: stretch;
+      }
+      .graph-bottom {
+        min-width: 0;
+        max-width: none;
+      }
     }
 
     @media (max-width: 920px) {
@@ -1092,43 +2060,91 @@
   </style>
 </head>
 <body>
-  <main class="app">
+  <main class="app graph-mode">
     <aside class="panel sidebar">
-      <section class="brand">
-        <h1>知识中枢</h1>
-        <p>项目记忆与全局检索</p>
-      </section>
-
-      <section class="section project-section">
-        <div class="spaces-head">
-          <h3>项目列表</h3>
-          <span class="tag t-info" id="spacesCount">0</span>
-        </div>
-        <div class="menu" id="spacesMenu">
-          <button class="active" data-project="all"><span class="name">全部项目</span><span class="tag t-info" id="spaceAllCount">0</span></button>
-        </div>
-        <div class="spaces-meta" id="spacesMeta">显示 0 / 0 个项目</div>
-      </section>
-
-      <div class="sidebar-footer">
-        <section class="section">
-          <h3>内容集合</h3>
-          <div class="menu">
-            <button>事件 <span class="tag t-info" id="colEvents">0</span></button>
-            <button>文档 <span class="tag t-info" id="colDocs">0</span></button>
-            <button>对话 <span class="tag t-info" id="colConvs">0</span></button>
-          </div>
+      <div class="knowledge-sidebar">
+        <section class="brand">
+          <h1>知识中枢</h1>
+          <p>项目记忆与全局检索</p>
         </section>
 
-        <section class="section">
-          <h3>统计</h3>
-          <div class="kpi">
-            <div><b id="kProjects">0</b><span>项目数</span></div>
-            <div><b id="kItems">0</b><span>内容数</span></div>
-            <div><b id="kEvents">0</b><span>事件数</span></div>
-            <div><b id="kLinks">0</b><span>关联数</span></div>
+        <section class="section project-section">
+          <div class="spaces-head">
+            <h3>项目列表</h3>
+            <span class="tag t-info" id="spacesCount">0</span>
           </div>
+          <div class="menu" id="spacesMenu">
+            <button class="active" data-project="all"><span class="name">全部项目</span><span class="tag t-info" id="spaceAllCount">0</span></button>
+          </div>
+          <div class="spaces-meta" id="spacesMeta">显示 0 / 0 个项目</div>
         </section>
+
+        <div class="sidebar-footer">
+          <section class="section">
+            <h3>内容集合</h3>
+            <div class="menu">
+              <button>事件 <span class="tag t-info" id="colEvents">0</span></button>
+              <button>文档 <span class="tag t-info" id="colDocs">0</span></button>
+              <button>对话 <span class="tag t-info" id="colConvs">0</span></button>
+            </div>
+          </section>
+
+          <section class="section">
+            <h3>统计</h3>
+            <div class="kpi">
+              <div><b id="kProjects">0</b><span>项目数</span></div>
+              <div><b id="kItems">0</b><span>内容数</span></div>
+              <div><b id="kEvents">0</b><span>事件数</span></div>
+              <div><b id="kLinks">0</b><span>关联数</span></div>
+            </div>
+          </section>
+        </div>
+      </div>
+
+      <div class="graph-sidebar">
+        <section class="brand graph-brand">
+          <h1>图谱工作室</h1>
+          <p>项目与关系的星图控制台。</p>
+        </section>
+
+        <div class="graph-control-scroll">
+          <section class="section">
+            <div class="spaces-head">
+              <h3>项目视角</h3>
+              <span class="tag t-info" id="graphSpacesCount">0</span>
+            </div>
+            <div class="graph-project-menu" id="graphProjectMenu"></div>
+          </section>
+
+          <section class="section">
+            <h3>图谱层级</h3>
+            <div class="graph-layer-list" id="graphLayerList"></div>
+          </section>
+
+          <section class="section">
+            <h3>关系类型</h3>
+            <div class="graph-rel-list-mini">
+              <div class="graph-rel-chip"><span>引用</span><span>REF</span></div>
+              <div class="graph-rel-chip"><span>支持</span><span>SUP</span></div>
+              <div class="graph-rel-chip"><span>冲突</span><span>CON</span></div>
+              <div class="graph-rel-chip"><span>演进</span><span>EVO</span></div>
+            </div>
+          </section>
+
+          <section class="section">
+            <h3>图谱统计</h3>
+            <div class="graph-kpi-grid">
+              <div><b id="graphSideNodes">0</b><span>节点</span></div>
+              <div><b id="graphSideLinks">0</b><span>连线</span></div>
+              <div><b id="graphSideThemes">0</b><span>主题簇</span></div>
+              <div><b id="graphSideOrphans">0</b><span>孤立点</span></div>
+            </div>
+          </section>
+
+          <section class="section">
+            <button class="graph-return" id="graphReturnSearchBtn" type="button">返回搜索工作台</button>
+          </section>
+        </div>
       </div>
 
     </aside>
@@ -1136,13 +2152,14 @@
     <section class="panel main">
       <div class="top">
         <div class="tabs">
-          <button class="tab active" data-target="search">搜索工作台</button>
+          <button class="tab" data-target="search">搜索工作台</button>
+          <button class="tab active" data-target="graph">知识图谱中枢</button>
           <button class="tab" data-target="collector">采集中心</button>
         </div>
         <span class="status"><i class="dot"></i>采集服务运行中</span>
       </div>
 
-      <div class="workspace search-layout active" id="search">
+      <div class="workspace search-layout" id="search">
         <article class="card">
           <div class="overview-strip">
             <div class="overview-card accent"><b id="ovProjects">0</b><span>已登记项目</span></div>
@@ -1226,6 +2243,91 @@
         </aside>
       </div>
 
+      <div class="workspace graph-layout active" id="graph">
+        <article class="graph-stage">
+          <div class="graph-hero">
+            <div class="graph-copy">
+              <span class="graph-eyebrow">Neural Knowledge V1</span>
+              <h2>知识神经元</h2>
+              <p>发光、连接、点击激活知识关系。</p>
+            </div>
+            <div class="graph-hud">
+              <div class="graph-hud-card">
+                <b>当前项目视角</b>
+                <span id="graphProjectLabel">全部项目</span>
+              </div>
+              <div class="graph-hud-card">
+                <b>当前聚焦</b>
+                <span id="graphFocusLabel">知识中枢 · Knowledge Orchestration</span>
+                <div class="graph-hud-metrics">
+                  <span class="graph-hud-pill"><b id="graphNodeCount">0</b> 节点</span>
+                  <span class="graph-hud-pill"><b id="graphLinkCount">0</b> 连线</span>
+                  <span class="graph-hud-pill"><b id="graphPulseLabel">idle</b> 脉冲</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <canvas id="graphCanvas" class="graph-canvas" aria-label="知识图谱交互层"></canvas>
+          <div class="graph-guide"><b>拖拽</b> 旋转 <b>滚轮</b> 缩放 <b>点击</b> 激活节点</div>
+
+          <div class="graph-bottom-wrap">
+            <div class="graph-legend">
+              <div class="graph-eyebrow">Node Layer</div>
+              <div class="graph-legend-items">
+                <div class="graph-legend-item"><span class="graph-swatch" style="color:#72f7ff;background:#72f7ff"></span>主题</div>
+                <div class="graph-legend-item"><span class="graph-swatch" style="color:#6d8dff;background:#6d8dff"></span>方案</div>
+                <div class="graph-legend-item"><span class="graph-swatch" style="color:#b99cff;background:#b99cff"></span>决策</div>
+                <div class="graph-legend-item"><span class="graph-swatch" style="color:#ff5ec7;background:#ff5ec7"></span>风险</div>
+                <div class="graph-legend-item"><span class="graph-swatch" style="color:#6fffd2;background:#6fffd2"></span>证据</div>
+              </div>
+            </div>
+
+            <div class="graph-bottom">
+              <div class="graph-eyebrow">Evidence Rail</div>
+              <div class="graph-rail" id="graphRail"></div>
+            </div>
+          </div>
+        </article>
+
+        <aside class="card graph-detail-card">
+          <button class="graph-side-toggle" id="graphDetailToggleBtn" type="button" aria-expanded="true"><span id="graphDetailToggleLabel">收起详情</span></button>
+          <div class="graph-detail-head">
+            <div class="graph-eyebrow" style="color:#0b7b88">Selected Node</div>
+            <h3 id="graphDetailTitle">知识中枢</h3>
+            <div class="graph-badge" id="graphDetailBadge">
+              <span class="graph-badge-dot"></span>
+              <span>theme</span>
+            </div>
+          </div>
+
+            <div class="graph-summary-card">
+              <div class="detail-section-label">节点摘要</div>
+            <p id="graphDetailSummary">点击节点后查看它贯穿的主题、方案、决策、风险和证据。</p>
+          </div>
+
+          <div class="graph-meta-card">
+            <div class="detail-section-label">元信息</div>
+            <div class="graph-meta-list">
+              <div class="graph-meta-item"><label>主题簇</label><span id="graphDetailCluster">Knowledge Orchestration</span></div>
+              <div class="graph-meta-item"><label>所属项目</label><span id="graphDetailProject">skill</span></div>
+              <div class="graph-meta-item"><label>原始来源</label><span id="graphDetailSource">workflow / memory / testing</span></div>
+              <div class="graph-meta-item"><label>最近激活</label><span id="graphDetailTime">2026-04-27 22:02</span></div>
+            </div>
+          </div>
+
+          <div class="graph-rel-card">
+            <div class="detail-section-label">关系链</div>
+            <div class="graph-rel-list" id="graphRelations"></div>
+          </div>
+
+          <div class="graph-actions action-row">
+            <button class="action" id="graphResetBtn" type="button">重置视角</button>
+            <button class="action" id="graphJumpSearchBtn" type="button">在搜索中定位</button>
+          </div>
+        </aside>
+      </div>
+
       <div class="workspace collector-layout" id="collector">
         <article class="card">
           <div class="searchbar">
@@ -1268,12 +2370,25 @@
     const workspaces = document.querySelectorAll('.workspace');
     tabs.forEach((tab) => {
       tab.addEventListener('click', () => {
-        tabs.forEach((item) => item.classList.remove('active'));
-        workspaces.forEach((item) => item.classList.remove('active'));
-        tab.classList.add('active');
-        document.getElementById(tab.dataset.target).classList.add('active');
+        setActiveWorkspace(tab.dataset.target || 'search');
       });
     });
+
+    function setActiveWorkspace(target) {
+      tabs.forEach((item) => item.classList.toggle('active', item.dataset.target === target));
+      workspaces.forEach((item) => item.classList.toggle('active', item.id === target));
+      document.querySelector('.app')?.classList.toggle('graph-mode', target === 'graph');
+      if (target === 'graph') {
+        graphState.lastFrameTime = 0;
+        requestAnimationFrame(() => {
+          graphResize();
+          graphUpdateProjectLabel();
+          graphUpdateMetrics();
+          graphUpdateDetail(graphState.selectedId);
+          graphDraw();
+        });
+      }
+    }
 
     const state = {
       allResults: [],
@@ -1286,6 +2401,255 @@
       detailCache: {},
       traceExpanded: false
     };
+
+    const graphState = {
+      width: 0,
+      height: 0,
+      dpr: Math.min(window.devicePixelRatio || 1, 1.25),
+      rotationY: -0.22,
+      rotationX: 0.14,
+      zoom: 1,
+      dragging: false,
+      hoverId: null,
+      selectedId: 'theme-core',
+      lastX: 0,
+      lastY: 0,
+      activePointerId: null,
+      dragMoved: false,
+      projected: [],
+      tick: 0,
+      detailCollapsed: false,
+      seedResults: [],
+      lastMetricsBucket: -1,
+      lastFrameTime: 0,
+      ambientNodes: [],
+      animationFrameId: 0,
+      pauseUntil: 0,
+      resumeUntil: 0,
+      resumeBoost: 1
+    };
+
+    const GRAPH_AUTO_SPIN_SPEED = 0.000075;
+
+    const GRAPH_META = {
+      theme: { label: '主题', color: '#72f7ff' },
+      solution: { label: '方案', color: '#6d8dff' },
+      decision: { label: '决策', color: '#b99cff' },
+      risk: { label: '风险', color: '#ff5ec7' },
+      evidence: { label: '证据', color: '#6fffd2' }
+    };
+
+    const GRAPH_SEED_NODES = [
+      {
+        id: 'theme-core',
+        label: '知识中枢',
+        category: 'theme',
+        cluster: 'Knowledge Orchestration',
+        projectKey: 'skill',
+        source: 'workflow / memory / testing',
+        time: '2026-04-27 22:02',
+        searchKeyword: '知识',
+        summary: '这是整张知识神经网络的中央知识核。它代表当前知识库最核心的一件事：把原始沉淀从“能搜到”提升到“能理解、能连接、能复用”。',
+        related: [
+          { label: '采集链路', type: 'supports', note: '现有 collect -> normalize -> ingest 是供血系统' },
+          { label: '搜索工作台', type: 'pairs', note: '图负责关系感知，列表负责精准阅读' },
+          { label: '知识图谱 V2', type: 'evolves', note: '新增整理层与展示层，而不是推翻现有知识库' }
+        ],
+        evidence: [
+          { title: '图谱 V2 方向', text: '图谱不替代现有搜索工作台，而是建立在现有知识库之上的整理层与展示层。' },
+          { title: '图与搜索并存', text: '图负责看结构，搜索负责看原文，采集中心负责看来源质量。' }
+        ],
+        x: 0, y: 0, z: 0, size: 14
+      },
+      {
+        id: 'theme-collect',
+        label: '采集链路',
+        category: 'theme',
+        cluster: 'Acquisition',
+        projectKey: 'skill',
+        source: 'kb_collect_project / inbox / runtime',
+        time: '2026-04-27 12:20',
+        searchKeyword: '采集',
+        summary: '图谱 V2 不会替代采集链路。它依然是整个知识体的供血系统，负责把 workflow、memory、会话和测试材料持续输送进来。',
+        related: [
+          { label: '多源采集', type: 'supports', note: '支撑文档、会话、testing 与 runtime 入口' },
+          { label: '整理层', type: 'feeds', note: '为节点抽取提供原料' }
+        ],
+        evidence: [
+          { title: 'V2 测试材料', text: '采集、搜索、追溯、采集中心主链已经具备基础可用性。' }
+        ],
+        x: -98, y: 30, z: 48, size: 10
+      },
+      {
+        id: 'theme-search',
+        label: '搜索工作台',
+        category: 'theme',
+        cluster: 'Retrieval',
+        projectKey: 'skill',
+        source: 'kb_search / kb_trace / result detail',
+        time: '2026-04-27 15:44',
+        searchKeyword: '搜索',
+        summary: '它保留传统检索心智模型：关键词、筛选、追溯、详情。图谱 tab 必须建立在它之上，而不是把它挤掉。',
+        related: [
+          { label: '知识图谱中枢', type: 'pairs', note: '图看结构，列表看证据' },
+          { label: '详情卡片', type: 'supports', note: '承接原文与引用落点' }
+        ],
+        evidence: [
+          { title: '图与搜索并存', text: '第一版图谱应是只读视图，不接管全部操作。' }
+        ],
+        x: 98, y: -26, z: 54, size: 10
+      },
+      {
+        id: 'theme-graph',
+        label: '图谱 V2',
+        category: 'theme',
+        cluster: 'Cognitive Interface',
+        projectKey: 'skill',
+        source: 'graph_nodes / graph_edges / 3D view',
+        time: '2026-04-27 22:02',
+        searchKeyword: '图谱',
+        summary: '这不是一块黑色信息面板，而是一张轻量、会流动的知识神经网络。真正进入图谱 tab 时，视觉重心必须是关系网络本身，而不是旁边的信息框。',
+        related: [
+          { label: '知识神经元主舞台', type: 'projects', note: '中间 70% 区域必须是发光关系网络，而不是内容块' },
+          { label: '右侧详情', type: 'supports', note: '作为辅助阅读区，而不是主角' }
+        ],
+        evidence: [
+          { title: '图谱主舞台', text: '切到图谱页后，第一眼就应该看见中央知识核与关系星图。' },
+          { title: '只读整理视图', text: '先证明关系可视化价值，再考虑深入接管产品流转。' }
+        ],
+        x: 0, y: -72, z: 82, size: 11
+      },
+      {
+        id: 'solution-extract',
+        label: '知识节点抽取',
+        category: 'solution',
+        cluster: 'Distillation',
+        projectKey: 'skill',
+        source: 'future extraction layer',
+        time: '2026-04-27 21:55',
+        searchKeyword: '知识',
+        summary: '图谱的真正价值不在 3D，而在把原始材料抽成问题、方案、决策、风险这些人能直接读懂的单元。',
+        related: [
+          { label: '噪声治理', type: 'mitigates', note: '避免图谱只是另一种噪声展示' }
+        ],
+        evidence: [
+          { title: '整理层优先', text: '下一阶段最该投的是把已有内容变得更像知识。' }
+        ],
+        x: -44, y: -48, z: 22, size: 8.6
+      },
+      {
+        id: 'decision-v1-close',
+        label: 'V1 已归档',
+        category: 'decision',
+        cluster: 'Governance',
+        projectKey: 'skill',
+        source: 'requirements governance',
+        time: '2026-04-27 22:02',
+        searchKeyword: 'V1',
+        summary: 'V1 不再作为独立执行线推进，避免后续讨论仍被 old todo 台账牵着走。',
+        related: [
+          { label: 'V2 主线', type: 'supports', note: '当前知识库唯一活跃演进主线' }
+        ],
+        evidence: [
+          { title: 'V1 台账归档', text: '底座能力已被 V2 吸收，weekly 与 OCR 转后续规划。' }
+        ],
+        x: -106, y: -16, z: -44, size: 8
+      },
+      {
+        id: 'decision-v2-doing',
+        label: 'V2 保持 doing',
+        category: 'decision',
+        cluster: 'Governance',
+        projectKey: 'skill',
+        source: 'testing / requirement board',
+        time: '2026-04-27 22:02',
+        searchKeyword: 'V2',
+        summary: '虽然实现与联调材料都完成了，但在治理口径上还处于人工审核门内，不能提前写成 done。',
+        related: [
+          { label: '人工审核门', type: 'requires', note: '防止台账比事实超前' }
+        ],
+        evidence: [
+          { title: 'V2 当前状态', text: '实现收口，但尚未完成人工审核落板。' }
+        ],
+        x: 108, y: 12, z: -46, size: 8
+      },
+      {
+        id: 'risk-noise',
+        label: '噪声搬运风险',
+        category: 'risk',
+        cluster: 'Quality Risk',
+        projectKey: 'skill',
+        source: 'conversation / raw docs',
+        time: '2026-04-27 15:36',
+        searchKeyword: '噪声',
+        summary: '如果没有整理层，图谱只会把噪声从列表搬进三维空间。视觉更炫，但理解成本反而更高。',
+        related: [
+          { label: '知识节点抽取', type: 'mitigates', note: '先整理，再上图' }
+        ],
+        evidence: [
+          { title: '噪声风险', text: '自动采集会话和原始材料时，需要先去噪再组织。' }
+        ],
+        x: 70, y: 74, z: -22, size: 7.8
+      },
+      {
+        id: 'risk-overdense',
+        label: '图谱过密难读',
+        category: 'risk',
+        cluster: 'Interaction Risk',
+        projectKey: 'skill',
+        source: 'graph rendering',
+        time: '2026-04-27 15:12',
+        searchKeyword: '图谱',
+        summary: '如果一开始把所有证据都放进来，图谱会变成发光毛线团。V1/V2 都应该先控制在主题节点和核心知识节点层。',
+        related: [
+          { label: '主题分层', type: 'mitigates', note: '大节点/中节点/证据节点三层控制' }
+        ],
+        evidence: [
+          { title: '分层原则', text: '先少量高价值节点，再逐步增密。' }
+        ],
+        x: -22, y: 86, z: -66, size: 7.8
+      },
+      {
+        id: 'evidence-readme',
+        label: 'V2 README 结论',
+        category: 'evidence',
+        cluster: 'Evidence',
+        projectKey: 'skill',
+        source: '.ai/memory/tasks/.../V2/README.md',
+        time: '2026-04-27 22:02',
+        searchKeyword: 'README',
+        summary: '证明当前图谱方向不是凭空想象，而是来自现有知识库产品结论的自然演化。',
+        related: [
+          { label: '图谱方向', type: 'grounds', note: '来自现有产品判断，不是重做一套东西' }
+        ],
+        evidence: [
+          { title: '产品判断', text: '下一阶段最缺的不是新页面，而是知识质量与整理能力。' }
+        ],
+        x: -72, y: 22, z: 92, size: 7
+      },
+      {
+        id: 'erp-theme',
+        label: '报表域主题簇',
+        category: 'theme',
+        cluster: 'Reporting',
+        projectKey: 'erp-finance',
+        source: 'erp-finance docs / workflow',
+        time: '2026-04-27 21:30',
+        searchKeyword: '报表',
+        summary: '如果把 erp-finance 拉进图谱，最合适的起点不是全量上图，而是先做报表生成、数据加工、异常处理这几个主题簇。',
+        related: [
+          { label: '整理层缺口', type: 'depends', note: '还需要稳定的主题抽取与标注' }
+        ],
+        evidence: [
+          { title: 'erp-finance 起步方案', text: '从少量主题簇出发，比一次性堆满知识更稳。' }
+        ],
+        x: -92, y: 18, z: 38, size: 9.2
+      }
+    ];
+
+    const graphNodes = [];
+    const graphEdges = [];
+    let graphCoreNodes = GRAPH_SEED_NODES.map((node) => ({ ...node }));
 
     function hideFloatingTip() {
       const tip = document.getElementById('floatingTip');
@@ -1384,6 +2748,668 @@
       if (!id) return '-';
       const found = state.projects.find((p) => String(p.project_id || '') === id);
       return found?.name || id;
+    }
+
+    function normalizeProjectKey(value) {
+      return String(value || '')
+        .trim()
+        .toLowerCase()
+        .replace(/\\/g, '/');
+    }
+
+    function graphActiveProjectKey() {
+      if ((state.activeProjectId || 'all') === 'all') return 'all';
+      return normalizeProjectKey(state.activeProjectLabel || projectNameById(state.activeProjectId) || '');
+    }
+
+    function graphRand(seed) {
+      const x = Math.sin(seed * 971.371) * 43758.5453;
+      return x - Math.floor(x);
+    }
+
+    function graphBrainEnvelope(theta, phi) {
+      const hemisphereBoost = Math.cos(theta) > 0 ? 1.08 : 0.96;
+      const frontal = 1 + 0.22 * Math.cos(phi) - 0.08 * Math.cos(phi * 3);
+      const upper = 1 + 0.16 * Math.sin(theta) * Math.sin(theta);
+      return hemisphereBoost * frontal * upper;
+    }
+
+    function graphCreateAmbientNode(index) {
+      const theta = Math.acos(1 - 2 * graphRand(index + 1));
+      const phi = graphRand(index + 17) * Math.PI * 2;
+      const envelope = graphBrainEnvelope(theta, phi);
+      const radius = 122 * envelope + graphRand(index + 29) * 18;
+      const squishY = 0.72 + graphRand(index + 41) * 0.08;
+      const squishZ = 0.82 + graphRand(index + 53) * 0.12;
+      let x = Math.sin(theta) * Math.cos(phi) * radius;
+      let y = Math.cos(theta) * radius * squishY;
+      let z = Math.sin(theta) * Math.sin(phi) * radius * squishZ;
+      x += Math.sign(x || 1) * 12 * Math.cos(y / 28);
+      z += 10 * Math.sin(x / 40);
+      const categories = ['solution', 'evidence', 'risk', 'decision'];
+      const category = categories[Math.floor(graphRand(index + 7) * categories.length)];
+      const labelMap = {
+        solution: '知识单元',
+        evidence: '原始证据',
+        risk: '风险线索',
+        decision: '决策片段'
+      };
+      return {
+        id: 'ambient-' + index,
+        label: labelMap[category],
+        category,
+        cluster: 'ambient',
+        projectKey: 'all',
+        source: 'derived layer',
+        time: '',
+        searchKeyword: '',
+        summary: '',
+        related: [],
+        evidence: [],
+        ambient: true,
+        x, y, z,
+        size: category === 'evidence' ? 3.2 : 4.2
+      };
+    }
+
+    function graphEnsureAmbientNodes() {
+      if (graphState.ambientNodes.length) return graphState.ambientNodes;
+      graphState.ambientNodes = Array.from({ length: 96 }, (_, index) => graphCreateAmbientNode(index));
+      return graphState.ambientNodes;
+    }
+
+    function graphCategoryFromItem(item) {
+      const type = String(item?.item_type || '').toLowerCase();
+      const title = String(item?.title || '');
+      const snippet = String(item?.snippet || '');
+      const joined = `${title} ${snippet}`;
+      if (type === 'decision') return 'decision';
+      if (type === 'req' || type === 'task') return 'solution';
+      if (type === 'document' || type === 'conversation' || type === 'evidence') return 'evidence';
+      if (/风险|异常|问题|阻塞|告警|缺口|noise|risk/i.test(joined)) return 'risk';
+      if (/方案|优化|设计|实现|收口|改造|图谱/i.test(joined)) return 'solution';
+      return 'evidence';
+    }
+
+    function graphTimeValue(value) {
+      const raw = String(value || '').trim();
+      if (!raw) return 0;
+      const date = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(raw)
+        ? new Date(raw.replace(' ', 'T') + 'Z')
+        : new Date(raw);
+      return Number.isNaN(date.getTime()) ? 0 : date.getTime();
+    }
+
+    function graphCompactText(value, limit = 48) {
+      return String(value || '').replace(/\s+/g, ' ').trim().slice(0, limit);
+    }
+
+    function graphSemanticTopicFromText(text, itemType = '') {
+      const joined = String(text || '').toLowerCase();
+      const original = String(text || '');
+      if (/提示词|prompt|模板|话术|system prompt|role prompt|工程/i.test(original)) return '提示词工程';
+      if (/ui|界面|视觉|颜色|字体|布局|样式|好看|科技感|交互|拖拽|旋转|节点|图谱/i.test(original)) return '界面体验迭代';
+      if (/bug|报错|异常|失败|没效果|不生效|卡|性能|慢|崩溃|修复/i.test(original)) return '问题定位修复';
+      if (/需求|prd|任务|看板|治理|workflow|协作|状态|归档|记忆|沉淀/i.test(original)) return '工作流治理';
+      if (/采集|知识库|搜索|会话|整理|compact|conversation|导入|入库/i.test(original)) return '知识采集整理';
+      if (/代码|实现|接口|api|编译|cargo|npm|build|测试|验证/i.test(original)) return '实现验证链路';
+      if (/决策|方案|取舍|设计|架构|路线|规划/i.test(original)) return '方案决策';
+      if (String(itemType || '').toLowerCase() === 'conversation') return '对话经验';
+      return '';
+    }
+
+    function graphTopicLabelFromItem(item) {
+      const raw = String(item?.title || '').trim();
+      const snippet = String(item?.snippet || '').trim();
+      const semantic = graphSemanticTopicFromText(`${raw} ${snippet}`, item?.item_type);
+      if (semantic) return semantic;
+      if (!raw) return prettyType(item?.item_type);
+      const cleaned = raw
+        .replace(/\b(?:codex|claude|chatgpt|gemini)\s*会话\s*[0-9a-f-]+/ig, 'AI 协作会话')
+        .replace(/（.*?）|\(.*?\)/g, ' ')
+        .replace(/\bV\d+\b/ig, ' ')
+        .replace(/README|readme/ig, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      const pieces = cleaned.split(/[|·:：/\-]/).map((part) => part.trim()).filter(Boolean);
+      const candidate = (pieces.find((part) => part.length >= 2) || cleaned || prettyType(item?.item_type)).slice(0, 18);
+      return candidate || prettyType(item?.item_type);
+    }
+
+    function graphBucketSummary(bucket) {
+      const firstSnippet = bucket.items[0]?.snippet || '';
+      const more = bucket.items.length > 1 ? ` 这一组共包含 ${bucket.items.length} 条相近记录。` : '';
+      return (graphCompactText(firstSnippet, 84) || '这组真实记录已从当前知识库结果中聚合为一个图谱节点。') + more;
+    }
+
+    function graphBuildRealNodes() {
+      const nodes = [];
+      const projectItems = Array.isArray(state.projects) ? state.projects.slice(0, 4) : [];
+      const resultSource = Array.isArray(state.allResults) && state.allResults.length ? state.allResults : graphState.seedResults;
+      const resultItems = Array.isArray(resultSource) ? resultSource.filter((item) => matchProjectBySelection(item, state.activeProjectId || 'all')) : [];
+      const projectSlots = [
+        { x: -128, y: -12, z: 30 },
+        { x: 126, y: -16, z: 34 },
+        { x: -82, y: 78, z: -18 },
+        { x: 88, y: 76, z: -24 }
+      ];
+      const resultSlots = [
+        { x: -54, y: -64, z: 18 },
+        { x: 62, y: -58, z: 22 },
+        { x: -20, y: 92, z: -40 },
+        { x: 22, y: 102, z: -34 },
+        { x: -128, y: 34, z: -46 },
+        { x: 130, y: 28, z: -42 },
+        { x: -84, y: -90, z: 66 },
+        { x: 86, y: -86, z: 60 }
+      ];
+
+      projectItems.forEach((project, index) => {
+        const slot = projectSlots[index] || projectSlots.at(-1);
+        const status = String(project.sync_status || '').toLowerCase();
+        const category = status === 'warning' || status === 'error' || status === 'empty' ? 'risk' : 'theme';
+        nodes.push({
+          id: 'project-' + String(project.project_id || index),
+          label: project.name || project.root_path || '未命名项目',
+          category,
+          cluster: status === 'ok' ? 'Healthy Project' : status === 'partial' ? 'Growing Project' : 'Attention Project',
+          projectKey: project.name || project.root_path || 'unknown',
+          source: 'api/projects',
+          time: formatTime(project.last_item_at || ''),
+          searchKeyword: project.name || '',
+          summary: project.sync_reason || '项目已经接入知识库，可在图谱中作为一个真实主题入口继续展开。',
+          related: [
+            { label: '项目采集状态', type: 'status', note: (project.sync_status || 'unknown') + ' · ' + (project.next_action || '等待补充建议') },
+            { label: '内容规模', type: 'counts', note: `条目 ${Number(project.item_count || 0)} / 文档 ${Number(project.document_count || 0)} / 对话 ${Number(project.conversation_count || 0)}` }
+          ],
+          evidence: [
+            { title: '当前诊断', text: project.sync_reason || '暂无诊断' },
+            { title: '建议动作', text: project.next_action || '暂无建议动作' }
+          ],
+          x: slot.x, y: slot.y, z: slot.z, size: 9.6
+        });
+      });
+
+      const buckets = new Map();
+      resultItems
+        .slice()
+        .sort((a, b) => graphTimeValue(b.updated_at) - graphTimeValue(a.updated_at))
+        .forEach((item) => {
+          const projectLabel = projectNameById(item.project_id);
+          const topic = graphTopicLabelFromItem(item);
+          const key = `${projectLabel}::${topic}`;
+          if (!buckets.has(key)) {
+            buckets.set(key, {
+              key,
+              label: topic,
+              projectKey: projectLabel,
+              category: graphCategoryFromItem(item),
+              cluster: prettyType(item.item_type),
+              items: []
+            });
+          }
+          const bucket = buckets.get(key);
+          if (bucket.items.length < 3) bucket.items.push(item);
+          if (graphTimeValue(item.updated_at) > graphTimeValue(bucket.items[0]?.updated_at)) {
+            bucket.category = graphCategoryFromItem(item);
+            bucket.cluster = prettyType(item.item_type);
+          }
+        });
+
+      Array.from(buckets.values())
+        .sort((a, b) => graphTimeValue(b.items[0]?.updated_at) - graphTimeValue(a.items[0]?.updated_at))
+        .slice(0, 8)
+        .forEach((bucket, index) => {
+          const slot = resultSlots[index] || resultSlots.at(-1);
+          const first = bucket.items[0];
+          nodes.push({
+            id: 'item-group-' + index + '-' + bucket.projectKey,
+            label: bucket.label,
+            category: bucket.category,
+            cluster: bucket.cluster === '对话' ? '经验模板候选' : bucket.cluster,
+            projectKey: bucket.projectKey,
+            source: prettySource(first?.source_path),
+            time: displayTime(first),
+            searchKeyword: bucket.label,
+            summary: graphBucketSummary(bucket),
+            related: [
+              { label: '来源项目', type: 'project', note: bucket.projectKey },
+              { label: '整理方向', type: 'distill', note: bucket.cluster === '对话' ? '可继续抽取为提示词、流程或问题解决模板' : '可继续沉淀为稳定知识单元' },
+              { label: '聚合规模', type: 'count', note: `${bucket.items.length} 条相近记录 · ${bucket.cluster}` }
+            ],
+            evidence: bucket.items.map((item) => ({
+              title: graphCompactText(item.title || '记录片段', 24),
+              text: graphCompactText(item.snippet || '暂无摘要', 72)
+            })),
+            x: slot.x, y: slot.y, z: slot.z, size: 7.8
+          });
+        });
+
+      return nodes;
+    }
+
+    function graphRefreshCoreNodes() {
+      const dynamic = graphBuildRealNodes();
+      graphCoreNodes = GRAPH_SEED_NODES.map((node) => ({ ...node })).concat(dynamic);
+      buildGraphData();
+      graphUpdateMetrics();
+      graphUpdateDetail(graphState.selectedId);
+    }
+
+    async function graphLoadSeedResults() {
+      if (Array.isArray(state.allResults) && state.allResults.length) return;
+      try {
+        const res = await fetch('/api/search?q=');
+        const data = await res.json();
+        graphState.seedResults = Array.isArray(data.items) ? data.items : [];
+        graphRefreshCoreNodes();
+      } catch (_) {
+        graphState.seedResults = [];
+      }
+    }
+
+    function buildGraphData() {
+      graphNodes.length = 0;
+      graphEdges.length = 0;
+      for (const node of graphCoreNodes) {
+        graphNodes.push({ ...node });
+      }
+      for (const node of graphEnsureAmbientNodes()) {
+        graphNodes.push({ ...node });
+      }
+
+      const ids = new Set(graphNodes.map((node) => node.id));
+      const addEdge = (source, target) => {
+        if (!ids.has(source) || !ids.has(target) || source === target) return;
+        const key = [source, target].sort().join('::');
+        if (!graphEdges.some((edge) => edge.key === key)) {
+          graphEdges.push({ key, source, target });
+        }
+      };
+
+      [
+        ['theme-core', 'theme-collect'],
+        ['theme-core', 'theme-search'],
+        ['theme-core', 'theme-graph'],
+        ['theme-graph', 'solution-extract'],
+        ['theme-graph', 'risk-overdense'],
+        ['solution-extract', 'risk-noise'],
+        ['decision-v1-close', 'theme-core'],
+        ['decision-v2-doing', 'theme-search'],
+        ['theme-core', 'evidence-readme'],
+        ['theme-core', 'erp-theme']
+      ].forEach(([source, target]) => addEdge(source, target));
+
+      const projectNodeByKey = new Map();
+      graphNodes.forEach((node) => {
+        if (node.id.startsWith('project-')) {
+          projectNodeByKey.set(normalizeProjectKey(node.projectKey), node.id);
+          addEdge('theme-core', node.id);
+        }
+      });
+      graphNodes.forEach((node) => {
+        if (!node.id.startsWith('item-group-')) return;
+        const projectNode = projectNodeByKey.get(normalizeProjectKey(node.projectKey));
+        addEdge(projectNode || 'theme-search', node.id);
+        addEdge('theme-core', node.id);
+      });
+
+      graphBuildProximityEdges(addEdge);
+    }
+
+    function graphDistance(a, b) {
+      const dx = a.x - b.x;
+      const dy = a.y - b.y;
+      const dz = a.z - b.z;
+      return Math.sqrt(dx * dx + dy * dy + dz * dz);
+    }
+
+    function graphBuildProximityEdges(addEdge) {
+      const visibleCore = graphNodes.filter((node) => !node.ambient);
+      const ambient = graphNodes.filter((node) => node.ambient);
+      ambient.forEach((source) => {
+        const candidates = visibleCore
+          .concat(ambient.filter((item) => item.id !== source.id && graphRand(Number(source.id.replace('ambient-', '')) + Number(item.id.replace('ambient-', '')) + 13) > 0.74))
+          .map((target) => ({ id: target.id, d: graphDistance(source, target) }))
+          .filter((item) => item.d < 64)
+          .sort((a, b) => a.d - b.d);
+        const limit = source.category === 'evidence' ? 2 : 3;
+        for (let i = 0; i < Math.min(limit, candidates.length); i += 1) {
+          addEdge(source.id, candidates[i].id);
+        }
+      });
+      visibleCore.forEach((source) => {
+        const candidates = graphNodes
+          .filter((target) => target.id !== source.id)
+          .map((target) => ({ id: target.id, d: graphDistance(source, target) }))
+          .filter((item) => item.d < 104)
+          .sort((a, b) => a.d - b.d);
+        for (let i = 0; i < Math.min(5, candidates.length); i += 1) {
+          addEdge(source.id, candidates[i].id);
+        }
+      });
+    }
+
+    function graphVisible(node) {
+      if (node.ambient) return true;
+      const projectKey = graphActiveProjectKey();
+      const projectOk = projectKey === 'all' || normalizeProjectKey(node.projectKey) === projectKey || (normalizeProjectKey(node.projectKey) === 'skill' && projectKey === 'all');
+      return projectOk;
+    }
+
+    function graphResize() {
+      const canvas = document.getElementById('graphCanvas');
+      if (!canvas) return;
+      const rect = canvas.getBoundingClientRect();
+      if (rect.width < 2 || rect.height < 2) return;
+      graphState.width = rect.width;
+      graphState.height = rect.height;
+      canvas.width = rect.width * graphState.dpr;
+      canvas.height = rect.height * graphState.dpr;
+      const ctx = canvas.getContext('2d', { alpha: true, desynchronized: true });
+      ctx.setTransform(graphState.dpr, 0, 0, graphState.dpr, 0, 0);
+    }
+
+    function graphRotate(point) {
+      const cosY = Math.cos(graphState.rotationY);
+      const sinY = Math.sin(graphState.rotationY);
+      const cosX = Math.cos(graphState.rotationX);
+      const sinX = Math.sin(graphState.rotationX);
+      const x1 = point.x * cosY - point.z * sinY;
+      const z1 = point.x * sinY + point.z * cosY;
+      const y1 = point.y * cosX - z1 * sinX;
+      const z2 = point.y * sinX + z1 * cosX;
+      return { x: x1, y: y1, z: z2 };
+    }
+
+    function graphProject(point) {
+      const depth = 420;
+      const stageScale = Math.min(graphState.width, graphState.height) / 520;
+      const scale = (depth / (depth - point.z)) * graphState.zoom * stageScale * 1.42;
+      return {
+        x: graphState.width / 2 + point.x * scale,
+        y: graphState.height * 0.52 + point.y * scale,
+        scale,
+        z: point.z
+      };
+    }
+
+    function graphRgba(hex, alpha) {
+      const raw = hex.replace('#', '');
+      const num = parseInt(raw, 16);
+      const r = (num >> 16) & 255;
+      const g = (num >> 8) & 255;
+      const b = num & 255;
+      return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+    }
+
+
+    function graphDrawNeuralField(ctx, projectedItems, related) {
+      const centerX = graphState.width / 2;
+      const centerY = graphState.height * 0.52;
+      const radius = Math.min(graphState.width, graphState.height) * 0.44;
+      const glow = ctx.createRadialGradient(centerX, centerY, 8, centerX, centerY, radius);
+      glow.addColorStop(0, graphRgba('#72f7ff', 0.14));
+      glow.addColorStop(0.42, graphRgba('#6d8dff', 0.065));
+      glow.addColorStop(0.72, graphRgba('#b99cff', 0.035));
+      glow.addColorStop(1, graphRgba('#6d8dff', 0));
+      ctx.fillStyle = glow;
+      ctx.beginPath();
+      ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+      ctx.fill();
+
+      const lookup = new Map(projectedItems.map((item) => [item.node.id, item]));
+      graphEdges.forEach((edge) => {
+        const source = lookup.get(edge.source);
+        const target = lookup.get(edge.target);
+        if (!source || !target || !graphVisible(source.node) || !graphVisible(target.node)) return;
+        const focusId = graphState.hoverId || graphState.selectedId;
+        const focused = focusId && (edge.source === focusId || edge.target === focusId);
+        const near = focused || related.has(edge.source) || related.has(edge.target);
+        const ambient = source.node.ambient || target.node.ambient;
+        const coreBridge = !ambient && (source.node.id === 'theme-core' || target.node.id === 'theme-core');
+        const alpha = focused ? 0.78 : near ? 0.20 : ambient ? 0.038 : coreBridge ? 0.055 : 0.10;
+        const gradient = ctx.createLinearGradient(source.projected.x, source.projected.y, target.projected.x, target.projected.y);
+        gradient.addColorStop(0, graphRgba(GRAPH_META[source.node.category].color, alpha));
+        gradient.addColorStop(1, graphRgba(GRAPH_META[target.node.category].color, alpha));
+        ctx.strokeStyle = gradient;
+        ctx.lineWidth = focused ? 1.45 : ambient ? 0.56 : coreBridge ? 0.68 : 0.78;
+        ctx.beginPath();
+        ctx.moveTo(source.projected.x, source.projected.y);
+        ctx.lineTo(target.projected.x, target.projected.y);
+        ctx.stroke();
+      });
+    }
+
+    function graphPauseAutoSpin(pauseMs = 240, resumeMs = 1800, resumeBoost = 1.8) {
+      const now = performance.now();
+      const nextPause = now + pauseMs;
+      graphState.pauseUntil = nextPause;
+      graphState.resumeUntil = nextPause + resumeMs;
+      graphState.resumeBoost = Math.max(1, resumeBoost);
+    }
+
+    function graphAutoSpinFactor(now) {
+      if (graphState.dragging || now < (graphState.pauseUntil || 0)) return 0;
+      const resumeUntil = graphState.resumeUntil || 0;
+      if (now >= resumeUntil) return 1;
+      const duration = Math.max(1, resumeUntil - (graphState.pauseUntil || now));
+      const progress = Math.max(0, Math.min(1, (now - (graphState.pauseUntil || now)) / duration));
+      const boost = Math.max(1, graphState.resumeBoost || 1);
+      const peakAt = 0.38;
+      if (progress < peakAt) {
+        const ramp = progress / peakAt;
+        return boost * (1 - Math.pow(1 - ramp, 3));
+      }
+      const settle = (progress - peakAt) / (1 - peakAt);
+      const smooth = settle * settle * (3 - 2 * settle);
+      return boost + (1 - boost) * smooth;
+    }
+
+    function graphLabelText(node) {
+      const value = String(node?.label || '').trim();
+      if (!value) return '';
+      return value.length > 12 ? value.slice(0, 12) + '…' : value;
+    }
+
+    function graphShouldShowLabel(item, isSelected, isHover, isRelated, visibleCoreCount) {
+      if (item.node.ambient) return false;
+      if (isSelected || isHover) return true;
+      if (item.node.id === 'theme-core') return true;
+      if (item.node.category === 'theme') return item.projected.scale > 0.92;
+      if (isRelated) return item.projected.scale > 1.02 && visibleCoreCount <= 18;
+      return visibleCoreCount <= 12 && item.projected.scale > 1.02;
+    }
+
+    function graphDrawNodeLabel(ctx, item, radius, meta, isSelected, isHover) {
+      const label = graphLabelText(item.node);
+      if (!label) return;
+      const fontSize = Math.max(9, Math.round(10.5 * Math.min(item.projected.scale, 1.12)));
+      const x = item.projected.x + radius + 7;
+      const y = item.projected.y - radius - 4;
+      ctx.save();
+      ctx.font = `${fontSize}px IBM Plex Sans, Noto Sans SC, sans-serif`;
+      ctx.textBaseline = 'middle';
+      ctx.lineJoin = 'round';
+      ctx.strokeStyle = 'rgba(3, 10, 17, 0.78)';
+      ctx.lineWidth = isSelected || isHover ? 4 : 3;
+      ctx.strokeText(label, x, y);
+      ctx.fillStyle = isSelected ? '#ffffff' : isHover ? graphRgba(meta.color, 0.95) : 'rgba(224, 239, 252, 0.76)';
+      ctx.fillText(label, x, y);
+      ctx.restore();
+    }
+
+    function graphUpdateProjectLabel() {
+      const label = state.activeProjectId === 'all' ? '全部项目' : (state.activeProjectLabel || projectNameById(state.activeProjectId) || '全部项目');
+      const el = document.getElementById('graphProjectLabel');
+      if (el) el.textContent = label;
+    }
+
+    function graphSyncDetailPanel() {
+      const workspace = document.getElementById('graph');
+      const btn = document.getElementById('graphDetailToggleBtn');
+      const label = document.getElementById('graphDetailToggleLabel');
+      if (!workspace || !btn || !label) return;
+      workspace.classList.toggle('graph-detail-collapsed', graphState.detailCollapsed);
+      btn.setAttribute('aria-expanded', graphState.detailCollapsed ? 'false' : 'true');
+      label.textContent = graphState.detailCollapsed ? '展开详情' : '收起详情';
+    }
+
+    function graphUpdateMetrics() {
+      const visibleNodes = graphNodes.filter((node) => graphVisible(node));
+      const visibleIds = new Set(visibleNodes.map((node) => node.id));
+      const visibleLinks = graphEdges.filter((edge) => visibleIds.has(edge.source) && visibleIds.has(edge.target));
+      const nodeEl = document.getElementById('graphNodeCount');
+      const linkEl = document.getElementById('graphLinkCount');
+      const pulseEl = document.getElementById('graphPulseLabel');
+      const coreNodes = visibleNodes.filter((node) => !node.ambient);
+      if (nodeEl) nodeEl.textContent = String(coreNodes.length);
+      if (linkEl) linkEl.textContent = String(visibleLinks.length);
+      if (pulseEl) pulseEl.textContent = graphState.hoverId ? 'focus' : graphState.dragging ? 'drag' : 'flow';
+      const themes = visibleNodes.filter((node) => node.category === 'theme' && !node.ambient).length;
+      const linkedIds = new Set();
+      visibleLinks.forEach((edge) => {
+        linkedIds.add(edge.source);
+        linkedIds.add(edge.target);
+      });
+      const orphans = coreNodes.filter((node) => !linkedIds.has(node.id)).length;
+      const sideNodes = document.getElementById('graphSideNodes');
+      const sideLinks = document.getElementById('graphSideLinks');
+      const sideThemes = document.getElementById('graphSideThemes');
+      const sideOrphans = document.getElementById('graphSideOrphans');
+      if (sideNodes) sideNodes.textContent = String(coreNodes.length);
+      if (sideLinks) sideLinks.textContent = String(visibleLinks.length);
+      if (sideThemes) sideThemes.textContent = String(themes);
+      if (sideOrphans) sideOrphans.textContent = String(orphans);
+      renderGraphLayerList();
+    }
+
+    function graphVisibleCoreNodes() {
+      return graphNodes.filter((node) => !node.ambient && graphVisible(node));
+    }
+
+    function graphUpdateDetail(nodeId) {
+      const selected = graphCoreNodes.find((node) => node.id === nodeId && graphVisible(node)) || graphCoreNodes.find((node) => graphVisible(node)) || graphCoreNodes[0];
+      graphState.selectedId = selected.id;
+      const meta = GRAPH_META[selected.category];
+      document.getElementById('graphDetailTitle').textContent = selected.label;
+      document.getElementById('graphDetailSummary').textContent = graphCompactText(selected.summary, 78);
+      document.getElementById('graphDetailCluster').textContent = selected.cluster;
+      document.getElementById('graphDetailProject').textContent = selected.projectKey;
+      document.getElementById('graphDetailSource').textContent = selected.source;
+      document.getElementById('graphDetailTime').textContent = selected.time;
+      document.getElementById('graphDetailBadge').innerHTML = '<span class="graph-badge-dot" style="color:' + meta.color + ';background:' + meta.color + '"></span><span>' + meta.label + '</span>';
+      document.getElementById('graphRelations').innerHTML = selected.related.map((rel) =>
+        '<div class="graph-rel-item"><strong>' + esc(rel.label) + '</strong><em>' + esc(rel.type) + '</em><p>' + esc(graphCompactText(rel.note, 42)) + '</p></div>'
+      ).join('');
+      document.getElementById('graphRail').innerHTML = selected.evidence.map((item) =>
+        '<div class="graph-rail-card"><h4>' + esc(item.title) + '</h4><p>' + esc(graphCompactText(item.text, 46)) + '</p></div>'
+      ).join('');
+      document.getElementById('graphFocusLabel').textContent = selected.label + ' · ' + selected.cluster;
+    }
+
+    function graphDraw() {
+      const canvas = document.getElementById('graphCanvas');
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d', { alpha: true, desynchronized: true });
+      ctx.clearRect(0, 0, graphState.width, graphState.height);
+      const metricsBucket = Math.floor(graphState.tick * 2);
+      if (metricsBucket !== graphState.lastMetricsBucket) {
+        graphState.lastMetricsBucket = metricsBucket;
+        graphUpdateMetrics();
+      }
+
+      graphState.projected = graphNodes.map((node) => {
+        const rotated = graphRotate(node);
+        return { node, rotated, projected: graphProject(rotated) };
+      }).sort((a, b) => a.projected.z - b.projected.z);
+
+      const lookup = new Map(graphState.projected.map((item) => [item.node.id, item]));
+      const focusId = graphState.hoverId || graphState.selectedId;
+      const related = new Set();
+      graphEdges.forEach((edge) => {
+        if (!lookup.has(edge.source) || !lookup.has(edge.target)) return;
+        if (edge.source === focusId) related.add(edge.target);
+        if (edge.target === focusId) related.add(edge.source);
+      });
+      const visibleCoreCount = graphNodes.filter((node) => !node.ambient && graphVisible(node)).length;
+
+      graphDrawNeuralField(ctx, graphState.projected, related);
+
+      graphState.projected.forEach((item) => {
+        if (!graphVisible(item.node)) return;
+        const meta = GRAPH_META[item.node.category];
+        const isSelected = graphState.selectedId === item.node.id;
+        const isHover = graphState.hoverId === item.node.id;
+        const isRelated = related.has(item.node.id);
+        const radius = Math.max(1.6, item.node.size * item.projected.scale * (item.node.ambient ? 0.62 : 0.86));
+        const alpha = item.node.ambient ? 0.24 : 0.86;
+        ctx.shadowBlur = isSelected ? 30 : isHover ? 22 : isRelated ? 16 : item.node.ambient ? 4 : 9;
+        ctx.shadowColor = meta.color;
+        ctx.fillStyle = graphRgba(meta.color, alpha);
+        ctx.beginPath();
+        ctx.arc(item.projected.x, item.projected.y, radius, 0, Math.PI * 2);
+        ctx.fill();
+        if (!item.node.ambient) {
+          ctx.fillStyle = graphRgba('#ffffff', isSelected || isHover ? 0.38 : 0.16);
+          ctx.beginPath();
+          ctx.arc(item.projected.x - radius * 0.28, item.projected.y - radius * 0.30, Math.max(1.2, radius * 0.24), 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.shadowBlur = 0;
+        if (isSelected || isHover || (!item.node.ambient && item.projected.scale > 1.08)) {
+          ctx.strokeStyle = graphRgba(meta.color, isSelected ? 0.88 : 0.38);
+          ctx.lineWidth = isSelected ? 2 : 1;
+          ctx.beginPath();
+          ctx.arc(item.projected.x, item.projected.y, radius + 4, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+        if (isSelected) {
+          ctx.strokeStyle = graphRgba(meta.color, 0.34 + 0.18 * Math.sin(graphState.tick * 2.1));
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.arc(item.projected.x, item.projected.y, radius + 10 + 3 * Math.sin(graphState.tick * 1.4), 0, Math.PI * 2);
+          ctx.stroke();
+        }
+        const showLabel = graphShouldShowLabel(item, isSelected, isHover, isRelated, visibleCoreCount);
+        if (showLabel) graphDrawNodeLabel(ctx, item, radius, meta, isSelected, isHover);
+      });
+    }
+
+    function graphAnimate(now = 0) {
+      graphState.animationFrameId = requestAnimationFrame(graphAnimate);
+      if (!document.getElementById('graph')?.classList.contains('active')) {
+        graphState.lastFrameTime = 0;
+        return;
+      }
+      if (!graphState.lastFrameTime) graphState.lastFrameTime = now;
+      const delta = Math.min(48, Math.max(0, now - graphState.lastFrameTime));
+      graphState.lastFrameTime = now;
+      graphState.tick += delta / 1000;
+      graphState.rotationY += delta * GRAPH_AUTO_SPIN_SPEED * graphAutoSpinFactor(now);
+      graphDraw();
+    }
+
+    function graphPick(clientX, clientY) {
+      const canvas = document.getElementById('graphCanvas');
+      if (!canvas) return null;
+      const rect = canvas.getBoundingClientRect();
+      const x = clientX - rect.left;
+      const y = clientY - rect.top;
+      let best = null;
+      let min = Infinity;
+      for (const item of graphState.projected) {
+        if (item.node.ambient || !graphVisible(item.node)) continue;
+        const radius = Math.max(10, item.node.size * item.projected.scale * 1.1);
+        const dx = item.projected.x - x;
+        const dy = item.projected.y - y;
+        const d = Math.sqrt(dx * dx + dy * dy);
+        if (d < radius && d < min) {
+          best = item.node.id;
+          min = d;
+        }
+      }
+      return best;
     }
 
     function formatTime(value) {
@@ -1598,12 +3624,44 @@
       document.getElementById('ovAttention').textContent = attention;
     }
 
+    function renderGraphSidebarProjects(projects) {
+      const menu = document.getElementById('graphProjectMenu');
+      if (!menu) return;
+      const activeProjectId = state.activeProjectId || 'all';
+      const totalItems = projects.reduce((sum, p) => sum + Number(p.item_count || 0), 0);
+      const rows = [
+        '<button data-graph-project-id="all" data-graph-project-name="全部项目" class="' + (activeProjectId === 'all' ? 'active' : '') + '"><span class="name">全部项目</span><span class="tag t-info">' + totalItems + '</span></button>'
+      ];
+      for (const p of projects) {
+        const id = p.project_id || '';
+        const name = p.name || p.root_path || '-';
+        rows.push(
+          '<button data-graph-project-id="' + esc(id) + '" data-graph-project-name="' + esc(name) + '" title="' + esc(name) + '" class="' + (activeProjectId === id ? 'active' : '') + '">' +
+          '<span class="name">' + esc(name) + '</span>' +
+          '<span class="tag ' + ((p.item_count || 0) > 0 ? 't-ok' : 't-warn') + '">' + (p.item_count || 0) + '</span>' +
+          '</button>'
+        );
+      }
+      menu.innerHTML = rows.join('');
+      document.getElementById('graphSpacesCount').textContent = String(projects.length);
+    }
+
+    function renderGraphLayerList() {
+      const out = document.getElementById('graphLayerList');
+      if (!out) return;
+      const rows = Object.entries(GRAPH_META).map(([key, meta]) => {
+        const count = graphNodes.filter((node) => node.category === key && graphVisible(node)).length;
+        return '<div class="graph-layer-item"><span><i class="graph-layer-dot" style="color:' + meta.color + ';background:' + meta.color + '"></i>' + esc(meta.label) + '</span><span class="tag t-info">' + count + '</span></div>';
+      });
+      out.innerHTML = rows.join('');
+    }
+
     function renderSidebarProjects(projects) {
       const menu = document.getElementById('spacesMenu');
       const activeProjectId = state.activeProjectId || 'all';
       const totalItems = projects.reduce((sum, p) => sum + Number(p.item_count || 0), 0);
       const rows = [
-        '<button data-project-id="all" data-project-name="全部项目" class="' + (activeProjectId === 'all' ? 'active' : '') + '"><span class="name">全部项目</span><span class="tag t-info">' + totalItems + '</span></button>'
+        '<button data-project-id="all" data-project-name="全部项目" class="' + (activeProjectId === 'all' ? 'active' : '') + '"><span class="name">全部项目</span><span class="tag t-info" id="spaceAllCount">' + totalItems + '</span></button>'
       ];
       for (const p of projects) {
         const name = p.name || p.root_path || '-';
@@ -1617,6 +3675,7 @@
       menu.innerHTML = rows.join('');
       document.getElementById('spacesCount').textContent = String(projects.length);
       document.getElementById('spacesMeta').textContent = '共 ' + projects.length + ' 个项目';
+      renderGraphSidebarProjects(projects);
     }
 
     function renderToolFilter(items) {
@@ -1739,6 +3798,8 @@
       bindFloatingTips(document.getElementById('projectRows'));
       renderSidebarProjects(state.projects);
       updateSearchOverview();
+      graphUpdateProjectLabel();
+      graphRefreshCoreNodes();
     }
 
     async function collectProject(path) {
@@ -1881,14 +3942,26 @@
       renderToolFilter(state.allResults);
       renderResults(applyFilters(state.allResults));
       renderSidebarProjects(state.projects);
+      graphRefreshCoreNodes();
     }
 
     async function selectProjectAndSearch(projectId, projectName) {
       state.activeProjectId = projectId || 'all';
       state.activeProjectLabel = projectName || '全部项目';
       renderSidebarProjects(state.projects);
-      document.querySelector('[data-target="search"]').click();
+      graphUpdateProjectLabel();
+      graphUpdateDetail(graphState.selectedId);
+      setActiveWorkspace('search');
       await runSearch();
+    }
+
+    function selectGraphProject(projectId, projectName) {
+      state.activeProjectId = projectId || 'all';
+      state.activeProjectLabel = projectName || '全部项目';
+      renderSidebarProjects(state.projects);
+      graphUpdateProjectLabel();
+      graphRefreshCoreNodes();
+      graphUpdateDetail(graphState.selectedId);
     }
 
     function useProjectFilterById(projectId, projectName) {
@@ -1969,6 +4042,107 @@
         syncTraceToggle();
       });
 
+      buildGraphData();
+      graphResize();
+      graphUpdateProjectLabel();
+      graphSyncDetailPanel();
+      graphRefreshCoreNodes();
+      graphUpdateDetail(graphState.selectedId);
+      graphAnimate();
+
+      const graphCanvas = document.getElementById('graphCanvas');
+      graphCanvas.addEventListener('pointerdown', (event) => {
+        event.preventDefault();
+        graphState.dragging = true;
+        graphState.dragMoved = false;
+        graphState.activePointerId = event.pointerId;
+        graphPauseAutoSpin(260, 1800, 1.9);
+        graphState.lastX = event.clientX;
+        graphState.lastY = event.clientY;
+        try {
+          graphCanvas.setPointerCapture?.(event.pointerId);
+        } catch (_) {}
+        graphCanvas.classList.add('dragging');
+      });
+
+      const finishGraphDrag = (event) => {
+        if (graphState.dragging) graphPauseAutoSpin(220, 2100, 2.15);
+        if (graphState.activePointerId !== null) {
+          try {
+            graphCanvas.releasePointerCapture?.(graphState.activePointerId);
+          } catch (_) {}
+        }
+        graphState.dragging = false;
+        graphState.activePointerId = null;
+        graphCanvas.classList.remove('dragging');
+      };
+
+      graphCanvas.addEventListener('pointerup', finishGraphDrag);
+      graphCanvas.addEventListener('pointercancel', finishGraphDrag);
+      window.addEventListener('pointerup', finishGraphDrag);
+
+      graphCanvas.addEventListener('pointermove', (event) => {
+        if (graphState.dragging) {
+          if (graphState.activePointerId !== null && event.pointerId !== graphState.activePointerId) return;
+          const dx = event.clientX - graphState.lastX;
+          const dy = event.clientY - graphState.lastY;
+          if (Math.abs(dx) + Math.abs(dy) > 1) graphState.dragMoved = true;
+          graphState.rotationY += dx * 0.0052;
+          graphState.rotationX = Math.max(-0.72, Math.min(0.72, graphState.rotationX + dy * 0.0038));
+          graphPauseAutoSpin(180, 1800, 1.9);
+          graphState.lastX = event.clientX;
+          graphState.lastY = event.clientY;
+        } else {
+          const hit = graphPick(event.clientX, event.clientY);
+          if (hit) graphPauseAutoSpin(160, 900, 1.35);
+          graphState.hoverId = hit;
+        }
+      });
+
+      graphCanvas.addEventListener('pointerleave', () => {
+        if (graphState.dragging) return;
+        graphState.hoverId = null;
+      });
+
+      graphCanvas.addEventListener('click', (event) => {
+        graphPauseAutoSpin(240, 1900, 2.05);
+        if (graphState.dragMoved) {
+          graphState.dragMoved = false;
+          return;
+        }
+        const hit = graphPick(event.clientX, event.clientY);
+        if (hit) {
+          graphUpdateDetail(hit);
+        }
+      });
+
+      graphCanvas.addEventListener('wheel', (event) => {
+        event.preventDefault();
+        graphPauseAutoSpin(180, 1500, 1.8);
+        graphState.zoom = Math.max(0.68, Math.min(1.82, graphState.zoom + (event.deltaY > 0 ? -0.08 : 0.08)));
+      }, { passive: false });
+
+      document.getElementById('graphResetBtn').addEventListener('click', () => {
+        graphPauseAutoSpin(260, 1700, 1.6);
+        graphState.rotationY = -0.22;
+        graphState.rotationX = 0.14;
+        graphState.zoom = 1;
+      });
+
+      document.getElementById('graphJumpSearchBtn').addEventListener('click', async () => {
+        const selected = graphCoreNodes.find((node) => node.id === graphState.selectedId) || graphCoreNodes[0];
+        document.getElementById('q').value = selected.searchKeyword || '';
+        setActiveWorkspace('search');
+        await runSearch();
+      });
+
+      document.getElementById('graphDetailToggleBtn').addEventListener('click', () => {
+        graphState.detailCollapsed = !graphState.detailCollapsed;
+        graphSyncDetailPanel();
+      });
+
+      window.addEventListener('resize', graphResize);
+
       document.getElementById('btnFavorite').addEventListener('click', () => {
         if (!state.selected?.item_id) return;
         const id = String(state.selected.item_id);
@@ -2021,9 +4195,26 @@
         await selectProjectAndSearch(projectId, projectName);
       });
 
+      document.getElementById('graphProjectMenu').addEventListener('click', (event) => {
+        if (!(event.target instanceof Element)) return;
+        const btn = event.target.closest('button[data-graph-project-id]');
+        if (!btn) return;
+        const projectId = btn.getAttribute('data-graph-project-id') || 'all';
+        const projectName = btn.getAttribute('data-graph-project-name') || '全部项目';
+        selectGraphProject(projectId, projectName);
+      });
+
+      document.getElementById('graphReturnSearchBtn').addEventListener('click', () => {
+        setActiveWorkspace('search');
+      });
+
       await Promise.all([loadStats(), loadProjects()]);
+      await graphLoadSeedResults();
       loadFavorites();
       updateActionButtons();
+      graphUpdateProjectLabel();
+      graphUpdateDetail(graphState.selectedId);
+      setActiveWorkspace('graph');
       document.getElementById('trace').innerHTML = '<div class="node">请选择一条搜索结果查看追溯链</div>';
 
       setInterval(loadStats, 10000);
