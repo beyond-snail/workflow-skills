@@ -3563,6 +3563,40 @@ fn seed_v3_knowledge_assets(conn: &Connection) -> Result<(), String> {
         "输出验证表格、证据链接、剩余风险和状态建议。",
         "candidate",
     )?;
+    seed_prompt_template(
+        conn,
+        "tpl-frontend-fix-handoff",
+        "前端问题交给开发 AI 修复",
+        "开发实现",
+        "Codex / 通用",
+        "你是负责前端问题修复的高级开发 AI，必须先复现现象、定位相关组件/样式/接口，再做最小范围改动。",
+        "把页面截图、异常现象和验收口径转成可执行修复任务，并完成构建与运行态验证。",
+        "{{repo_path}}、{{page_or_route}}、{{screenshot_note}}、{{expected_behavior}}、{{acceptance}}",
+        "先读取项目协作约定、相关页面文件、样式规则和最近任务记忆；说明涉及文件、接口链路、调用链和根因判断。",
+        "按“现象复述 / 根因定位 / 改动清单 / 验证命令 / 未覆盖风险 / 提交信息”输出。",
+        "修复后至少完成前端构建；涉及交互时补运行态检查；不得扩大到无关页面或重做设计体系。",
+        "不要只按截图猜测；不要改全局样式造成其他页签漂移；不要在未验证时标记完成。",
+        "请在 {{repo_path}} 修复 {{page_or_route}} 的前端问题：{{screenshot_note}}。验收标准：{{acceptance}}。",
+        "输出根因、改动文件、验证结果和剩余风险。",
+        "reviewed",
+    )?;
+    seed_prompt_template(
+        conn,
+        "tpl-review-fix-handoff",
+        "代码审查问题交给开发 AI 修复",
+        "开发实现",
+        "Codex / 通用",
+        "你是负责处理代码审查意见的开发 AI，必须逐条确认问题是否成立，优先修复真实缺陷和回归风险。",
+        "把 review 发现转成有边界的修复任务，完成代码改动、验证、记忆沉淀和提交说明。",
+        "{{repo_path}}、{{review_findings}}、{{risk_level}}、{{test_scope}}、{{acceptance}}",
+        "先读取 review 指向的文件、相关调用链、测试/验证材料和任务记忆；区分必须修复、可解释不改和后续跟进。",
+        "按“问题判定 / 修复策略 / 文件改动 / 验证覆盖 / 不修复说明 / 提交建议”输出。",
+        "每个修复都能对应一个审查发现；验证覆盖高风险路径；不成立的问题要给出代码证据。",
+        "不要为了消除评论而重构无关代码；不要跳过测试；不要隐藏仍未解决的风险。",
+        "请处理以下代码审查问题：{{review_findings}}。仓库：{{repo_path}}。验收标准：{{acceptance}}。",
+        "输出逐条处理结果、验证命令和未覆盖风险。",
+        "reviewed",
+    )?;
 
     seed_knowledge_unit(
         conn,
@@ -3603,6 +3637,26 @@ fn seed_v3_knowledge_assets(conn: &Connection) -> Result<(), String> {
         "测试验收",
         "tpl-test-acceptance",
         0.82,
+    )?;
+    seed_knowledge_unit(
+        conn,
+        "ku-frontend-fix-handoff",
+        "template",
+        "前端修复交接",
+        "把截图现象、页面路径、预期行为和验收标准整理为可执行前端修复任务。",
+        "开发实现",
+        "tpl-frontend-fix-handoff",
+        0.84,
+    )?;
+    seed_knowledge_unit(
+        conn,
+        "ku-review-fix-handoff",
+        "template",
+        "审查修复交接",
+        "把代码审查发现逐条转成有证据、有验证的修复任务。",
+        "开发实现",
+        "tpl-review-fix-handoff",
+        0.83,
     )?;
     seed_knowledge_unit(
         conn,
