@@ -2089,6 +2089,29 @@
       transition: width .2s ease;
     }
 
+    .prompt-review-actions {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 6px;
+    }
+
+    .prompt-review-action {
+      border: 1px solid #cfe0f2;
+      border-radius: 9px;
+      background: #fff;
+      color: #28415f;
+      font-size: 10px;
+      font-weight: 700;
+      line-height: 1.2;
+      padding: 7px 6px;
+      cursor: pointer;
+    }
+
+    .prompt-review-action:hover {
+      border-color: #91cfd8;
+      background: #f4fbfc;
+    }
+
     .prompt-card {
       border: 1px solid #dbe7f5;
       border-radius: 12px;
@@ -2539,6 +2562,11 @@
                 <div class="prompt-review-head"><span>审核门</span><span id="promptReviewStatus">-</span></div>
                 <div class="prompt-review-meter"><i id="promptReviewMeter"></i></div>
                 <div class="prompt-origin-note" id="promptReviewNote">至少 10 个模板通过审核，其中 3 个用于开发交接场景。</div>
+                <div class="prompt-review-actions">
+                  <button class="prompt-review-action" id="promptQueueBtn" type="button">待审核队列</button>
+                  <button class="prompt-review-action" id="promptNextBtn" type="button">下一候选</button>
+                </div>
+                <div class="prompt-origin-note" id="promptReviewNext">等待候选模板加载。</div>
               </div>
             </div>
           </div>
@@ -4501,6 +4529,56 @@
       return latest.length > 11 ? latest.slice(5, 16) : latest;
     }
 
+    function promptIsDevHandoff(item) {
+      const text = `${item?.name || ''} ${item?.category || ''} ${item?.task_goal || ''}`.toLowerCase();
+      return ['开发', '交接', '实现', 'handoff', 'codex'].some((keyword) => text.includes(keyword));
+    }
+
+    function promptVisibleTemplates() {
+      return promptState.templates.filter((item) => {
+        return promptState.activeStatus === 'all' || item.status === promptState.activeStatus;
+      });
+    }
+
+    function promptReviewCandidates() {
+      const stats = promptState.review?.stats || {};
+      const needDev = Number(stats.remaining_dev_handoff || 0) > 0;
+      return promptState.templates
+        .filter((item) => item.status === 'candidate')
+        .slice()
+        .sort((a, b) => {
+          const aDev = promptIsDevHandoff(a) ? 1 : 0;
+          const bDev = promptIsDevHandoff(b) ? 1 : 0;
+          const aScore = (needDev ? aDev * 1000 : 0) + Number(a.source_count || 0) * 10 + (aDev * 3);
+          const bScore = (needDev ? bDev * 1000 : 0) + Number(b.source_count || 0) * 10 + (bDev * 3);
+          if (aScore !== bScore) return bScore - aScore;
+          return String(b.updated_at || '').localeCompare(String(a.updated_at || ''));
+        });
+    }
+
+    function promptNextReviewCandidate(excludeId = '') {
+      return promptReviewCandidates().find((item) => item.id !== excludeId) || null;
+    }
+
+    function setPromptStatusFilter(status) {
+      promptState.activeStatus = status || 'all';
+      document.querySelectorAll('.prompt-filter').forEach((item) => {
+        item.classList.toggle('active', item.getAttribute('data-prompt-status') === promptState.activeStatus);
+      });
+      renderPromptList();
+    }
+
+    async function openPromptReviewQueue(excludeId = '') {
+      setPromptStatusFilter('candidate');
+      const next = promptNextReviewCandidate(excludeId);
+      if (next) {
+        await loadPromptDetail(next.id);
+      } else {
+        renderPromptDetail(null);
+        document.getElementById('promptListMeta').textContent = '候选队列已清空；可以回到全部查看已整理模板。';
+      }
+    }
+
     function renderPromptReviewGate() {
       const stats = promptState.review?.stats || {};
       const required = Math.max(1, Number(stats.required_total || 10));
@@ -4511,10 +4589,17 @@
       const statusEl = document.getElementById('promptReviewStatus');
       const meterEl = document.getElementById('promptReviewMeter');
       const noteEl = document.getElementById('promptReviewNote');
+      const nextEl = document.getElementById('promptReviewNext');
       if (statusEl) statusEl.textContent = `${approved}/${required}`;
       if (meterEl) meterEl.style.width = `${percent}%`;
       if (noteEl) {
         noteEl.textContent = `还差 ${Number(stats.remaining_total || 0)} 个通过审核模板；开发交接 ${devApproved}/${devRequired}，还差 ${Number(stats.remaining_dev_handoff || 0)} 个。来源证据 ${Number(stats.source_count || 0)} 条，已绑定模板 ${Number(stats.templates_with_sources || 0)} 个。`;
+      }
+      if (nextEl) {
+        const next = promptNextReviewCandidate();
+        nextEl.textContent = next
+          ? `建议先审：${next.name} · ${Number(next.source_count || 0)} 条来源`
+          : '暂无待审核候选；可回到全部查看正式模板。';
       }
     }
 
@@ -4554,9 +4639,7 @@
       renderPromptCounts();
       renderPromptOriginSummary();
       const list = document.getElementById('promptList');
-      const filtered = promptState.templates.filter((item) => {
-        return promptState.activeStatus === 'all' || item.status === promptState.activeStatus;
-      });
+      const filtered = promptVisibleTemplates();
       const statusLabel = promptState.activeStatus === 'all' ? '全部' : promptStatusLabel(promptState.activeStatus);
       document.getElementById('promptListMeta').textContent = `${statusLabel}：${filtered.length} / 全部 ${promptState.templates.length} 个；候选来自已采集资料，正式使用前需要人工整理。`;
       if (!filtered.length) {
@@ -4583,7 +4666,7 @@
       });
     }
 
-    async function loadPromptTemplates() {
+    async function loadPromptTemplates(preferredId = '') {
       const [res, reviewRes] = await Promise.all([
         fetch('/api/prompt-templates'),
         fetch('/api/prompt-review')
@@ -4591,8 +4674,12 @@
       const data = await res.json();
       promptState.review = reviewRes.ok ? await reviewRes.json() : null;
       promptState.templates = Array.isArray(data.templates) ? data.templates : [];
-      if (!promptState.selectedId && promptState.templates.length) {
-        promptState.selectedId = promptState.templates[0].id;
+      const visible = promptVisibleTemplates();
+      const preferredVisible = visible.some((item) => item.id === preferredId);
+      if (preferredId && preferredVisible) {
+        promptState.selectedId = preferredId;
+      } else if (!visible.some((item) => item.id === promptState.selectedId)) {
+        promptState.selectedId = visible[0]?.id || (promptState.activeStatus === 'all' ? promptState.templates[0]?.id : '') || '';
       }
       renderPromptList();
       if (promptState.selectedId) await loadPromptDetail(promptState.selectedId);
@@ -4667,6 +4754,10 @@
 
     async function updatePromptStatus(status) {
       if (!promptState.selectedId) return;
+      const previousId = promptState.selectedId;
+      const nextCandidate = ['reviewed', 'verified', 'deprecated'].includes(status)
+        ? promptNextReviewCandidate(previousId)
+        : null;
       const res = await fetch('/api/prompt-template/' + encodeURIComponent(promptState.selectedId) + '/status?status=' + encodeURIComponent(status), {
         method: 'POST'
       });
@@ -4674,7 +4765,10 @@
         document.getElementById('promptDetailMeta').textContent = '状态更新失败。';
         return;
       }
-      await loadPromptTemplates();
+      await loadPromptTemplates(nextCandidate?.id || previousId);
+      if (nextCandidate && promptState.activeStatus === 'candidate') {
+        document.getElementById('promptDetailMeta').textContent = '上一条已更新，已切到下一个待审核候选。';
+      }
       await graphLoadSeedResults();
       graphRefreshCoreNodes();
     }
@@ -4719,9 +4813,15 @@
         if (!(event.target instanceof Element)) return;
         const btn = event.target.closest('button[data-prompt-status]');
         if (!btn) return;
-        promptState.activeStatus = btn.getAttribute('data-prompt-status') || 'all';
-        document.querySelectorAll('.prompt-filter').forEach((item) => item.classList.toggle('active', item === btn));
-        renderPromptList();
+        setPromptStatusFilter(btn.getAttribute('data-prompt-status') || 'all');
+      });
+
+      document.getElementById('promptQueueBtn').addEventListener('click', () => {
+        openPromptReviewQueue();
+      });
+
+      document.getElementById('promptNextBtn').addEventListener('click', () => {
+        openPromptReviewQueue(promptState.selectedId || '');
       });
 
       document.getElementById('resetFiltersBtn').addEventListener('click', () => {
