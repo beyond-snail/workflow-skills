@@ -1122,6 +1122,14 @@
       border-color: rgba(214, 226, 240, 0.78);
       background: rgba(251, 253, 255, 0.82);
       box-shadow: none;
+      overflow: auto;
+      scrollbar-width: none;
+    }
+
+    .app.graph-mode .graph-detail-card::-webkit-scrollbar {
+      width: 0;
+      height: 0;
+      display: none;
     }
 
     .graph-detail-card::before {
@@ -1181,7 +1189,8 @@
 
     .graph-summary-card,
     .graph-meta-card,
-    .graph-rel-card {
+    .graph-rel-card,
+    .graph-insight-card {
       border: 1px solid #dde7f4;
       border-radius: 12px;
       background: linear-gradient(180deg, #fcfeff, #f8fbff);
@@ -1192,7 +1201,8 @@
 
     .app.graph-mode .graph-summary-card,
     .app.graph-mode .graph-meta-card,
-    .app.graph-mode .graph-rel-card {
+    .app.graph-mode .graph-rel-card,
+    .app.graph-mode .graph-insight-card {
       border: 0;
       border-top: 1px solid rgba(185, 206, 230, 0.62);
       border-radius: 0;
@@ -1214,18 +1224,21 @@
     }
 
     .graph-meta-list,
-    .graph-rel-list {
+    .graph-rel-list,
+    .graph-insight-list {
       display: grid;
       gap: 8px;
     }
 
     .app.graph-mode .graph-meta-list,
-    .app.graph-mode .graph-rel-list {
+    .app.graph-mode .graph-rel-list,
+    .app.graph-mode .graph-insight-list {
       gap: 5px;
     }
 
     .graph-meta-item,
-    .graph-rel-item {
+    .graph-rel-item,
+    .graph-insight-item {
       border: 1px solid #dbe6f4;
       border-radius: 10px;
       background: #fff;
@@ -1233,7 +1246,8 @@
     }
 
     .app.graph-mode .graph-meta-item,
-    .app.graph-mode .graph-rel-item {
+    .app.graph-mode .graph-rel-item,
+    .app.graph-mode .graph-insight-item {
       border: 0;
       background: transparent;
       padding: 3px 0;
@@ -1259,7 +1273,8 @@
     }
 
     .graph-meta-item span,
-    .graph-rel-item p {
+    .graph-rel-item p,
+    .graph-insight-item p {
       display: block;
       margin: 0;
       color: #1f334d;
@@ -1268,19 +1283,22 @@
     }
 
     .app.graph-mode .graph-meta-item span,
-    .app.graph-mode .graph-rel-item p {
+    .app.graph-mode .graph-rel-item p,
+    .app.graph-mode .graph-insight-item p {
       font-size: 11px;
       line-height: 1.5;
     }
 
-    .graph-rel-item strong {
+    .graph-rel-item strong,
+    .graph-insight-item strong {
       display: block;
       margin-bottom: 6px;
       font-size: 13px;
       color: #213550;
     }
 
-    .app.graph-mode .graph-rel-item strong {
+    .app.graph-mode .graph-rel-item strong,
+    .app.graph-mode .graph-insight-item strong {
       margin-bottom: 3px;
       font-size: 12px;
     }
@@ -2086,6 +2104,45 @@
       font-weight: 700;
     }
 
+    .prompt-origin {
+      margin-top: 12px;
+      border-top: 1px solid var(--line);
+      padding-top: 10px;
+      display: grid;
+      gap: 9px;
+    }
+
+    .prompt-origin-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 7px;
+    }
+
+    .prompt-origin-box {
+      border: 1px solid #dbe7f5;
+      border-radius: 10px;
+      background: #fbfdff;
+      padding: 8px;
+    }
+
+    .prompt-origin-box b {
+      display: block;
+      color: #182b45;
+      font-size: 17px;
+      line-height: 1.1;
+    }
+
+    #promptOriginLatest {
+      font-size: 13px;
+    }
+
+    .prompt-origin-box span,
+    .prompt-origin-note {
+      color: var(--muted);
+      font-size: 10px;
+      line-height: 1.55;
+    }
+
     .prompt-card {
       border: 1px solid #dbe7f5;
       border-radius: 12px;
@@ -2491,6 +2548,11 @@
             <div class="graph-rel-list" id="graphRelations"></div>
           </div>
 
+          <div class="graph-insight-card">
+            <div class="detail-section-label">节点画像</div>
+            <div class="graph-insight-list" id="graphInsights"></div>
+          </div>
+
           <div class="graph-actions action-row">
             <button class="action" id="graphOpenPromptBtn" type="button">查看模板</button>
             <button class="action" id="graphCopyPromptBtn" type="button">复制模板</button>
@@ -2513,6 +2575,16 @@
               <button class="prompt-filter" data-prompt-status="reviewed"><span>已整理</span><span class="tag t-info" id="promptReviewedCount">0</span></button>
               <button class="prompt-filter" data-prompt-status="verified"><span>已验证</span><span class="tag t-ok" id="promptVerifiedCount">0</span></button>
               <button class="prompt-filter" data-prompt-status="deprecated"><span>废弃</span><span class="tag t-danger" id="promptDeprecatedCount">0</span></button>
+            </div>
+            <div class="prompt-origin">
+              <div class="prompt-origin-grid">
+                <div class="prompt-origin-box"><b id="promptOriginSeed">0</b><span>人工种子</span></div>
+                <div class="prompt-origin-box"><b id="promptOriginExtracted">0</b><span>自动候选</span></div>
+                <div class="prompt-origin-box"><b id="promptOriginSources">0</b><span>来源证据</span></div>
+                <div class="prompt-origin-box"><b id="promptOriginLatest">-</b><span>最近整理</span></div>
+              </div>
+              <div class="prompt-origin-note" id="promptOriginNote">整理来源：启动时初始化少量人工种子模板，再从已入库 items 中按提示词、模板、交接、验收、workflow、知识图谱等关键词抽取候选；候选不会自动变正式模板。</div>
+              <div class="prompt-origin-note" id="promptProjectContext">当前展示全局模板库；左侧项目点击只切换上下文，不跳转搜索。</div>
             </div>
           </div>
         </aside>
@@ -2600,6 +2672,10 @@
       }
     }
 
+    function currentWorkspaceId() {
+      return document.querySelector('.workspace.active')?.id || 'search';
+    }
+
     const state = {
       allResults: [],
       selected: null,
@@ -2616,7 +2692,8 @@
       templates: [],
       activeStatus: 'all',
       selectedId: '',
-      detail: null
+      detail: null,
+      projectContext: '全部项目'
     };
 
     const graphState = {
@@ -3243,6 +3320,13 @@
           source: 'api/projects',
           time: formatTime(project.last_item_at || ''),
           searchKeyword: project.name || '',
+          itemCount: Number(project.item_count || 0),
+          documentCount: Number(project.document_count || 0),
+          conversationCount: Number(project.conversation_count || 0),
+          eventCount: Number(project.event_count || 0),
+          nextAction: project.next_action || '',
+          syncReason: project.sync_reason || '',
+          syncStatus: project.sync_status || '',
           summary: project.sync_reason || '项目已经接入知识库，可在图谱中作为一个真实主题入口继续展开。',
           related: [
             { label: '项目采集状态', type: 'status', note: (project.sync_status || 'unknown') + ' · ' + (project.next_action || '等待补充建议') },
@@ -3297,6 +3381,8 @@
             source: prettySource(first?.source_path),
             time: displayTime(first),
             searchKeyword: bucket.label,
+            itemCount: bucket.items.length,
+            sampleTitles: bucket.items.map((item) => item.title || '记录片段'),
             summary: graphBucketSummary(bucket),
             related: [
               { label: '来源项目', type: 'project', note: bucket.projectKey },
@@ -3636,6 +3722,41 @@
       return graphNodes.filter((node) => !node.ambient && graphVisible(node));
     }
 
+    function graphDetailInsights(node) {
+      if (!node) return [];
+      if (node.id?.startsWith('project-')) {
+        return [
+          { title: '内容规模', text: `条目 ${node.itemCount || 0}，文档 ${node.documentCount || 0}，对话 ${node.conversationCount || 0}，事件 ${node.eventCount || 0}。` },
+          { title: '当前判断', text: node.syncReason || '这个项目已进入知识库，可作为搜索、图谱和后续模板抽取的来源。' },
+          { title: '下一步动作', text: node.nextAction || '继续追加采集，并在搜索工作台查看可复用片段。' }
+        ];
+      }
+      if (node.templateId) {
+        return [
+          { title: '复用价值', text: graphNodeTemplateText(node) },
+          { title: '整理状态', text: graphNodeStatusText(node) },
+          { title: '可追溯证据', text: node.sourceItemId ? `已绑定来源条目 ${node.sourceItemId}，可回搜索工作台看原文。` : '内置模板暂未绑定具体来源，后续人工验证时补证据。' }
+        ];
+      }
+      if (node.id?.startsWith('item-group-')) {
+        return [
+          { title: '聚合内容', text: `这不是单条会话，而是 ${node.itemCount || 0} 条相近记录合并后的主题入口。` },
+          { title: '样本标题', text: (node.sampleTitles || []).slice(0, 2).join(' / ') || '暂无样本标题。' },
+          { title: '下一步动作', text: '回到搜索工作台看原文，确认是否值得整理成提示词模板或知识单元。' }
+        ];
+      }
+      if (node.category === 'risk') {
+        return [
+          { title: '风险含义', text: node.summary || '这个节点代表当前知识库中需要关注的问题或不确定性。' },
+          { title: '处理方式', text: '优先查看来源证据，确认是否需要变成测试验收项或问题修复模板。' }
+        ];
+      }
+      return [
+        { title: '节点用途', text: node.summary || '这是一个语义知识节点，用来把原始记录聚合成更稳定的主题。' },
+        { title: '可连接资产', text: node.templateId ? '已连接提示词模板。' : '后续可继续连接模板、证据、决策和风险。' }
+      ];
+    }
+
     function graphUpdateDetail(nodeId) {
       const selected = graphCoreNodes.find((node) => node.id === nodeId && graphVisible(node)) || graphCoreNodes.find((node) => graphVisible(node)) || graphCoreNodes[0];
       graphState.selectedId = selected.id;
@@ -3653,6 +3774,9 @@
       ).join('') || '<div class="graph-rel-item"><strong>暂无关系链</strong><p>这个节点还没有足够的关联证据。</p></div>';
       document.getElementById('graphRail').innerHTML = (selected.evidence || []).map((item) =>
         '<div class="graph-rail-card"><h4>' + esc(item.title) + '</h4><p>' + esc(graphCompactText(item.text, 58)) + '</p></div>'
+      ).join('');
+      document.getElementById('graphInsights').innerHTML = graphDetailInsights(selected).map((item) =>
+        '<div class="graph-insight-item"><strong>' + esc(item.title) + '</strong><p>' + esc(graphCompactText(item.text, 92)) + '</p></div>'
       ).join('');
       document.getElementById('graphFocusLabel').textContent = title + ' · ' + selected.cluster;
       const hasTemplate = Boolean(selected.templateId);
@@ -4360,6 +4484,35 @@
       return 't-info';
     }
 
+    function promptLatestLabel(items) {
+      const latest = items
+        .map((item) => String(item.updated_at || '').trim())
+        .filter(Boolean)
+        .sort()
+        .at(-1);
+      if (!latest) return '-';
+      return latest.length > 11 ? latest.slice(5, 16) : latest;
+    }
+
+    function renderPromptOriginSummary() {
+      const templates = promptState.templates || [];
+      const extracted = templates.filter((item) => String(item.id || '').startsWith('cand-')).length;
+      const seed = Math.max(0, templates.length - extracted);
+      const sources = templates.reduce((sum, item) => sum + Number(item.source_count || 0), 0);
+      const seedEl = document.getElementById('promptOriginSeed');
+      const extractedEl = document.getElementById('promptOriginExtracted');
+      const sourcesEl = document.getElementById('promptOriginSources');
+      const latestEl = document.getElementById('promptOriginLatest');
+      const contextEl = document.getElementById('promptProjectContext');
+      if (seedEl) seedEl.textContent = String(seed);
+      if (extractedEl) extractedEl.textContent = String(extracted);
+      if (sourcesEl) sourcesEl.textContent = String(sources);
+      if (latestEl) latestEl.textContent = promptLatestLabel(templates);
+      if (contextEl) {
+        contextEl.textContent = `当前上下文：${promptState.projectContext || '全部项目'}。提示词工程暂按全局模板库展示，点击项目不会跳转搜索。`;
+      }
+    }
+
     function renderPromptCounts() {
       const counts = { all: promptState.templates.length, candidate: 0, reviewed: 0, verified: 0, deprecated: 0 };
       promptState.templates.forEach((item) => {
@@ -4374,13 +4527,16 @@
 
     function renderPromptList() {
       renderPromptCounts();
+      renderPromptOriginSummary();
       const list = document.getElementById('promptList');
       const filtered = promptState.templates.filter((item) => {
         return promptState.activeStatus === 'all' || item.status === promptState.activeStatus;
       });
-      document.getElementById('promptListMeta').textContent = `显示 ${filtered.length} / ${promptState.templates.length} 个模板`;
+      const statusLabel = promptState.activeStatus === 'all' ? '全部' : promptStatusLabel(promptState.activeStatus);
+      document.getElementById('promptListMeta').textContent = `${statusLabel}：${filtered.length} / 全部 ${promptState.templates.length} 个；候选来自已采集资料，正式使用前需要人工整理。`;
       if (!filtered.length) {
-        list.innerHTML = '<div class="hint">当前筛选下没有模板。可以先切回“全部”或“候选”。</div>';
+        list.innerHTML = '<div class="hint">当前状态没有模板；右侧会清空，避免误以为旧模板属于这个筛选。</div>';
+        renderPromptDetail(null);
         return;
       }
       list.innerHTML = filtered.map((item) => `
@@ -4391,6 +4547,7 @@
             <span class="tag ${promptTagClass(item.status)}">${esc(promptStatusLabel(item.status))}</span>
             <span class="tag t-info">${esc(item.category)}</span>
             <span class="tag t-info">${Number(item.source_count || 0)} 来源</span>
+            <span class="tag t-info">${esc(promptLatestLabel([item]))}</span>
           </div>
         </article>
       `).join('');
@@ -4416,13 +4573,19 @@
       promptState.detail = template;
       document.getElementById('promptDetailTitle').textContent = template?.name || '请选择模板';
       document.getElementById('promptDetailMeta').textContent = template
-        ? `${promptStatusLabel(template.status)} · ${template.category} · ${template.target_tools}`
+        ? `${promptStatusLabel(template.status)} · ${template.category} · ${template.target_tools} · ${promptLatestLabel([template])}`
         : '候选通过人工审核后才进入正式库。';
       if (!template) {
         document.getElementById('promptDetail').innerHTML = '<div class="hint">请选择模板或候选。</div>';
         return;
       }
+      const originLabel = String(template.id || '').startsWith('cand-') ? '自动候选抽取' : '人工种子模板';
       document.getElementById('promptDetail').innerHTML = `
+        <div class="prompt-field-grid" style="margin-bottom:8px;">
+          <div class="prompt-field"><b>整理方式</b><span>${esc(originLabel)}</span></div>
+          <div class="prompt-field"><b>最近整理</b><span>${esc(template.updated_at || template.created_at || '-')}</span></div>
+          <div class="prompt-field full"><b>来源说明</b><span>${String(template.id || '').startsWith('cand-') ? '从已入库对话/文档/事件中按关键词命中后生成候选，必须人工补字段和审核。' : 'V3 初始化时内置的高频模板，用来先撑起可复制的正式库骨架。'}</span></div>
+        </div>
         <div class="prompt-field-grid">
           <div class="prompt-field"><b>角色设定</b><span>${esc(template.role_prompt)}</span></div>
           <div class="prompt-field"><b>任务目标</b><span>${esc(template.task_goal)}</span></div>
@@ -4713,6 +4876,14 @@
         if (!btn) return;
         const projectId = btn.getAttribute('data-project-id') || 'all';
         const projectName = btn.getAttribute('data-project-name') || '全部项目';
+        if (currentWorkspaceId() === 'prompt') {
+          state.activeProjectId = projectId;
+          state.activeProjectLabel = projectName;
+          promptState.projectContext = projectName;
+          renderSidebarProjects(state.projects);
+          renderPromptList();
+          return;
+        }
         await selectProjectAndSearch(projectId, projectName);
       });
 
