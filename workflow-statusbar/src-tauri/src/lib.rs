@@ -3544,6 +3544,45 @@ fn seed_prompt_template(
     Ok(())
 }
 
+fn seed_prompt_template_quality(
+    conn: &Connection,
+    id: &str,
+    status: &str,
+    quality_score: i64,
+    review_note: &str,
+    variables_json: &str,
+    example_input: &str,
+    output_format: &str,
+    usage_boundary: &str,
+) -> Result<(), String> {
+    conn.execute(
+        r#"
+        UPDATE prompt_templates
+        SET status=?2,
+            quality_score=?3,
+            review_note=?4,
+            variables_json=?5,
+            example_input=?6,
+            output_format=?7,
+            usage_boundary=?8,
+            updated_at=CURRENT_TIMESTAMP
+        WHERE id=?1
+        "#,
+        params![
+            id,
+            status,
+            quality_score.clamp(0, 100),
+            review_note,
+            variables_json,
+            example_input,
+            output_format,
+            usage_boundary
+        ],
+    )
+    .map_err(|err| err.to_string())?;
+    Ok(())
+}
+
 fn seed_knowledge_unit(
     conn: &Connection,
     id: &str,
@@ -3735,6 +3774,121 @@ fn seed_v3_knowledge_assets(conn: &Connection) -> Result<(), String> {
     )?;
 
     extract_prompt_candidates(conn)?;
+    seed_v31_prompt_quality_assets(conn)?;
+    Ok(())
+}
+
+fn seed_v31_prompt_quality_assets(conn: &Connection) -> Result<(), String> {
+    seed_prompt_template_quality(
+        conn,
+        "tpl-dev-handoff",
+        "verified",
+        92,
+        "V3.1 精修：适合把已审核需求交给开发 AI，已补齐边界、变量和验证回写要求。",
+        "{{repo_path}}、{{req_id}}、{{task_id}}、{{acceptance}}、{{known_risks}}",
+        "请在 {{repo_path}} 按 {{req_id}} / {{task_id}} 开始实现，验收标准：{{acceptance}}。已知风险：{{known_risks}}。",
+        "Markdown，包含：涉及文件/方法、SQL或接口链路、调用链与影响范围、根因结论、改动摘要、验证命令、未覆盖风险、记忆沉淀。",
+        "用于已通过人工审核、可以进入 execution 的开发任务；需求未冻结或范围不清时先回到 requirement。",
+    )?;
+    seed_prompt_template_quality(
+        conn,
+        "tpl-frontend-fix-handoff",
+        "reviewed",
+        90,
+        "V3.1 精修：适合截图驱动的前端修复，强调复现、局部样式影响和构建验证。",
+        "{{repo_path}}、{{page_or_route}}、{{screenshot_note}}、{{expected_behavior}}、{{acceptance}}、{{viewport}}",
+        "请在 {{repo_path}} 修复 {{page_or_route}}：{{screenshot_note}}。预期：{{expected_behavior}}。视口：{{viewport}}。验收：{{acceptance}}。",
+        "Markdown，包含：现象复述、根因定位、涉及组件/样式、最小改动、验证命令、截图或运行态证据、剩余风险。",
+        "用于已有页面的具体前端缺陷修复；不适合从零设计新页面或整体重做视觉体系。",
+    )?;
+    seed_prompt_template_quality(
+        conn,
+        "tpl-review-fix-handoff",
+        "reviewed",
+        89,
+        "V3.1 精修：适合处理代码审查意见，要求逐条判断成立与否并保留验证证据。",
+        "{{repo_path}}、{{review_findings}}、{{risk_level}}、{{test_scope}}、{{acceptance}}",
+        "请处理以下 review 问题：{{review_findings}}。风险级别：{{risk_level}}。测试范围：{{test_scope}}。验收：{{acceptance}}。",
+        "Markdown，包含：问题判定表、修复策略、文件改动、验证覆盖、不修复说明、提交建议。",
+        "用于已有审查结论后的修复回合；不适合没有具体 finding 的泛化重构。",
+    )?;
+    seed_prompt_template_quality(
+        conn,
+        "tpl-ui-prototype-review",
+        "reviewed",
+        87,
+        "V3.1 精修：适合把知识库类工作台原型升级为可落地的信息架构和交互方案。",
+        "{{prototype_path}}、{{core_tabs}}、{{visual_direction}}、{{existing_layout}}、{{acceptance}}",
+        "请基于 {{prototype_path}} 重整页面，核心页签：{{core_tabs}}，视觉方向：{{visual_direction}}，需保留：{{existing_layout}}。",
+        "Markdown 或可运行页面方案，包含：页面结构、信息密度、交互闭环、状态处理、验收检查点。",
+        "用于产品/原型到前端实现前的方案整理；不适合直接替代构建验证或真实 UI 回归。",
+    )?;
+    seed_prompt_template_quality(
+        conn,
+        "tpl-test-acceptance",
+        "reviewed",
+        88,
+        "V3.1 精修：适合实现完成后的验收闭环，强调命令、接口、UI 和未覆盖风险可追溯。",
+        "{{task_id}}、{{build_command}}、{{api_smoke}}、{{ui_flow}}、{{risk_note}}、{{evidence_docs}}",
+        "请按 {{task_id}} 验收本轮实现。构建：{{build_command}}；接口烟测：{{api_smoke}}；UI 流程：{{ui_flow}}；风险：{{risk_note}}。",
+        "Markdown 表格，包含：验证项、命令/步骤、实际结果、证据位置、结论、未覆盖风险。",
+        "用于代码完成后的验收和回写；不适合需求仍未冻结或没有可运行环境的阶段。",
+    )?;
+    seed_prompt_template_quality(
+        conn,
+        "cand-462d8e5c077e720b",
+        "reviewed",
+        84,
+        "V3.1 精修：来源是 Codex 会话中的 V3 规划落地，适合把规划结果转成任务体系同步提示。",
+        "{{planning_summary}}、{{repo_path}}、{{req_id}}、{{task_board_path}}、{{memory_path}}",
+        "已完成规划：{{planning_summary}}。请在 {{repo_path}} 同步 {{req_id}} 到 {{task_board_path}} 和 {{memory_path}}。",
+        "Markdown，包含：规划结论、任务拆解、状态变更、需同步文档、验证与后续动作。",
+        "用于规划已经明确后的治理同步；不适合替代产品确认或未冻结 PRD 的需求分析。",
+    )?;
+    seed_prompt_template_quality(
+        conn,
+        "cand-4cad283624054680",
+        "reviewed",
+        83,
+        "V3.1 精修：来源是前端自测说明，适合要求 AI 区分 file:// 与真实服务环境的 UI 验证。",
+        "{{page_url}}、{{api_mock_scope}}、{{browser_flow}}、{{known_gap}}、{{acceptance}}",
+        "请验证 {{page_url}}。接口/mock 范围：{{api_mock_scope}}；浏览器流程：{{browser_flow}}；已知差异：{{known_gap}}；验收：{{acceptance}}。",
+        "Markdown，包含：环境说明、验证步骤、通过项、失败项、与用户打开方式的差异、下一步修正。",
+        "用于前端页面验收解释和复测；不适合代替真实用户环境下的最终验收。",
+    )?;
+    seed_prompt_template_quality(
+        conn,
+        "cand-7466094f5650fda2",
+        "reviewed",
+        82,
+        "V3.1 精修：来源是 MCP 配置排障，适合处理工具注册、配置存在但运行态未加载的问题。",
+        "{{config_path}}、{{expected_tool}}、{{runtime_check}}、{{observed_result}}、{{next_action}}",
+        "请排查 {{expected_tool}} 未加载。配置文件：{{config_path}}；运行态检查：{{runtime_check}}；现象：{{observed_result}}。",
+        "Markdown，包含：配置证据、运行态证据、差异判断、根因候选、修复步骤、复测命令。",
+        "用于本地工具/MCP/插件加载排障；不适合没有配置证据的泛化环境问题。",
+    )?;
+    seed_prompt_template_quality(
+        conn,
+        "cand-053aa57839a3b392",
+        "reviewed",
+        81,
+        "V3.1 精修：来源是重启后复查 MCP 暴露能力的对话，适合做环境重载后的验收清单。",
+        "{{restart_action}}、{{tool_list_command}}、{{expected_resources}}、{{actual_resources}}、{{follow_up}}",
+        "已执行 {{restart_action}}。请检查工具列表：{{tool_list_command}}；预期资源：{{expected_resources}}；实际：{{actual_resources}}。",
+        "Markdown，包含：重启前提、检查命令、实际资源、差异、是否恢复、后续动作。",
+        "用于重启/重载后的工具链验收；不适合业务功能验收或代码质量评审。",
+    )?;
+    seed_prompt_template_quality(
+        conn,
+        "cand-9792f918ea22067b",
+        "reviewed",
+        82,
+        "V3.1 精修：来源是性能/接口复测产物整理，适合把测试结果路径和排序规则沉淀为验收证据。",
+        "{{result_count}}、{{top_case}}、{{report_paths}}、{{sort_rule}}、{{memory_path}}",
+        "本轮合并 {{result_count}} 条记录，Top case：{{top_case}}。报告：{{report_paths}}；排序规则：{{sort_rule}}。",
+        "Markdown，包含：数据规模、Top 问题、排序/过滤规则、产物路径、复测建议、记忆沉淀。",
+        "用于测试结果整理和证据沉淀；不适合直接生成修复方案，修复需另开开发任务。",
+    )?;
     Ok(())
 }
 
