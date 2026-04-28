@@ -315,6 +315,10 @@ struct KbPromptTemplateSummary {
     target_tools: String,
     task_goal: String,
     status: String,
+    quality_score: i64,
+    review_note: String,
+    usage_boundary: String,
+    candidate_note: String,
     source_count: i64,
     updated_at: String,
     source_project: String,
@@ -338,6 +342,10 @@ struct KbPromptTemplateDetail {
     example_input: String,
     example_output: String,
     status: String,
+    quality_score: i64,
+    review_note: String,
+    usage_boundary: String,
+    candidate_note: String,
     created_at: String,
     updated_at: String,
     sources: Vec<KbPromptTemplateSource>,
@@ -385,9 +393,14 @@ struct KbKnowledgeUnit {
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 struct KbKnowledgeUnitLink {
+    id: String,
     from_id: String,
     to_id: String,
     relation_type: String,
+    summary: String,
+    evidence_ref: String,
+    template_id: String,
+    weight: f64,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -3323,6 +3336,10 @@ fn ensure_knowledgebase_schema_migration(conn: &Connection) -> Result<(), String
           example_input TEXT NOT NULL DEFAULT '',
           example_output TEXT NOT NULL DEFAULT '',
           status TEXT NOT NULL DEFAULT 'candidate',
+          quality_score INTEGER NOT NULL DEFAULT 60,
+          review_note TEXT NOT NULL DEFAULT '',
+          usage_boundary TEXT NOT NULL DEFAULT '',
+          candidate_note TEXT NOT NULL DEFAULT '',
           created_at TEXT DEFAULT CURRENT_TIMESTAMP,
           updated_at TEXT DEFAULT CURRENT_TIMESTAMP
         );
@@ -3354,6 +3371,30 @@ fn ensure_knowledgebase_schema_migration(conn: &Connection) -> Result<(), String
         "#,
     )
     .map_err(|err| err.to_string())?;
+    ensure_column(
+        conn,
+        "prompt_templates",
+        "quality_score",
+        "INTEGER NOT NULL DEFAULT 60",
+    )?;
+    ensure_column(
+        conn,
+        "prompt_templates",
+        "review_note",
+        "TEXT NOT NULL DEFAULT ''",
+    )?;
+    ensure_column(
+        conn,
+        "prompt_templates",
+        "usage_boundary",
+        "TEXT NOT NULL DEFAULT ''",
+    )?;
+    ensure_column(
+        conn,
+        "prompt_templates",
+        "candidate_note",
+        "TEXT NOT NULL DEFAULT ''",
+    )?;
     seed_v3_knowledge_assets(conn)?;
     Ok(())
 }
@@ -3390,6 +3431,9 @@ fn prompt_template_copy_text(template: &KbPromptTemplateDetail) -> String {
 
 适用场景：{}
 适合模型/工具：{}
+质量评分：{}
+审核备注：{}
+适用边界：{}
 
 角色设定：
 {}
@@ -3421,6 +3465,17 @@ fn prompt_template_copy_text(template: &KbPromptTemplateDetail) -> String {
         template.name,
         template.category,
         template.target_tools,
+        template.quality_score,
+        if template.review_note.trim().is_empty() {
+            "暂无"
+        } else {
+            template.review_note.as_str()
+        },
+        if template.usage_boundary.trim().is_empty() {
+            "按当前模板场景使用，超出场景需重新确认上下文。"
+        } else {
+            template.usage_boundary.as_str()
+        },
         template.role_prompt,
         template.task_goal,
         template.variables_json,
@@ -5358,6 +5413,10 @@ fn kb_prompt_templates_internal(status: Option<&str>) -> Result<KbPromptTemplate
     let sql = if status_filter.is_some() {
         r#"
         SELECT t.id, t.name, t.category, t.target_tools, t.task_goal, t.status,
+               COALESCE(t.quality_score, 60) AS quality_score,
+               COALESCE(t.review_note, '') AS review_note,
+               COALESCE(t.usage_boundary, '') AS usage_boundary,
+               COALESCE(t.candidate_note, '') AS candidate_note,
                COUNT(s.template_id) AS source_count, COALESCE(t.updated_at, '') AS updated_at,
                COALESCE((
                  SELECT p.name
@@ -5398,6 +5457,10 @@ fn kb_prompt_templates_internal(status: Option<&str>) -> Result<KbPromptTemplate
     } else {
         r#"
         SELECT t.id, t.name, t.category, t.target_tools, t.task_goal, t.status,
+               COALESCE(t.quality_score, 60) AS quality_score,
+               COALESCE(t.review_note, '') AS review_note,
+               COALESCE(t.usage_boundary, '') AS usage_boundary,
+               COALESCE(t.candidate_note, '') AS candidate_note,
                COUNT(s.template_id) AS source_count, COALESCE(t.updated_at, '') AS updated_at,
                COALESCE((
                  SELECT p.name
@@ -5449,11 +5512,15 @@ fn kb_prompt_templates_internal(status: Option<&str>) -> Result<KbPromptTemplate
             target_tools: row.get::<_, String>(3).map_err(|err| err.to_string())?,
             task_goal: row.get::<_, String>(4).map_err(|err| err.to_string())?,
             status: row.get::<_, String>(5).map_err(|err| err.to_string())?,
-            source_count: row.get::<_, i64>(6).unwrap_or(0),
-            updated_at: row.get::<_, String>(7).unwrap_or_default(),
-            source_project: row.get::<_, String>(8).unwrap_or_default(),
-            source_tool: row.get::<_, String>(9).unwrap_or_default(),
-            source_updated_at: row.get::<_, String>(10).unwrap_or_default(),
+            quality_score: row.get::<_, i64>(6).unwrap_or(60),
+            review_note: row.get::<_, String>(7).unwrap_or_default(),
+            usage_boundary: row.get::<_, String>(8).unwrap_or_default(),
+            candidate_note: row.get::<_, String>(9).unwrap_or_default(),
+            source_count: row.get::<_, i64>(10).unwrap_or(0),
+            updated_at: row.get::<_, String>(11).unwrap_or_default(),
+            source_project: row.get::<_, String>(12).unwrap_or_default(),
+            source_tool: row.get::<_, String>(13).unwrap_or_default(),
+            source_updated_at: row.get::<_, String>(14).unwrap_or_default(),
         });
     }
     Ok(KbPromptTemplateListResponse { templates })
@@ -5474,7 +5541,7 @@ fn kb_prompt_review_internal() -> Result<KbPromptReviewResponse, String> {
             r#"
             SELECT
               COUNT(*),
-              SUM(CASE WHEN status='candidate' THEN 1 ELSE 0 END),
+              SUM(CASE WHEN status IN ('candidate', 'refining') THEN 1 ELSE 0 END),
               SUM(CASE WHEN status='reviewed' THEN 1 ELSE 0 END),
               SUM(CASE WHEN status='verified' THEN 1 ELSE 0 END),
               SUM(CASE WHEN status='deprecated' THEN 1 ELSE 0 END),
@@ -5543,7 +5610,9 @@ fn kb_prompt_template_detail_internal(id: &str) -> Result<Option<KbPromptTemplat
             r#"
             SELECT id, name, category, target_tools, role_prompt, task_goal, variables_json,
                    context_requirements, output_format, quality_bar, donts, example_input,
-                   example_output, status, COALESCE(created_at, ''), COALESCE(updated_at, '')
+                   example_output, status, COALESCE(quality_score, 60),
+                   COALESCE(review_note, ''), COALESCE(usage_boundary, ''),
+                   COALESCE(candidate_note, ''), COALESCE(created_at, ''), COALESCE(updated_at, '')
             FROM prompt_templates
             WHERE id=?1
             LIMIT 1
@@ -5566,8 +5635,12 @@ fn kb_prompt_template_detail_internal(id: &str) -> Result<Option<KbPromptTemplat
             example_input: row.get::<_, String>(11)?,
             example_output: row.get::<_, String>(12)?,
             status: row.get::<_, String>(13)?,
-            created_at: row.get::<_, String>(14).unwrap_or_default(),
-            updated_at: row.get::<_, String>(15).unwrap_or_default(),
+            quality_score: row.get::<_, i64>(14).unwrap_or(60),
+            review_note: row.get::<_, String>(15).unwrap_or_default(),
+            usage_boundary: row.get::<_, String>(16).unwrap_or_default(),
+            candidate_note: row.get::<_, String>(17).unwrap_or_default(),
+            created_at: row.get::<_, String>(18).unwrap_or_default(),
+            updated_at: row.get::<_, String>(19).unwrap_or_default(),
             sources: Vec::new(),
         })
     }) {
@@ -5626,7 +5699,15 @@ fn kb_prompt_template_copy_internal(id: &str) -> Result<serde_json::Value, Strin
 }
 
 fn kb_prompt_template_status_internal(id: &str, status: &str) -> Result<serde_json::Value, String> {
-    let allowed = ["candidate", "reviewed", "verified", "deprecated"];
+    let allowed = [
+        "candidate",
+        "refining",
+        "later",
+        "noise",
+        "reviewed",
+        "verified",
+        "deprecated",
+    ];
     if !allowed.contains(&status) {
         return Err("invalid_status".into());
     }
@@ -5640,6 +5721,72 @@ fn kb_prompt_template_status_internal(id: &str, status: &str) -> Result<serde_js
     Ok(serde_json::json!({
         "id": id,
         "status": status,
+        "changed": changed
+    }))
+}
+
+fn kb_prompt_template_quality_internal(
+    id: &str,
+    quality_score: i64,
+    review_note: &str,
+    variables_json: &str,
+    example_input: &str,
+    output_format: &str,
+    usage_boundary: &str,
+) -> Result<serde_json::Value, String> {
+    let conn = connect_knowledgebase()?;
+    let score = quality_score.clamp(0, 100);
+    let changed = conn
+        .execute(
+            r#"
+            UPDATE prompt_templates
+            SET quality_score=?2,
+                review_note=?3,
+                variables_json=?4,
+                example_input=?5,
+                output_format=?6,
+                usage_boundary=?7,
+                updated_at=CURRENT_TIMESTAMP
+            WHERE id=?1
+            "#,
+            params![
+                id,
+                score,
+                review_note.trim(),
+                variables_json.trim(),
+                example_input.trim(),
+                output_format.trim(),
+                usage_boundary.trim()
+            ],
+        )
+        .map_err(|err| err.to_string())?;
+    Ok(serde_json::json!({
+        "id": id,
+        "quality_score": score,
+        "changed": changed
+    }))
+}
+
+fn kb_prompt_template_candidate_note_internal(
+    id: &str,
+    status: &str,
+    candidate_note: &str,
+) -> Result<serde_json::Value, String> {
+    let allowed = ["candidate", "refining", "later", "noise", "deprecated"];
+    if !allowed.contains(&status) {
+        return Err("invalid_candidate_status".into());
+    }
+    let conn = connect_knowledgebase()?;
+    let changed = conn
+        .execute(
+            "UPDATE prompt_templates SET status=?2, candidate_note=?3, updated_at=CURRENT_TIMESTAMP WHERE id=?1",
+            params![id, status, candidate_note.trim()],
+        )
+        .map_err(|err| err.to_string())?;
+    Ok(serde_json::json!({
+        "id": id,
+        "status": status,
+        "candidate_note": candidate_note.trim(),
         "changed": changed
     }))
 }
@@ -5684,14 +5831,30 @@ fn kb_knowledge_units_internal() -> Result<KbKnowledgeUnitsResponse, String> {
     if let Some(hub) = hub_id {
         for unit in &units {
             if unit.id != hub {
+                let relation_type = if unit.unit_type == "template" {
+                    "contains_template"
+                } else if unit.unit_type == "evidence" {
+                    "supports"
+                } else {
+                    "relates_to"
+                };
                 links.push(KbKnowledgeUnitLink {
+                    id: format!("link-{}-{}", hub, unit.id),
                     from_id: hub.clone(),
                     to_id: unit.id.clone(),
-                    relation_type: if unit.unit_type == "template" {
-                        "contains_template".into()
+                    relation_type: relation_type.into(),
+                    summary: if unit.template_id.trim().is_empty() {
+                        format!("{} 与提示词工程同属 {} 主题，可继续补充模板或证据。", unit.title, unit.category)
                     } else {
-                        "relates_to".into()
+                        format!("{} 已绑定模板，可从图谱跳到提示词工程查看和复制。", unit.title)
                     },
+                    evidence_ref: if unit.source_item_id.trim().is_empty() {
+                        "knowledge_units".into()
+                    } else {
+                        unit.source_item_id.clone()
+                    },
+                    template_id: unit.template_id.clone(),
+                    weight: unit.weight,
                 });
             }
         }
@@ -5974,7 +6137,8 @@ fn http_respond_html(request: Request, status_code: u16, body: String) {
 }
 
 fn url_decode(value: &str) -> String {
-    urlencoding::decode(value)
+    let normalized = value.replace('+', " ");
+    urlencoding::decode(&normalized)
         .map(|item| item.into_owned())
         .unwrap_or_else(|_| value.to_string())
 }
@@ -6130,6 +6294,52 @@ fn handle_knowledgebase_http_request(request: Request) {
                 serde_json::json!({ "error": err }).to_string(),
             ),
         },
+        _ if path.starts_with("/api/prompt-template/") && path.ends_with("/quality") => {
+            let id = url_decode(
+                path.trim_start_matches("/api/prompt-template/")
+                    .trim_end_matches("/quality"),
+            );
+            let quality_score = query_param(query, "quality_score")
+                .and_then(|value| value.trim().parse::<i64>().ok())
+                .unwrap_or(60);
+            let review_note = query_param(query, "review_note").unwrap_or_default();
+            let variables_json = query_param(query, "variables_json").unwrap_or_default();
+            let example_input = query_param(query, "example_input").unwrap_or_default();
+            let output_format = query_param(query, "output_format").unwrap_or_default();
+            let usage_boundary = query_param(query, "usage_boundary").unwrap_or_default();
+            match kb_prompt_template_quality_internal(
+                &id,
+                quality_score,
+                &review_note,
+                &variables_json,
+                &example_input,
+                &output_format,
+                &usage_boundary,
+            ) {
+                Ok(data) => http_respond_json(request, 200, data.to_string()),
+                Err(err) => http_respond_json(
+                    request,
+                    500,
+                    serde_json::json!({ "error": err }).to_string(),
+                ),
+            }
+        }
+        _ if path.starts_with("/api/prompt-template/") && path.ends_with("/candidate-status") => {
+            let id = url_decode(
+                path.trim_start_matches("/api/prompt-template/")
+                    .trim_end_matches("/candidate-status"),
+            );
+            let status = query_param(query, "status").unwrap_or_else(|| "refining".into());
+            let note = query_param(query, "note").unwrap_or_default();
+            match kb_prompt_template_candidate_note_internal(&id, status.trim(), &note) {
+                Ok(data) => http_respond_json(request, 200, data.to_string()),
+                Err(err) => http_respond_json(
+                    request,
+                    500,
+                    serde_json::json!({ "error": err }).to_string(),
+                ),
+            }
+        }
         _ if path.starts_with("/api/prompt-template/") && path.ends_with("/copy") => {
             let id = url_decode(
                 path.trim_start_matches("/api/prompt-template/")

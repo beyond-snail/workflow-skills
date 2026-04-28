@@ -2180,6 +2180,23 @@
       white-space: pre-wrap;
     }
 
+    .prompt-field input,
+    .prompt-field textarea {
+      width: 100%;
+      min-width: 0;
+      border: 1px solid #cfe0f3;
+      border-radius: 8px;
+      padding: 7px 8px;
+      color: var(--ink);
+      font: 12px/1.45 IBM Plex Sans, Noto Sans SC, sans-serif;
+      background: #fff;
+      resize: vertical;
+    }
+
+    .prompt-field textarea {
+      min-height: 58px;
+    }
+
     .prompt-source {
       border-left: 3px solid #0ea8a3;
       background: #f5fbfc;
@@ -2545,6 +2562,9 @@
             <div class="prompt-filter-group" id="promptFilters">
               <button class="prompt-filter active" data-prompt-status="all"><span>全部</span><span class="tag t-info" id="promptAllCount">0</span></button>
               <button class="prompt-filter" data-prompt-status="candidate"><span>候选</span><span class="tag t-warn" id="promptCandidateCount">0</span></button>
+              <button class="prompt-filter" data-prompt-status="refining"><span>精修中</span><span class="tag t-info" id="promptRefiningCount">0</span></button>
+              <button class="prompt-filter" data-prompt-status="later"><span>以后再看</span><span class="tag t-info" id="promptLaterCount">0</span></button>
+              <button class="prompt-filter" data-prompt-status="noise"><span>噪音</span><span class="tag t-danger" id="promptNoiseCount">0</span></button>
               <button class="prompt-filter" data-prompt-status="reviewed"><span>已整理</span><span class="tag t-info" id="promptReviewedCount">0</span></button>
               <button class="prompt-filter" data-prompt-status="verified"><span>已验证</span><span class="tag t-ok" id="promptVerifiedCount">0</span></button>
               <button class="prompt-filter" data-prompt-status="deprecated"><span>废弃</span><span class="tag t-danger" id="promptDeprecatedCount">0</span></button>
@@ -2689,6 +2709,7 @@
       dragging: false,
       hoverId: null,
       selectedId: 'theme-core',
+      selectedEdgeKey: '',
       lastX: 0,
       lastY: 0,
       activePointerId: null,
@@ -3438,11 +3459,21 @@
       }
 
       const ids = new Set(graphNodes.map((node) => node.id));
-      const addEdge = (source, target) => {
+      const addEdge = (source, target, detail = {}) => {
         if (!ids.has(source) || !ids.has(target) || source === target) return;
         const key = [source, target].sort().join('::');
         if (!graphEdges.some((edge) => edge.key === key)) {
-          graphEdges.push({ key, source, target });
+          graphEdges.push({
+            key,
+            source,
+            target,
+            id: detail.id || key,
+            relationType: detail.relation_type || detail.relationType || 'related_to',
+            summary: detail.summary || '这两个节点在当前知识库语义层中存在关联，可从右侧查看节点和来源。',
+            evidenceRef: detail.evidence_ref || detail.evidenceRef || '',
+            templateId: detail.template_id || detail.templateId || '',
+            weight: Number(detail.weight || 1)
+          });
         }
       };
 
@@ -3460,7 +3491,7 @@
       ].forEach(([source, target]) => addEdge(source, target));
 
       (graphState.semanticLinks || []).forEach((link) => {
-        addEdge(String(link.from_id || ''), String(link.to_id || ''));
+        addEdge(String(link.from_id || ''), String(link.to_id || ''), link);
       });
 
       if (ids.has('ku-prompt-engineering')) {
@@ -3797,6 +3828,7 @@
 
     function graphUpdateDetail(nodeId) {
       const selected = graphCoreNodes.find((node) => node.id === nodeId && graphVisible(node)) || graphCoreNodes.find((node) => graphVisible(node)) || graphCoreNodes[0];
+      graphState.selectedEdgeKey = '';
       graphState.selectedId = selected.id;
       const meta = GRAPH_META[selected.category] || GRAPH_META.theme;
       const title = graphReadableKnowledgeTitle(selected.label, selected.cluster, selected.unitType);
@@ -3822,6 +3854,54 @@
       const copyBtn = document.getElementById('graphCopyPromptBtn');
       if (openBtn) openBtn.disabled = !hasTemplate;
       if (copyBtn) copyBtn.disabled = !hasTemplate;
+    }
+
+    function graphRelationLabel(type) {
+      return ({
+        contains_template: '包含模板',
+        supports: '支撑',
+        reuses: '复用',
+        derived_from: '派生',
+        related_to: '相关',
+        validates: '验证',
+        blocks: '阻塞'
+      })[type] || type || '相关';
+    }
+
+    function graphUpdateEdgeDetail(edge) {
+      if (!edge) return;
+      graphState.selectedEdgeKey = edge.key;
+      const source = graphCoreNodes.find((node) => node.id === edge.source) || graphNodes.find((node) => node.id === edge.source);
+      const target = graphCoreNodes.find((node) => node.id === edge.target) || graphNodes.find((node) => node.id === edge.target);
+      const sourceTitle = graphReadableKnowledgeTitle(source?.label || edge.source, source?.cluster, source?.unitType);
+      const targetTitle = graphReadableKnowledgeTitle(target?.label || edge.target, target?.cluster, target?.unitType);
+      const relation = graphRelationLabel(edge.relationType);
+      const templateText = edge.templateId ? graphNodeTemplateText({ templateId: edge.templateId }) : '无直接模板';
+      document.getElementById('graphDetailTitle').textContent = relation + '关系';
+      document.getElementById('graphDetailSummary').textContent = graphCompactText(edge.summary || `${sourceTitle} 与 ${targetTitle} 存在知识关联。`, 96);
+      document.getElementById('graphDetailCluster').textContent = relation;
+      document.getElementById('graphDetailProject').textContent = `${sourceTitle} -> ${targetTitle}`;
+      document.getElementById('graphDetailSource').textContent = edge.evidenceRef || '由现有语义知识节点派生';
+      document.getElementById('graphDetailTime').textContent = templateText;
+      document.getElementById('graphDetailBadge').innerHTML = '<span class="graph-badge-dot" style="color:#72f7ff;background:#72f7ff"></span><span>关系</span>';
+      document.getElementById('graphRelations').innerHTML = `
+        <div class="graph-rel-item"><strong>${esc(sourceTitle)}</strong><p>起点节点</p></div>
+        <div class="graph-rel-item"><strong>${esc(targetTitle)}</strong><p>终点节点</p></div>
+        <div class="graph-rel-item"><strong>${esc(relation)}</strong><p>${esc(graphCompactText(edge.summary, 72))}</p></div>
+      `;
+      document.getElementById('graphRail').innerHTML = `
+        <div class="graph-rail-card"><h4>关系证据</h4><p>${esc(edge.evidenceRef || '来自 knowledge_units 语义整理结果')}</p></div>
+        <div class="graph-rail-card"><h4>关联资产</h4><p>${esc(templateText)}</p></div>
+      `;
+      document.getElementById('graphInsights').innerHTML = `
+        <div class="graph-insight-item"><strong>为什么连起来</strong><p>${esc(graphCompactText(edge.summary || '这条线由语义知识整理层根据节点类型和模板绑定关系生成。', 92))}</p></div>
+        <div class="graph-insight-item"><strong>下一步</strong><p>${edge.templateId ? '可查看或复制关联模板。' : '可回到搜索工作台查看来源，再决定是否整理成模板。'}</p></div>
+      `;
+      document.getElementById('graphFocusLabel').textContent = `${sourceTitle} -> ${targetTitle}`;
+      const openBtn = document.getElementById('graphOpenPromptBtn');
+      const copyBtn = document.getElementById('graphCopyPromptBtn');
+      if (openBtn) openBtn.disabled = !edge.templateId;
+      if (copyBtn) copyBtn.disabled = !edge.templateId;
     }
 
     function graphDraw() {
@@ -3923,6 +4003,40 @@
         if (d < radius && d < min) {
           best = item.node.id;
           min = d;
+        }
+      }
+      return best;
+    }
+
+    function graphPickEdge(clientX, clientY) {
+      const canvas = document.getElementById('graphCanvas');
+      if (!canvas) return null;
+      const rect = canvas.getBoundingClientRect();
+      const x = clientX - rect.left;
+      const y = clientY - rect.top;
+      const lookup = new Map((graphState.projected || []).map((item) => [item.node.id, item]));
+      let best = null;
+      let min = Infinity;
+      for (const edge of graphEdges) {
+        const source = lookup.get(edge.source);
+        const target = lookup.get(edge.target);
+        if (!source || !target || source.node.ambient || target.node.ambient) continue;
+        if (!graphVisible(source.node) || !graphVisible(target.node)) continue;
+        const x1 = source.projected.x;
+        const y1 = source.projected.y;
+        const x2 = target.projected.x;
+        const y2 = target.projected.y;
+        const dx = x2 - x1;
+        const dy = y2 - y1;
+        const lengthSq = dx * dx + dy * dy;
+        if (lengthSq < 1) continue;
+        const t = Math.max(0, Math.min(1, ((x - x1) * dx + (y - y1) * dy) / lengthSq));
+        const px = x1 + dx * t;
+        const py = y1 + dy * t;
+        const dist = Math.hypot(x - px, y - py);
+        if (dist < 8 && dist < min) {
+          best = edge;
+          min = dist;
         }
       }
       return best;
@@ -4506,6 +4620,9 @@
     function promptStatusLabel(status) {
       return ({
         candidate: '候选',
+        refining: '精修中',
+        later: '以后再看',
+        noise: '噪音',
         reviewed: '已整理',
         verified: '已验证',
         deprecated: '废弃'
@@ -4515,6 +4632,8 @@
     function promptTagClass(status) {
       if (status === 'verified') return 't-ok';
       if (status === 'candidate') return 't-warn';
+      if (status === 'refining' || status === 'later') return 't-info';
+      if (status === 'noise') return 't-danger';
       if (status === 'deprecated') return 't-danger';
       return 't-info';
     }
@@ -4636,12 +4755,15 @@
     }
 
     function renderPromptCounts() {
-      const counts = { all: promptState.templates.length, candidate: 0, reviewed: 0, verified: 0, deprecated: 0 };
+      const counts = { all: promptState.templates.length, candidate: 0, refining: 0, later: 0, noise: 0, reviewed: 0, verified: 0, deprecated: 0 };
       promptState.templates.forEach((item) => {
         if (counts[item.status] !== undefined) counts[item.status] += 1;
       });
       document.getElementById('promptAllCount').textContent = counts.all;
       document.getElementById('promptCandidateCount').textContent = counts.candidate;
+      document.getElementById('promptRefiningCount').textContent = counts.refining;
+      document.getElementById('promptLaterCount').textContent = counts.later;
+      document.getElementById('promptNoiseCount').textContent = counts.noise;
       document.getElementById('promptReviewedCount').textContent = counts.reviewed;
       document.getElementById('promptVerifiedCount').textContent = counts.verified;
       document.getElementById('promptDeprecatedCount').textContent = counts.deprecated;
@@ -4666,6 +4788,7 @@
           <div class="prompt-meta">
             <span class="tag ${promptTagClass(item.status)}">${esc(promptStatusLabel(item.status))}</span>
             <span class="tag t-info">${esc(item.category)}</span>
+            <span class="tag t-info">质量 ${Number(item.quality_score || 60)}</span>
             <span class="tag t-info">${Number(item.source_count || 0)} 来源</span>
             <span class="tag t-info">${esc(promptCardSourceLabel(item))}</span>
           </div>
@@ -4712,6 +4835,10 @@
         <div class="prompt-field-grid" style="margin-bottom:8px;">
           <div class="prompt-field"><b>整理方式</b><span>${esc(originLabel)}</span></div>
           <div class="prompt-field"><b>最近整理</b><span>${esc(template.updated_at || template.created_at || '-')}</span></div>
+          <div class="prompt-field"><b>质量评分</b><span>${Number(template.quality_score || 60)} / 100</span></div>
+          <div class="prompt-field"><b>候选备注</b><span>${esc(template.candidate_note || '暂无')}</span></div>
+          <div class="prompt-field full"><b>审核备注</b><span>${esc(template.review_note || '暂无')}</span></div>
+          <div class="prompt-field full"><b>适用边界</b><span>${esc(template.usage_boundary || '按当前模板场景使用，超出场景需重新确认上下文。')}</span></div>
           <div class="prompt-field full"><b>来源说明</b><span>${String(template.id || '').startsWith('cand-') ? '从已入库对话/文档/事件中按关键词命中后生成候选，必须人工补字段和审核。' : 'V3 初始化时内置的高频模板，用来先撑起可复制的正式库骨架。'}</span></div>
         </div>
         <div class="prompt-field-grid">
@@ -4735,16 +4862,34 @@
           `).join('') : '<div class="hint">暂无来源条目；内置模板会在后续人工验证中补充来源证据。</div>'}
         </div>
         <div class="action-row" style="margin-top:10px;">
+          <button class="action" id="promptRefineBtn" type="button">进入精修</button>
+          <button class="action" id="promptLaterBtn" type="button">以后再看</button>
+          <button class="action" id="promptNoiseBtn" type="button">标记噪音</button>
           <button class="action" id="promptApproveBtn" type="button">通过审核</button>
           <button class="action" id="promptVerifyBtn" type="button">标记验证</button>
           <button class="action" id="promptDeprecateBtn" type="button">标记废弃</button>
           <button class="action" id="promptCopyBtn" type="button">复制模板</button>
+        </div>
+        <div class="prompt-field-grid" style="margin-top:10px;">
+          <label class="prompt-field"><b>质量评分</b><input id="promptQualityScore" type="number" min="0" max="100" value="${Number(template.quality_score || 60)}" /></label>
+          <label class="prompt-field"><b>适用边界</b><textarea id="promptUsageBoundary">${esc(template.usage_boundary || '')}</textarea></label>
+          <label class="prompt-field full"><b>审核备注</b><textarea id="promptReviewNoteInput">${esc(template.review_note || '')}</textarea></label>
+          <label class="prompt-field full"><b>输入变量</b><textarea id="promptVariablesInput">${esc(template.variables_json || '')}</textarea></label>
+          <label class="prompt-field full"><b>示例输入</b><textarea id="promptExampleInput">${esc(template.example_input || '')}</textarea></label>
+          <label class="prompt-field full"><b>输出格式</b><textarea id="promptOutputFormatInput">${esc(template.output_format || '')}</textarea></label>
+        </div>
+        <div class="action-row" style="margin-top:10px;">
+          <button class="action" id="promptSaveQualityBtn" type="button">保存质量字段</button>
         </div>
       `;
       document.getElementById('promptCopyBtn').addEventListener('click', copyActivePromptTemplate);
       document.getElementById('promptApproveBtn').addEventListener('click', () => updatePromptStatus('reviewed'));
       document.getElementById('promptVerifyBtn').addEventListener('click', () => updatePromptStatus('verified'));
       document.getElementById('promptDeprecateBtn').addEventListener('click', () => updatePromptStatus('deprecated'));
+      document.getElementById('promptRefineBtn').addEventListener('click', () => updatePromptCandidateStatus('refining', '进入精修，等待补齐变量、示例和输出格式。'));
+      document.getElementById('promptLaterBtn').addEventListener('click', () => updatePromptCandidateStatus('later', '暂存，后续有上下文时再整理。'));
+      document.getElementById('promptNoiseBtn').addEventListener('click', () => updatePromptCandidateStatus('noise', '噪音片段，暂不进入模板整理。'));
+      document.getElementById('promptSaveQualityBtn').addEventListener('click', savePromptQualityFields);
     }
 
     async function loadPromptDetail(id) {
@@ -4781,6 +4926,46 @@
       if (nextCandidate && promptState.activeStatus === 'candidate') {
         document.getElementById('promptDetailMeta').textContent = '上一条已更新，已切到下一个待审核候选。';
       }
+      await graphLoadSeedResults();
+      graphRefreshCoreNodes();
+    }
+
+    function promptQueryParams(values) {
+      const params = new URLSearchParams();
+      Object.entries(values).forEach(([key, value]) => params.set(key, String(value ?? '')));
+      return params.toString();
+    }
+
+    async function savePromptQualityFields() {
+      if (!promptState.selectedId) return;
+      const score = Number(document.getElementById('promptQualityScore')?.value || 60);
+      const params = promptQueryParams({
+        quality_score: Math.max(0, Math.min(100, score)),
+        review_note: document.getElementById('promptReviewNoteInput')?.value || '',
+        variables_json: document.getElementById('promptVariablesInput')?.value || '',
+        example_input: document.getElementById('promptExampleInput')?.value || '',
+        output_format: document.getElementById('promptOutputFormatInput')?.value || '',
+        usage_boundary: document.getElementById('promptUsageBoundary')?.value || ''
+      });
+      const res = await fetch('/api/prompt-template/' + encodeURIComponent(promptState.selectedId) + '/quality?' + params, { method: 'POST' });
+      if (!res.ok) {
+        document.getElementById('promptDetailMeta').textContent = '质量字段保存失败。';
+        return;
+      }
+      await loadPromptTemplates(promptState.selectedId);
+      document.getElementById('promptDetailMeta').textContent = '质量字段已保存。';
+    }
+
+    async function updatePromptCandidateStatus(status, note) {
+      if (!promptState.selectedId) return;
+      const params = promptQueryParams({ status, note });
+      const res = await fetch('/api/prompt-template/' + encodeURIComponent(promptState.selectedId) + '/candidate-status?' + params, { method: 'POST' });
+      if (!res.ok) {
+        document.getElementById('promptDetailMeta').textContent = '候选状态更新失败。';
+        return;
+      }
+      await loadPromptTemplates(promptState.selectedId);
+      document.getElementById('promptDetailMeta').textContent = '候选状态已更新为：' + promptStatusLabel(status);
       await graphLoadSeedResults();
       graphRefreshCoreNodes();
     }
@@ -4922,6 +5107,11 @@
         const hit = graphPick(event.clientX, event.clientY);
         if (hit) {
           graphUpdateDetail(hit);
+          return;
+        }
+        const edge = graphPickEdge(event.clientX, event.clientY);
+        if (edge) {
+          graphUpdateEdgeDetail(edge);
         }
       });
 
@@ -4946,16 +5136,20 @@
       });
 
       document.getElementById('graphOpenPromptBtn').addEventListener('click', async () => {
+        const selectedEdge = graphState.selectedEdgeKey ? graphEdges.find((edge) => edge.key === graphState.selectedEdgeKey) : null;
         const selected = graphSelectedNode();
-        if (!selected?.templateId) return;
+        const templateId = selectedEdge?.templateId || selected?.templateId || '';
+        if (!templateId) return;
         setActiveWorkspace('prompt');
-        await loadPromptDetail(selected.templateId);
+        await loadPromptDetail(templateId);
       });
 
       document.getElementById('graphCopyPromptBtn').addEventListener('click', async () => {
+        const selectedEdge = graphState.selectedEdgeKey ? graphEdges.find((edge) => edge.key === graphState.selectedEdgeKey) : null;
         const selected = graphSelectedNode();
-        if (!selected?.templateId) return;
-        const res = await fetch('/api/prompt-template/' + encodeURIComponent(selected.templateId) + '/copy');
+        const templateId = selectedEdge?.templateId || selected?.templateId || '';
+        if (!templateId) return;
+        const res = await fetch('/api/prompt-template/' + encodeURIComponent(templateId) + '/copy');
         const data = await res.json();
         const ok = await copyText(data.text || '');
         document.getElementById('graphDetailSummary').textContent = ok ? '模板已复制，可直接粘贴给 AI 使用。' : '复制失败，请检查剪贴板权限。';
