@@ -70,6 +70,12 @@ Required item fields:
 | `retrospective_pack` | Retrospective and deposition suggestions | `metadata`, `summary`, `lessons`, `suggestions`, `starter_evaluation` |
 | `project_knowledge_pack` | Project-level migration or handoff | `metadata`, `project`, `health`, `evidence_index`, `templates`, `actions` |
 
+## Examples
+
+- Minimal development handoff: `workflow-pack-examples/minimal-development-handoff-pack.json`
+- Complete project knowledge pack: `workflow-pack-examples/complete-project-knowledge-pack.json`
+- Compatibility notes: `workflow-pack-examples/COMPATIBILITY.md`
+
 ## Runtime Contract
 
 - Schema endpoint: `GET /api/workflow-packs/schema`
