@@ -3243,6 +3243,7 @@
               <div class="portfolio-kpi"><b id="projectDetailEvidence">-</b><span>证据完整</span></div>
             </div>
             <div class="health-reasons" id="projectDetailRisks"></div>
+            <div class="health-action-links" id="projectDetailLinks"></div>
             <div class="prompt-head" style="margin-top:10px;">
               <h3>行动建议</h3>
               <p id="projectActionMeta">等待项目选择。</p>
@@ -3731,9 +3732,12 @@
       if (!detail) {
         document.getElementById('projectDetailTitle').textContent = '项目详情';
         document.getElementById('projectDetailMeta').textContent = '选择项目后查看健康快照和行动建议。';
+        document.getElementById('projectDetailLinks').innerHTML = '';
         document.getElementById('projectActionList').innerHTML = '<div class="hint">等待项目选择。</div>';
         return;
       }
+      const projectName = detail.name || detail.project_id || '项目';
+      const starterInput = `基于项目 ${projectName} 生成下一轮开工包。风险：${(detail.risks || [])[0] || '补齐项目证据'}`;
       document.getElementById('projectDetailTitle').textContent = detail.name || detail.project_id;
       document.getElementById('projectDetailMeta').textContent = `${esc(detail.root_path || '')}`;
       document.getElementById('projectDetailScore').textContent = String(detail.health_score || 0);
@@ -3741,14 +3745,22 @@
       document.getElementById('projectDetailTemplates').textContent = `${Number(detail.verified_template_count || 0)}/${Number(detail.template_count || 0)}`;
       document.getElementById('projectDetailEvidence').textContent = `${Number(detail.evidence_completeness || 0)}%`;
       document.getElementById('projectDetailRisks').innerHTML = (detail.risks || []).slice(0, 6).map((risk) => `<span class="health-reason">${esc(risk)}</span>`).join('') || '<span class="health-reason">暂无风险</span>';
+      document.getElementById('projectDetailLinks').innerHTML = `
+        <button class="health-action-link" type="button" data-project-action-route="health" data-project-action-id="${esc(detail.project_id)}" data-project-action-name="${esc(projectName)}" data-project-action-title="健康度详情">健康度</button>
+        <button class="health-action-link" type="button" data-project-action-route="search" data-project-action-id="${esc(detail.project_id)}" data-project-action-name="${esc(projectName)}" data-project-action-title="项目证据">证据</button>
+        <button class="health-action-link" type="button" data-project-action-route="starter" data-project-action-id="${esc(detail.project_id)}" data-project-action-name="${esc(projectName)}" data-project-action-starter="${esc(starterInput)}" data-project-action-title="生成开工包">开工包</button>
+        <button class="health-action-link" type="button" data-project-action-route="retro" data-project-action-id="${esc(detail.project_id)}" data-project-action-name="${esc(projectName)}" data-project-action-title="项目复盘">复盘</button>
+        <button class="health-action-link" type="button" data-project-action-route="collect" data-project-action-id="${esc(detail.project_id)}" data-project-action-name="${esc(projectName)}" data-project-action-title="补采集">采集</button>
+      `;
       document.getElementById('projectActionMeta').textContent = `${actions.length} 条项目建议`;
       document.getElementById('projectActionList').innerHTML = actions.length ? actions.map((action) => `
         <article class="project-action-item">
-          <b>${esc(action.priority || 'P1')} · ${esc(action.title || action.suggested_action)}</b>
+          <b>${esc(action.priority || 'P1')} · ${esc(action.action_type || 'action')} · ${esc(action.title || action.suggested_action)}</b>
           <span>${esc(action.reason || '项目需要维护')}</span>
           <div class="health-action-links">
-            <button class="health-action-link" type="button" data-project-action-route="${esc(action.route_hint || 'health')}" data-project-action-id="${esc(action.project_id)}" data-project-action-name="${esc(detail.name)}">打开</button>
-            <button class="health-action-link" type="button" data-project-action-route="search" data-project-action-id="${esc(action.project_id)}" data-project-action-name="${esc(detail.name)}">搜索</button>
+            <button class="health-action-link" type="button" data-project-action-route="${esc(action.route_hint || 'health')}" data-project-action-type="${esc(action.action_type || '')}" data-project-action-id="${esc(action.project_id)}" data-project-action-name="${esc(projectName)}" data-project-action-title="${esc(action.title || action.suggested_action || '')}" data-project-action-starter="${esc(action.starter_input || starterInput)}">执行</button>
+            <button class="health-action-link" type="button" data-project-action-route="starter" data-project-action-type="${esc(action.action_type || '')}" data-project-action-id="${esc(action.project_id)}" data-project-action-name="${esc(projectName)}" data-project-action-title="${esc(action.title || action.suggested_action || '')}" data-project-action-starter="${esc(action.starter_input || starterInput)}">开工包</button>
+            <button class="health-action-link" type="button" data-project-action-route="search" data-project-action-type="${esc(action.action_type || '')}" data-project-action-id="${esc(action.project_id)}" data-project-action-name="${esc(projectName)}" data-project-action-title="${esc(action.title || action.suggested_action || '')}">证据</button>
           </div>
         </article>
       `).join('') : '<div class="hint">暂无建议动作。</div>';
@@ -3777,22 +3789,55 @@
       renderProjectDetail();
     }
 
-    async function handleProjectAction(route, projectId, projectName) {
+    function setHealthView(view) {
+      healthState.activeView = view || 'all';
+      document.querySelectorAll('.health-filter').forEach((item) => {
+        item.classList.toggle('active', item.getAttribute('data-health-view') === healthState.activeView);
+      });
+    }
+
+    async function openProjectHealth(projectId, projectName) {
+      setActiveWorkspace('health');
+      if (!healthState.loaded) {
+        await loadHealthDashboard(false);
+      }
+      setHealthView('project');
+      renderHealthDashboard();
+      document.getElementById('healthFocusNote').textContent = `当前定位项目：${projectName || projectId || '项目'}。可从项目覆盖列表继续查看低分原因。`;
+    }
+
+    async function handleProjectAction(route, projectId, projectName, starterInput, actionTitle, actionType) {
+      const detail = projectsState.detail;
+      const title = actionTitle || projectName || projectId || '项目';
       if (route === 'collect') {
-        const detail = projectsState.detail;
         document.getElementById('projectPath').value = detail?.root_path || '';
         setActiveWorkspace('collector');
         return;
       }
+      if (route === 'health') {
+        await openProjectHealth(projectId, projectName || detail?.name);
+        return;
+      }
+      if (route === 'starter') {
+        setActiveWorkspace('starter');
+        document.getElementById('starterInput').value = starterInput || `基于项目 ${projectName || projectId} 生成下一轮开工包。`;
+        await runStarterPreview();
+        return;
+      }
       if (route === 'retro') {
-        document.getElementById('retroInput').value = `复盘项目：${projectName || projectId}`;
+        document.getElementById('retroInput').value = starterInput || `复盘项目：${projectName || projectId}`;
         setActiveWorkspace('retro');
         return;
       }
       if (route === 'prompt') {
+        promptState.projectContext = projectName || '项目';
+        if (actionType === 'cleanup') {
+          setPromptStatusFilter('candidate');
+        }
         setActiveWorkspace('prompt');
         return;
       }
+      document.getElementById('q').value = `${projectName || ''} ${title}`.trim();
       await selectProjectAndSearch(projectId, projectName || '项目');
     }
 
@@ -6477,10 +6522,7 @@
         if (!(event.target instanceof Element)) return;
         const btn = event.target.closest('button[data-health-view]');
         if (!btn) return;
-        healthState.activeView = btn.getAttribute('data-health-view') || 'all';
-        document.querySelectorAll('.health-filter').forEach((item) => {
-          item.classList.toggle('active', item.getAttribute('data-health-view') === healthState.activeView);
-        });
+        setHealthView(btn.getAttribute('data-health-view') || 'all');
         renderHealthDashboard();
       });
 
@@ -6528,16 +6570,21 @@
         selectProjectOverview(item.getAttribute('data-project-overview-id') || '');
       });
 
-      document.getElementById('projectActionList').addEventListener('click', (event) => {
+      const handleProjectActionClick = (event) => {
         if (!(event.target instanceof Element)) return;
         const button = event.target.closest('[data-project-action-route]');
         if (!button) return;
         handleProjectAction(
           button.getAttribute('data-project-action-route') || 'health',
           button.getAttribute('data-project-action-id') || '',
-          button.getAttribute('data-project-action-name') || ''
+          button.getAttribute('data-project-action-name') || '',
+          button.getAttribute('data-project-action-starter') || '',
+          button.getAttribute('data-project-action-title') || '',
+          button.getAttribute('data-project-action-type') || ''
         );
-      });
+      };
+      document.getElementById('projectDetailLinks').addEventListener('click', handleProjectActionClick);
+      document.getElementById('projectActionList').addEventListener('click', handleProjectActionClick);
 
       document.getElementById('resetFiltersBtn').addEventListener('click', () => {
         document.getElementById('q').value = '';
