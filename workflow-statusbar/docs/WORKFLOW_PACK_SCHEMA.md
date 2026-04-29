@@ -73,5 +73,24 @@ Required item fields:
 ## Runtime Contract
 
 - Schema endpoint: `GET /api/workflow-packs/schema`
+- Export endpoint: `POST /api/workflow-packs/export`
 - Checksum algorithm: `sha256`
-- Export/import/validate endpoints are intentionally left for the following V7 tasks.
+- Import/validate endpoints are intentionally left for the following V7 tasks.
+
+### Export Examples
+
+Development handoff pack:
+
+```bash
+curl -X POST http://127.0.0.1:8788/api/workflow-packs/export \
+  -H 'content-type: application/json' \
+  -d '{"pack_type":"development_handoff_pack","input_text":"TASK-YYYY-MM-DD-00","limit":8}'
+```
+
+Project knowledge pack:
+
+```bash
+curl -X POST http://127.0.0.1:8788/api/workflow-packs/export \
+  -H 'content-type: application/json' \
+  -d '{"pack_type":"project_knowledge_pack","project_id":"proj-example"}'
+```

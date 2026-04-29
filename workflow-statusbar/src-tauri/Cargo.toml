@@ -30,3 +30,4 @@ ureq = { version = "2", features = ["json"] }
 chrono = { version = "0.4" }
 tiny_http = "0.12"
 urlencoding = "2"
+sha2 = "0.10"
