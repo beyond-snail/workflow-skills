@@ -480,6 +480,53 @@ struct KbTaskStarterSessionDetailResponse {
     markdown: String,
 }
 
+#[derive(Clone, Serialize, Deserialize, Debug, Default)]
+struct KbRetroRequest {
+    session_id: Option<String>,
+    input_text: Option<String>,
+    starter_session_id: Option<String>,
+    limit: Option<usize>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug, Default)]
+struct KbRetroSections {
+    changes: Vec<KbTaskStarterEvidenceItem>,
+    verification: Vec<KbTaskStarterEvidenceItem>,
+    risks: Vec<KbTaskStarterEvidenceItem>,
+    context: Vec<KbTaskStarterEvidenceItem>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+struct KbRetroSuggestionItem {
+    suggestion_type: String,
+    target_kind: String,
+    target_id: String,
+    title: String,
+    rationale: String,
+    payload_json: String,
+    status: String,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+struct KbRetroPreviewResponse {
+    session_id: String,
+    input_type: String,
+    parsed_req_id: String,
+    parsed_task_id: String,
+    related_starter_session_id: String,
+    summary: String,
+    draft_markdown: String,
+    sections: KbRetroSections,
+    suggestions: Vec<KbRetroSuggestionItem>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+struct KbRetroPackageResponse {
+    session_id: String,
+    markdown: String,
+    suggestions: Vec<KbRetroSuggestionItem>,
+}
+
 #[derive(Clone, Serialize, Deserialize, Debug)]
 #[allow(dead_code)]
 struct KbHealthAsset {
@@ -7175,6 +7222,256 @@ fn kb_task_starter_package_internal(
     })
 }
 
+fn kb_retro_summary(input_type: &str, req_id: &str, task_id: &str, input: &str) -> String {
+    if input_type == "task" {
+        format!("复盘草稿：{task_id}")
+    } else if input_type == "req" {
+        format!("复盘草稿：{req_id}")
+    } else {
+        format!("复盘草稿：{}", compact_text_chars(input, 32))
+    }
+}
+
+fn kb_retro_latest_starter_session(conn: &Connection, req_id: &str, task_id: &str) -> String {
+    conn.query_row(
+        r#"
+        SELECT id
+        FROM task_starter_sessions
+        WHERE (?1 = '' OR parsed_req_id = ?1) AND (?2 = '' OR parsed_task_id = ?2)
+        ORDER BY created_at DESC
+        LIMIT 1
+        "#,
+        params![req_id, task_id],
+        |row| row.get::<_, String>(0),
+    )
+    .unwrap_or_default()
+}
+
+fn kb_retro_build_sections(sections: &KbTaskStarterSections) -> KbRetroSections {
+    KbRetroSections {
+        changes: sections
+            .similar_tasks
+            .iter()
+            .chain(sections.suggested_files.iter())
+            .take(8)
+            .cloned()
+            .collect(),
+        verification: sections.verify_commands.iter().take(8).cloned().collect(),
+        risks: sections.risks.iter().take(8).cloned().collect(),
+        context: sections
+            .templates
+            .iter()
+            .chain(sections.similar_tasks.iter())
+            .take(8)
+            .cloned()
+            .collect(),
+    }
+}
+
+fn kb_retro_build_suggestions(sections: &KbRetroSections, req_id: &str, task_id: &str) -> Vec<KbRetroSuggestionItem> {
+    let target_id = if !task_id.trim().is_empty() { task_id } else { req_id };
+    let mut suggestions = Vec::new();
+    suggestions.push(KbRetroSuggestionItem {
+        suggestion_type: "task_memory".into(),
+        target_kind: "memory".into(),
+        target_id: target_id.into(),
+        title: "写入任务复盘记忆".into(),
+        rationale: "将本轮改动、验证、风险和遗留问题沉淀到 .ai/memory/tasks。".into(),
+        payload_json: serde_json::json!({ "req_id": req_id, "task_id": task_id }).to_string(),
+        status: "pending".into(),
+    });
+    if let Some(item) = sections.verification.first() {
+        suggestions.push(KbRetroSuggestionItem {
+            suggestion_type: "verify_command".into(),
+            target_kind: item.source_table.clone(),
+            target_id: item.source_id.clone(),
+            title: "沉淀验证命令".into(),
+            rationale: item.reason.clone(),
+            payload_json: serde_json::json!({ "title": item.title, "excerpt": item.excerpt }).to_string(),
+            status: "pending".into(),
+        });
+    }
+    if let Some(item) = sections.risks.first() {
+        suggestions.push(KbRetroSuggestionItem {
+            suggestion_type: "risk_rule".into(),
+            target_kind: item.source_table.clone(),
+            target_id: item.source_id.clone(),
+            title: "沉淀风险规则".into(),
+            rationale: item.reason.clone(),
+            payload_json: serde_json::json!({ "title": item.title, "excerpt": item.excerpt }).to_string(),
+            status: "pending".into(),
+        });
+    }
+    suggestions
+}
+
+fn kb_retro_markdown_section(title: &str, items: &[KbTaskStarterEvidenceItem]) -> String {
+    if items.is_empty() {
+        return format!("## {title}\n\n- 暂无命中。\n");
+    }
+    let mut out = format!("## {title}\n\n");
+    for item in items.iter().take(8) {
+        out.push_str(&format!("- {}：{}\n", item.title, item.reason));
+        if !item.excerpt.trim().is_empty() {
+            out.push_str(&format!("  摘要：{}\n", item.excerpt));
+        }
+    }
+    out
+}
+
+fn kb_retro_build_markdown(
+    input_text: &str,
+    input_type: &str,
+    req_id: &str,
+    task_id: &str,
+    sections: &KbRetroSections,
+    suggestions: &[KbRetroSuggestionItem],
+) -> String {
+    let target = if !task_id.trim().is_empty() { task_id } else if !req_id.trim().is_empty() { req_id } else { input_text };
+    let mut out = String::new();
+    out.push_str("# 任务复盘草稿\n\n");
+    out.push_str(&format!("- 输入类型：`{input_type}`\n- 复盘对象：{target}\n"));
+    out.push_str("\n## 本轮结论\n\n- 请根据最终提交、验证结果和遗留风险补齐一句话结论。\n\n");
+    out.push_str(&kb_retro_markdown_section("关键改动与上下文", &sections.changes));
+    out.push('\n');
+    out.push_str(&kb_retro_markdown_section("验证证据", &sections.verification));
+    out.push('\n');
+    out.push_str(&kb_retro_markdown_section("风险与遗留问题", &sections.risks));
+    out.push('\n');
+    out.push_str(&kb_retro_markdown_section("关联上下文", &sections.context));
+    out.push_str("\n## 沉淀建议\n\n");
+    for item in suggestions {
+        out.push_str(&format!("- `{}`：{}。{}\n", item.suggestion_type, item.title, item.rationale));
+    }
+    out
+}
+
+fn kb_retro_insert_session(
+    conn: &Connection,
+    input: &str,
+    input_type: &str,
+    req_id: &str,
+    task_id: &str,
+    starter_session_id: &str,
+    summary: &str,
+    draft_markdown: &str,
+) -> Result<String, String> {
+    let session_id = format!("retro-{}-{}", now_nanos(), fnv1a64_hex(&format!("{input}:{req_id}:{task_id}")));
+    conn.execute(
+        r#"
+        INSERT INTO retrospective_sessions(
+          id, input_text, input_type, parsed_req_id, parsed_task_id,
+          related_starter_session_id, source_summary, draft_markdown
+        )
+        VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+        "#,
+        params![session_id, input, input_type, req_id, task_id, starter_session_id, summary, draft_markdown],
+    )
+    .map_err(|err| err.to_string())?;
+    Ok(session_id)
+}
+
+fn kb_retro_insert_suggestions(conn: &Connection, session_id: &str, suggestions: &[KbRetroSuggestionItem]) -> Result<(), String> {
+    for item in suggestions {
+        let id = format!("retro-sug-{}-{}", now_nanos(), fnv1a64_hex(&format!("{session_id}:{}:{}", item.suggestion_type, item.title)));
+        conn.execute(
+            r#"
+            INSERT INTO retrospective_suggestions(
+              id, session_id, suggestion_type, target_kind, target_id, title, rationale, payload_json, status
+            )
+            VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+            "#,
+            params![id, session_id, item.suggestion_type, item.target_kind, item.target_id, item.title, item.rationale, item.payload_json, item.status],
+        )
+        .map_err(|err| err.to_string())?;
+    }
+    Ok(())
+}
+
+fn kb_retro_preview_internal(input_text: &str, starter_session_id: Option<&str>, limit: usize) -> Result<KbRetroPreviewResponse, String> {
+    let input = input_text.trim();
+    if input.is_empty() {
+        return Err("empty_input".into());
+    }
+    let conn = connect_knowledgebase()?;
+    let (input_type, req_id, task_id) = kb_task_starter_parse_input(input);
+    let related_starter_session_id = starter_session_id
+        .map(str::trim)
+        .filter(|item| !item.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| kb_retro_latest_starter_session(&conn, &req_id, &task_id));
+    let summary = kb_retro_summary(&input_type, &req_id, &task_id, input);
+    let starter_sections = kb_task_starter_collect_evidence(&conn, input, &req_id, &task_id, limit)?;
+    let sections = kb_retro_build_sections(&starter_sections);
+    let suggestions = kb_retro_build_suggestions(&sections, &req_id, &task_id);
+    let draft_markdown = kb_retro_build_markdown(input, &input_type, &req_id, &task_id, &sections, &suggestions);
+    let session_id = kb_retro_insert_session(&conn, input, &input_type, &req_id, &task_id, &related_starter_session_id, &summary, &draft_markdown)?;
+    kb_retro_insert_suggestions(&conn, &session_id, &suggestions)?;
+    Ok(KbRetroPreviewResponse {
+        session_id,
+        input_type,
+        parsed_req_id: req_id,
+        parsed_task_id: task_id,
+        related_starter_session_id,
+        summary,
+        draft_markdown,
+        sections,
+        suggestions,
+    })
+}
+
+fn kb_retro_load_suggestions(conn: &Connection, session_id: &str) -> Result<Vec<KbRetroSuggestionItem>, String> {
+    let mut stmt = conn
+        .prepare(
+            r#"
+            SELECT suggestion_type, target_kind, target_id, title, rationale, payload_json, status
+            FROM retrospective_suggestions
+            WHERE session_id=?1
+            ORDER BY created_at ASC
+            "#,
+        )
+        .map_err(|err| err.to_string())?;
+    let rows = stmt
+        .query_map(params![session_id], |row| {
+            Ok(KbRetroSuggestionItem {
+                suggestion_type: row.get::<_, String>(0)?,
+                target_kind: row.get::<_, String>(1).unwrap_or_default(),
+                target_id: row.get::<_, String>(2).unwrap_or_default(),
+                title: row.get::<_, String>(3).unwrap_or_default(),
+                rationale: row.get::<_, String>(4).unwrap_or_default(),
+                payload_json: row.get::<_, String>(5).unwrap_or_default(),
+                status: row.get::<_, String>(6).unwrap_or_default(),
+            })
+        })
+        .map_err(|err| err.to_string())?;
+    let mut suggestions = Vec::new();
+    for row in rows {
+        suggestions.push(row.map_err(|err| err.to_string())?);
+    }
+    Ok(suggestions)
+}
+
+fn kb_retro_package_internal(session_id: Option<&str>, input_text: Option<&str>, starter_session_id: Option<&str>, limit: usize) -> Result<KbRetroPackageResponse, String> {
+    let conn = connect_knowledgebase()?;
+    if let Some(existing_id) = session_id.map(str::trim).filter(|item| !item.is_empty()) {
+        let markdown = conn
+            .query_row(
+                "SELECT draft_markdown FROM retrospective_sessions WHERE id=?1 LIMIT 1",
+                params![existing_id],
+                |row| row.get::<_, String>(0),
+            )
+            .map_err(|err| err.to_string())?;
+        let suggestions = kb_retro_load_suggestions(&conn, existing_id)?;
+        return Ok(KbRetroPackageResponse { session_id: existing_id.into(), markdown, suggestions });
+    }
+    let preview = kb_retro_preview_internal(input_text.unwrap_or_default(), starter_session_id, limit)?;
+    Ok(KbRetroPackageResponse {
+        session_id: preview.session_id,
+        markdown: preview.draft_markdown,
+        suggestions: preview.suggestions,
+    })
+}
+
 fn kb_task_starter_session_summary_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<KbTaskStarterSessionSummary> {
     let package_markdown = row.get::<_, String>(6).unwrap_or_default();
     Ok(KbTaskStarterSessionSummary {
@@ -7624,6 +7921,15 @@ fn read_task_starter_request(request: &mut Request) -> KbTaskStarterRequest {
     }
 }
 
+fn read_retro_request(request: &mut Request) -> KbRetroRequest {
+    let mut body = String::new();
+    if request.as_reader().read_to_string(&mut body).is_ok() {
+        serde_json::from_str::<KbRetroRequest>(&body).unwrap_or_default()
+    } else {
+        KbRetroRequest::default()
+    }
+}
+
 fn handle_knowledgebase_http_request(mut request: Request) {
     if request.method() != &Method::Get && request.method() != &Method::Post {
         http_respond_json(
@@ -7830,6 +8136,76 @@ fn handle_knowledgebase_http_request(mut request: Request) {
                 (Err(err), _, _) | (_, Err(err), _) | (_, _, Err(err)) => http_respond_json(
                     request,
                     500,
+                    serde_json::json!({ "error": err }).to_string(),
+                ),
+            }
+        }
+        "/api/retro/preview" => {
+            let mut payload = if request.method() == &Method::Post {
+                read_retro_request(&mut request)
+            } else {
+                KbRetroRequest::default()
+            };
+            if payload.input_text.as_deref().unwrap_or_default().trim().is_empty() {
+                payload.input_text = query_param(query, "input_text").or_else(|| query_param(query, "q"));
+            }
+            if payload.starter_session_id.as_deref().unwrap_or_default().trim().is_empty() {
+                payload.starter_session_id = query_param(query, "starter_session_id");
+            }
+            let limit = payload
+                .limit
+                .or_else(|| query_param(query, "limit").and_then(|value| value.parse::<usize>().ok()))
+                .unwrap_or(8);
+            match kb_retro_preview_internal(
+                payload.input_text.as_deref().unwrap_or_default(),
+                payload.starter_session_id.as_deref(),
+                limit,
+            ) {
+                Ok(data) => http_respond_json(
+                    request,
+                    200,
+                    serde_json::to_string(&data).unwrap_or_else(|_| "{}".to_string()),
+                ),
+                Err(err) => http_respond_json(
+                    request,
+                    if err == "empty_input" { 400 } else { 500 },
+                    serde_json::json!({ "error": err }).to_string(),
+                ),
+            }
+        }
+        "/api/retro/package" => {
+            let mut payload = if request.method() == &Method::Post {
+                read_retro_request(&mut request)
+            } else {
+                KbRetroRequest::default()
+            };
+            if payload.session_id.as_deref().unwrap_or_default().trim().is_empty() {
+                payload.session_id = query_param(query, "session_id");
+            }
+            if payload.input_text.as_deref().unwrap_or_default().trim().is_empty() {
+                payload.input_text = query_param(query, "input_text").or_else(|| query_param(query, "q"));
+            }
+            if payload.starter_session_id.as_deref().unwrap_or_default().trim().is_empty() {
+                payload.starter_session_id = query_param(query, "starter_session_id");
+            }
+            let limit = payload
+                .limit
+                .or_else(|| query_param(query, "limit").and_then(|value| value.parse::<usize>().ok()))
+                .unwrap_or(8);
+            match kb_retro_package_internal(
+                payload.session_id.as_deref(),
+                payload.input_text.as_deref(),
+                payload.starter_session_id.as_deref(),
+                limit,
+            ) {
+                Ok(data) => http_respond_json(
+                    request,
+                    200,
+                    serde_json::to_string(&data).unwrap_or_else(|_| "{}".to_string()),
+                ),
+                Err(err) => http_respond_json(
+                    request,
+                    if err == "empty_input" { 400 } else { 500 },
                     serde_json::json!({ "error": err }).to_string(),
                 ),
             }
