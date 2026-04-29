@@ -629,6 +629,39 @@ struct KbHealthActionsResponse {
     actions: Vec<KbHealthAction>,
 }
 
+#[derive(Clone, Serialize, Deserialize, Debug)]
+#[allow(dead_code)]
+struct KbProjectHealthSnapshot {
+    project_id: String,
+    name: String,
+    root_path: String,
+    health_score: i64,
+    collection_coverage: i64,
+    template_count: i64,
+    verified_template_count: i64,
+    evidence_completeness: i64,
+    risk_count: i64,
+    action_count: i64,
+    item_count: i64,
+    document_count: i64,
+    conversation_count: i64,
+    memory_count: i64,
+    workflow_count: i64,
+    test_record_count: i64,
+    retrospective_count: i64,
+    last_item_at: String,
+    path_exists: bool,
+    risks: Vec<String>,
+    suggested_actions: Vec<String>,
+    generated_at: String,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+#[allow(dead_code)]
+struct KbProjectHealthSnapshotsResponse {
+    snapshots: Vec<KbProjectHealthSnapshot>,
+}
+
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 enum AlertProviderMode {
@@ -3659,6 +3692,30 @@ fn ensure_knowledgebase_schema_migration(conn: &Connection) -> Result<(), String
           user_agent TEXT NOT NULL DEFAULT '',
           created_at TEXT DEFAULT CURRENT_TIMESTAMP
         );
+        CREATE TABLE IF NOT EXISTS project_health_snapshots (
+          project_id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          root_path TEXT NOT NULL,
+          health_score INTEGER NOT NULL DEFAULT 0,
+          collection_coverage INTEGER NOT NULL DEFAULT 0,
+          template_count INTEGER NOT NULL DEFAULT 0,
+          verified_template_count INTEGER NOT NULL DEFAULT 0,
+          evidence_completeness INTEGER NOT NULL DEFAULT 0,
+          risk_count INTEGER NOT NULL DEFAULT 0,
+          action_count INTEGER NOT NULL DEFAULT 0,
+          item_count INTEGER NOT NULL DEFAULT 0,
+          document_count INTEGER NOT NULL DEFAULT 0,
+          conversation_count INTEGER NOT NULL DEFAULT 0,
+          memory_count INTEGER NOT NULL DEFAULT 0,
+          workflow_count INTEGER NOT NULL DEFAULT 0,
+          test_record_count INTEGER NOT NULL DEFAULT 0,
+          retrospective_count INTEGER NOT NULL DEFAULT 0,
+          last_item_at TEXT NOT NULL DEFAULT '',
+          path_exists INTEGER NOT NULL DEFAULT 0,
+          risks_json TEXT NOT NULL DEFAULT '[]',
+          actions_json TEXT NOT NULL DEFAULT '[]',
+          generated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
         CREATE INDEX IF NOT EXISTS idx_prompt_templates_status ON prompt_templates(status, category);
         CREATE INDEX IF NOT EXISTS idx_prompt_sources_template ON prompt_template_sources(template_id);
         CREATE INDEX IF NOT EXISTS idx_knowledge_units_status ON knowledge_units(status, unit_type, category);
@@ -3672,6 +3729,7 @@ fn ensure_knowledgebase_schema_migration(conn: &Connection) -> Result<(), String
         CREATE INDEX IF NOT EXISTS idx_retro_suggestions_type ON retrospective_suggestions(suggestion_type, status);
         CREATE INDEX IF NOT EXISTS idx_api_call_logs_created ON api_call_logs(created_at DESC);
         CREATE INDEX IF NOT EXISTS idx_api_call_logs_client_tool ON api_call_logs(client_id, tool_name, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_project_health_snapshots_score ON project_health_snapshots(health_score, risk_count);
         "#,
     )
     .map_err(|err| err.to_string())?;
@@ -6490,6 +6548,276 @@ fn kb_health_projects_internal() -> Result<KbHealthProjectsResponse, String> {
     Ok(KbHealthProjectsResponse { summary, projects })
 }
 
+fn kb_project_template_counts(conn: &Connection) -> Result<HashMap<String, (i64, i64)>, String> {
+    let mut stmt = conn
+        .prepare(
+            r#"
+            SELECT i.project_id,
+                   COUNT(DISTINCT t.id) AS template_count,
+                   COUNT(DISTINCT CASE WHEN t.status='verified' THEN t.id END) AS verified_count
+            FROM prompt_templates t
+            INNER JOIN prompt_template_sources s ON s.template_id = t.id
+            INNER JOIN items i ON i.item_id = s.item_id
+            GROUP BY i.project_id
+            "#,
+        )
+        .map_err(|err| err.to_string())?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                (row.get::<_, i64>(1)?, row.get::<_, i64>(2)?),
+            ))
+        })
+        .map_err(|err| err.to_string())?;
+    let mut out = HashMap::new();
+    for row in rows {
+        let (project_id, counts) = row.map_err(|err| err.to_string())?;
+        out.insert(project_id, counts);
+    }
+    Ok(out)
+}
+
+fn kb_project_evidence_counts(conn: &Connection) -> Result<HashMap<String, (i64, i64)>, String> {
+    let mut stmt = conn
+        .prepare(
+            r#"
+            SELECT project_id,
+                   SUM(CASE WHEN lower(source_path) LIKE '%testing%' OR lower(title) LIKE '%test%' OR content_text LIKE '%测试%' THEN 1 ELSE 0 END) AS test_count,
+                   SUM(CASE WHEN lower(source_path) LIKE '%retro%' OR lower(title) LIKE '%retro%' OR content_text LIKE '%复盘%' THEN 1 ELSE 0 END) AS retro_count
+            FROM items
+            GROUP BY project_id
+            "#,
+        )
+        .map_err(|err| err.to_string())?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                (
+                    row.get::<_, i64>(1).unwrap_or_default(),
+                    row.get::<_, i64>(2).unwrap_or_default(),
+                ),
+            ))
+        })
+        .map_err(|err| err.to_string())?;
+    let mut out = HashMap::new();
+    for row in rows {
+        let (project_id, counts) = row.map_err(|err| err.to_string())?;
+        out.insert(project_id, counts);
+    }
+    Ok(out)
+}
+
+fn kb_percent(hit_count: i64, total: i64) -> i64 {
+    if total <= 0 {
+        0
+    } else {
+        ((hit_count * 100) / total).clamp(0, 100)
+    }
+}
+
+fn kb_project_snapshot_actions(risks: &[String]) -> Vec<String> {
+    risks
+        .iter()
+        .take(4)
+        .map(|risk| {
+            if risk.contains("路径") {
+                "检查项目路径并重新采集".to_string()
+            } else if risk.contains("测试") {
+                "补充测试记录或验收材料".to_string()
+            } else if risk.contains("复盘") {
+                "使用复盘助手生成项目复盘".to_string()
+            } else if risk.contains("模板") {
+                "从项目证据中沉淀提示词模板".to_string()
+            } else if risk.contains("会话") {
+                "补采集 AI 会话或对话记录".to_string()
+            } else {
+                "补齐项目知识证据".to_string()
+            }
+        })
+        .collect()
+}
+
+fn kb_build_project_health_snapshot(
+    project: KbProjectStatus,
+    template_count: i64,
+    verified_template_count: i64,
+    test_record_count: i64,
+    retrospective_count: i64,
+) -> KbProjectHealthSnapshot {
+    let (base_score, mut risks) = kb_health_project_score(&project);
+    if template_count == 0 {
+        risks.push("缺少提示词模板资产".into());
+    }
+    if verified_template_count == 0 {
+        risks.push("缺少已验证模板".into());
+    }
+    if test_record_count == 0 {
+        risks.push("缺少测试记录".into());
+    }
+    if retrospective_count == 0 {
+        risks.push("缺少复盘记录".into());
+    }
+    let coverage_hits = [
+        project.document_count > 0,
+        project.workflow_count > 0,
+        project.memory_count > 0,
+        project.conversation_count > 0,
+        test_record_count > 0,
+        retrospective_count > 0,
+    ]
+    .iter()
+    .filter(|item| **item)
+    .count() as i64;
+    let evidence_hits = [
+        project.workflow_count > 0,
+        project.memory_count > 0,
+        test_record_count > 0,
+        retrospective_count > 0,
+    ]
+    .iter()
+    .filter(|item| **item)
+    .count() as i64;
+    let collection_coverage = kb_percent(coverage_hits, 6);
+    let evidence_completeness = kb_percent(evidence_hits, 4);
+    let template_score = if verified_template_count > 0 {
+        100
+    } else if template_count > 0 {
+        70
+    } else {
+        0
+    };
+    let health_score = ((base_score + collection_coverage + evidence_completeness + template_score) / 4).clamp(0, 100);
+    let suggested_actions = kb_project_snapshot_actions(&risks);
+    KbProjectHealthSnapshot {
+        project_id: project.project_id,
+        name: project.name,
+        root_path: project.root_path,
+        health_score,
+        collection_coverage,
+        template_count,
+        verified_template_count,
+        evidence_completeness,
+        risk_count: risks.len() as i64,
+        action_count: suggested_actions.len() as i64,
+        item_count: project.item_count,
+        document_count: project.document_count,
+        conversation_count: project.conversation_count,
+        memory_count: project.memory_count,
+        workflow_count: project.workflow_count,
+        test_record_count,
+        retrospective_count,
+        last_item_at: project.last_item_at,
+        path_exists: project.path_exists,
+        risks,
+        suggested_actions,
+        generated_at: Utc::now().to_rfc3339(),
+    }
+}
+
+fn kb_upsert_project_health_snapshot(
+    conn: &Connection,
+    snapshot: &KbProjectHealthSnapshot,
+) -> Result<(), String> {
+    let risks_json = serde_json::to_string(&snapshot.risks).unwrap_or_else(|_| "[]".into());
+    let actions_json =
+        serde_json::to_string(&snapshot.suggested_actions).unwrap_or_else(|_| "[]".into());
+    conn.execute(
+        r#"
+        INSERT INTO project_health_snapshots(
+          project_id, name, root_path, health_score, collection_coverage,
+          template_count, verified_template_count, evidence_completeness,
+          risk_count, action_count, item_count, document_count, conversation_count,
+          memory_count, workflow_count, test_record_count, retrospective_count,
+          last_item_at, path_exists, risks_json, actions_json, generated_at
+        ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)
+        ON CONFLICT(project_id) DO UPDATE SET
+          name=excluded.name,
+          root_path=excluded.root_path,
+          health_score=excluded.health_score,
+          collection_coverage=excluded.collection_coverage,
+          template_count=excluded.template_count,
+          verified_template_count=excluded.verified_template_count,
+          evidence_completeness=excluded.evidence_completeness,
+          risk_count=excluded.risk_count,
+          action_count=excluded.action_count,
+          item_count=excluded.item_count,
+          document_count=excluded.document_count,
+          conversation_count=excluded.conversation_count,
+          memory_count=excluded.memory_count,
+          workflow_count=excluded.workflow_count,
+          test_record_count=excluded.test_record_count,
+          retrospective_count=excluded.retrospective_count,
+          last_item_at=excluded.last_item_at,
+          path_exists=excluded.path_exists,
+          risks_json=excluded.risks_json,
+          actions_json=excluded.actions_json,
+          generated_at=excluded.generated_at
+        "#,
+        params![
+            snapshot.project_id,
+            snapshot.name,
+            snapshot.root_path,
+            snapshot.health_score,
+            snapshot.collection_coverage,
+            snapshot.template_count,
+            snapshot.verified_template_count,
+            snapshot.evidence_completeness,
+            snapshot.risk_count,
+            snapshot.action_count,
+            snapshot.item_count,
+            snapshot.document_count,
+            snapshot.conversation_count,
+            snapshot.memory_count,
+            snapshot.workflow_count,
+            snapshot.test_record_count,
+            snapshot.retrospective_count,
+            snapshot.last_item_at,
+            if snapshot.path_exists { 1_i64 } else { 0_i64 },
+            risks_json,
+            actions_json,
+            snapshot.generated_at,
+        ],
+    )
+    .map_err(|err| err.to_string())?;
+    Ok(())
+}
+
+fn kb_project_health_snapshots_internal() -> Result<KbProjectHealthSnapshotsResponse, String> {
+    let conn = connect_knowledgebase()?;
+    let projects = kb_list_projects_internal()?;
+    let template_counts = kb_project_template_counts(&conn)?;
+    let evidence_counts = kb_project_evidence_counts(&conn)?;
+    let mut snapshots = Vec::new();
+    for project in projects {
+        let (template_count, verified_template_count) = template_counts
+            .get(&project.project_id)
+            .cloned()
+            .unwrap_or((0, 0));
+        let (test_record_count, retrospective_count) = evidence_counts
+            .get(&project.project_id)
+            .cloned()
+            .unwrap_or((0, 0));
+        let snapshot = kb_build_project_health_snapshot(
+            project,
+            template_count,
+            verified_template_count,
+            test_record_count,
+            retrospective_count,
+        );
+        kb_upsert_project_health_snapshot(&conn, &snapshot)?;
+        snapshots.push(snapshot);
+    }
+    snapshots.sort_by(|left, right| {
+        left.health_score
+            .cmp(&right.health_score)
+            .then_with(|| right.risk_count.cmp(&left.risk_count))
+            .then_with(|| right.last_item_at.cmp(&left.last_item_at))
+    });
+    Ok(KbProjectHealthSnapshotsResponse { snapshots })
+}
+
 #[allow(dead_code)]
 fn kb_health_template_primary_source(conn: &Connection, template_id: &str) -> String {
     conn.query_row(
@@ -8407,6 +8735,18 @@ fn handle_knowledgebase_http_request(mut request: Request) {
                 ),
             }
         }
+        "/api/projects/snapshots" => match kb_project_health_snapshots_internal() {
+            Ok(data) => http_respond_json(
+                request,
+                200,
+                serde_json::to_string(&data).unwrap_or_else(|_| "{}".to_string()),
+            ),
+            Err(err) => http_respond_json(
+                request,
+                500,
+                serde_json::json!({ "error": err }).to_string(),
+            ),
+        },
         "/api/projects" => match kb_list_projects_internal() {
             Ok(data) => http_respond_json(
                 request,
