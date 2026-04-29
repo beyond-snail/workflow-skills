@@ -109,6 +109,18 @@ V1 API 和 MCP 面向 localhost 使用。外部写入类请求会被拒绝；正
 
 接入说明见 [workflow-statusbar/docs/KNOWLEDGEBASE_MCP_API.md](workflow-statusbar/docs/KNOWLEDGEBASE_MCP_API.md)。
 
+## 知识库界面截图 | Knowledgebase Screenshots
+
+以下截图来自本地 `workflow-statusbar` 知识库 Web 服务的真实运行页面。示例数据是本机 SQLite 知识库中的项目、文档、对话、模板和健康度记录；不同机器上的数量和项目名称会不同。
+
+| 知识图谱中枢 | 开工助手 |
+| --- | --- |
+| ![知识图谱中枢](workflow-statusbar/docs/screenshots/knowledgebase-graph.png) | ![开工助手](workflow-statusbar/docs/screenshots/knowledgebase-starter.png) |
+
+| 资产健康度 | 提示词工程 |
+| --- | --- |
+| ![资产健康度](workflow-statusbar/docs/screenshots/knowledgebase-health.png) | ![提示词工程](workflow-statusbar/docs/screenshots/knowledgebase-prompts.png) |
+
 ## 仓库目录 | Repository Layout
 
 ```text
