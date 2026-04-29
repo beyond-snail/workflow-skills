@@ -634,6 +634,17 @@ struct KbHealthActionsResponse {
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 #[allow(dead_code)]
+struct KbHealthDashboardResponse {
+    summary: KbHealthSummary,
+    assets: Vec<KbHealthAsset>,
+    projects: Vec<KbHealthProject>,
+    actions: Vec<KbHealthAction>,
+    refreshed: bool,
+    warnings: Vec<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+#[allow(dead_code)]
 struct KbProjectHealthSnapshot {
     project_id: String,
     name: String,
@@ -8377,6 +8388,16 @@ fn kb_health_actions_internal() -> Result<KbHealthActionsResponse, String> {
     let conn = connect_knowledgebase()?;
     let assets = kb_health_assets_internal()?.assets;
     let projects = kb_health_projects_internal()?.projects;
+    let actions = kb_health_actions_from(&conn, &assets, &projects);
+    let summary = kb_health_summary(&assets, &projects);
+    Ok(KbHealthActionsResponse { summary, actions })
+}
+
+fn kb_health_actions_from(
+    conn: &Connection,
+    assets: &[KbHealthAsset],
+    projects: &[KbHealthProject],
+) -> Vec<KbHealthAction> {
     let mut actions = Vec::new();
     for asset in assets.iter().filter(|item| item.score < 80).take(8) {
         let evidence_item_id = kb_health_template_primary_source(&conn, &asset.asset_id);
@@ -8428,8 +8449,78 @@ fn kb_health_actions_internal() -> Result<KbHealthActionsResponse, String> {
         });
     }
     actions.sort_by(|left, right| left.score.cmp(&right.score));
-    let summary = kb_health_summary(&assets, &projects);
-    Ok(KbHealthActionsResponse { summary, actions })
+    actions
+}
+
+#[allow(dead_code)]
+fn kb_health_dashboard_internal(refreshed: bool) -> Result<KbHealthDashboardResponse, String> {
+    let mut warnings = Vec::new();
+    let assets = match kb_health_assets_internal() {
+        Ok(data) => data.assets,
+        Err(err) => {
+            warnings.push(format!("模板健康度加载失败: {err}"));
+            Vec::new()
+        }
+    };
+    let projects = match kb_health_projects_internal() {
+        Ok(data) => data.projects,
+        Err(err) => {
+            warnings.push(format!("项目健康度加载失败: {err}"));
+            Vec::new()
+        }
+    };
+    let actions = match connect_knowledgebase() {
+        Ok(conn) => kb_health_actions_from(&conn, &assets, &projects),
+        Err(err) => {
+            warnings.push(format!("行动建议加载失败: {err}"));
+            let mut fallback_actions = Vec::new();
+            for asset in assets.iter().filter(|item| item.score < 80).take(8) {
+                fallback_actions.push(KbHealthAction {
+                    target_type: asset.asset_type.clone(),
+                    target_id: asset.asset_id.clone(),
+                    title: asset.title.clone(),
+                    score: asset.score,
+                    priority: if asset.score < 50 { "P0".into() } else { "P1".into() },
+                    reason: asset.reasons.first().cloned().unwrap_or_default(),
+                    suggested_action: asset.suggested_action.clone(),
+                    primary_route: "prompt".into(),
+                    evidence_item_id: String::new(),
+                    search_query: asset.title.clone(),
+                    graph_query: asset.category.clone(),
+                    starter_input: format!("整理健康度模板：{}", asset.title),
+                });
+            }
+            for project in projects.iter().filter(|item| item.score < 80).take(5) {
+                fallback_actions.push(KbHealthAction {
+                    target_type: "project".into(),
+                    target_id: project.project_id.clone(),
+                    title: project.name.clone(),
+                    score: project.score,
+                    priority: if project.score < 50 { "P0".into() } else { "P1".into() },
+                    reason: project.reasons.first().cloned().unwrap_or_default(),
+                    suggested_action: project.suggested_action.clone(),
+                    primary_route: "project".into(),
+                    evidence_item_id: String::new(),
+                    search_query: project.name.clone(),
+                    graph_query: project.name.clone(),
+                    starter_input: format!("整理项目知识健康度：{}", project.name),
+                });
+            }
+            fallback_actions.sort_by(|left, right| left.score.cmp(&right.score));
+            fallback_actions
+        }
+    };
+    if assets.is_empty() && projects.is_empty() && !warnings.is_empty() {
+        return Err(warnings.join("；"));
+    }
+    Ok(KbHealthDashboardResponse {
+        summary: kb_health_summary(&assets, &projects),
+        assets,
+        projects,
+        actions,
+        refreshed,
+        warnings,
+    })
 }
 
 fn kb_task_starter_extract_identifier(input: &str, prefix: &str) -> String {
@@ -11140,6 +11231,18 @@ fn handle_knowledgebase_http_request(mut request: Request) {
                 serde_json::json!({ "error": err }).to_string(),
             ),
         },
+        "/api/health" => match kb_health_dashboard_internal(false) {
+            Ok(data) => http_respond_json(
+                request,
+                200,
+                serde_json::to_string(&data).unwrap_or_else(|_| "{}".to_string()),
+            ),
+            Err(err) => http_respond_json(
+                request,
+                500,
+                serde_json::json!({ "error": err }).to_string(),
+            ),
+        },
         "/api/health/refresh" => {
             if request.method() != &Method::Post {
                 http_respond_json(
@@ -11149,24 +11252,13 @@ fn handle_knowledgebase_http_request(mut request: Request) {
                 );
                 return;
             }
-            match (
-                kb_health_assets_internal(),
-                kb_health_projects_internal(),
-                kb_health_actions_internal(),
-            ) {
-                (Ok(assets), Ok(projects), Ok(actions)) => http_respond_json(
+            match kb_health_dashboard_internal(true) {
+                Ok(data) => http_respond_json(
                     request,
                     200,
-                    serde_json::to_string(&serde_json::json!({
-                        "summary": kb_health_summary(&assets.assets, &projects.projects),
-                        "assets": assets.assets,
-                        "projects": projects.projects,
-                        "actions": actions.actions,
-                        "refreshed": true
-                    }))
-                    .unwrap_or_else(|_| "{}".to_string()),
+                    serde_json::to_string(&data).unwrap_or_else(|_| "{}".to_string()),
                 ),
-                (Err(err), _, _) | (_, Err(err), _) | (_, _, Err(err)) => http_respond_json(
+                Err(err) => http_respond_json(
                     request,
                     500,
                     serde_json::json!({ "error": err }).to_string(),

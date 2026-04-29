@@ -3752,6 +3752,8 @@
       projects: [],
       actions: [],
       summary: {},
+      warnings: [],
+      lastError: '',
       activeView: 'all',
       sort: 'score'
     };
@@ -3852,7 +3854,10 @@
       document.getElementById('healthWarnCount').textContent = String(Math.max(0, attentionCount - riskCount));
       document.getElementById('healthProjectFilterCount').textContent = String(projects.length);
       document.getElementById('healthTemplateCount').textContent = String(assets.length);
-      document.getElementById('healthMeta').textContent = `模板 ${assets.length} · 项目 ${projects.length} · 建议 ${actions.length}`;
+      const issueCount = (healthState.warnings || []).length + (healthState.lastError ? 1 : 0);
+      document.getElementById('healthMeta').textContent = issueCount
+        ? `模板 ${assets.length} · 项目 ${projects.length} · 建议 ${actions.length} · ${issueCount} 个加载提示`
+        : `模板 ${assets.length} · 项目 ${projects.length} · 建议 ${actions.length}`;
       document.getElementById('healthScopeTag').textContent = {
         all: '全部',
         risk: '高风险',
@@ -3868,11 +3873,17 @@
       const list = healthVisibleItems();
       document.getElementById('healthListMeta').textContent = `${list.length} 条，按 ${healthState.sort === 'score' ? '低分' : healthState.sort === 'updated' ? '更新时间' : '类型'} 排序`;
       const target = document.getElementById('healthList');
+      const notices = [];
+      if (healthState.lastError) notices.push(`健康度加载失败：${healthState.lastError}`);
+      (healthState.warnings || []).forEach((item) => notices.push(item));
+      const noticeHtml = notices.length
+        ? `<div class="hint health-load-warning">${notices.map((item) => esc(item)).join('<br>')}</div>`
+        : '';
       if (!list.length) {
-        target.innerHTML = '<div class="hint">当前筛选下没有低健康资产。</div>';
+        target.innerHTML = noticeHtml + '<div class="hint">当前筛选下没有低健康资产。</div>';
         return;
       }
-      target.innerHTML = list.map((item) => {
+      target.innerHTML = noticeHtml + list.map((item) => {
         const reasons = Array.isArray(item.reasons) ? item.reasons.slice(0, 3) : [];
         const meta = item.kind === 'project'
           ? `${Number(item.item_count || 0)} 条目 · workflow ${Number(item.workflow_count || 0)} · memory ${Number(item.memory_count || 0)}`
@@ -3917,23 +3928,41 @@
 
     async function loadHealthDashboard(useRefresh = false) {
       document.getElementById('healthMeta').textContent = '正在刷新健康度...';
-      const data = useRefresh
-        ? await fetch('/api/health/refresh', { method: 'POST' }).then((res) => res.json())
-        : await Promise.all([
-            fetch('/api/health/assets').then((res) => res.json()),
-            fetch('/api/health/projects').then((res) => res.json()),
-            fetch('/api/health/actions').then((res) => res.json())
-          ]).then(([assets, projects, actions]) => ({
-            assets: assets.assets || [],
-            projects: projects.projects || [],
-            actions: actions.actions || [],
-            summary: actions.summary || assets.summary || projects.summary || {}
-          }));
+      healthState.lastError = '';
+      healthState.warnings = [];
+      let data = {};
+      try {
+        const response = useRefresh
+          ? await fetch('/api/health/refresh', { method: 'POST' })
+          : await fetch('/api/health');
+        data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+      } catch (primaryError) {
+        healthState.warnings.push(`聚合健康度接口不可用，已尝试拆分加载：${primaryError.message || primaryError}`);
+        const [assets, projects, actions] = await Promise.all([
+          fetch('/api/health/assets').then((res) => res.json()).catch((err) => ({ error: err.message || String(err), assets: [] })),
+          fetch('/api/health/projects').then((res) => res.json()).catch((err) => ({ error: err.message || String(err), projects: [] })),
+          fetch('/api/health/actions').then((res) => res.json()).catch((err) => ({ error: err.message || String(err), actions: [] }))
+        ]);
+        [assets, projects, actions].forEach((item) => {
+          if (item && item.error) healthState.warnings.push(item.error);
+        });
+        data = {
+          assets: assets.assets || [],
+          projects: projects.projects || [],
+          actions: actions.actions || [],
+          summary: actions.summary || assets.summary || projects.summary || {}
+        };
+      }
       healthState.assets = Array.isArray(data.assets) ? data.assets : [];
       healthState.projects = Array.isArray(data.projects) ? data.projects : [];
       healthState.actions = Array.isArray(data.actions) ? data.actions : [];
       healthState.summary = data.summary || {};
+      healthState.warnings = [...healthState.warnings, ...(Array.isArray(data.warnings) ? data.warnings : [])];
       healthState.loaded = true;
+      if (!healthState.assets.length && !healthState.projects.length && !healthState.actions.length) {
+        healthState.lastError = healthState.warnings[0] || '没有读取到模板、项目或建议数据，请先确认采集中心和本地知识库数据。';
+      }
       renderHealthDashboard();
     }
 

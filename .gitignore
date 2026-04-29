@@ -9,3 +9,6 @@ __pycache__/
 *.pyc
 .DS_Store
 /docs
+/.playwright-cli
+workflow-statusbar/.playwright-cli
+workflow-statusbar/output
