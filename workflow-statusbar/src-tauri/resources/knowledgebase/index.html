@@ -3441,7 +3441,7 @@
             </div>
             <div class="prompt-origin" style="margin-top:10px;">
               <button class="prompt-review-action" id="projectOverviewRefreshBtnLegacy" type="button">刷新看板</button>
-              <div class="prompt-origin-note" id="projectOverviewNote">低分项目优先；详情区展示证据覆盖和建议动作。</div>
+              <div class="prompt-origin-note" id="projectOverviewNote">健康分从高到低；详情区展示证据覆盖和建议动作。</div>
             </div>
           </div>
         </aside>
@@ -3449,7 +3449,7 @@
         <article class="card project-rank-card">
           <div class="prompt-head">
             <h3>多项目看板</h3>
-            <p id="projectRankMeta">先处理低健康项目，再从右侧直接开工、补证据或采集。</p>
+            <p id="projectRankMeta">按健康分从高到低查看项目，再从右侧直接开工、补证据或采集。</p>
           </div>
           <div class="portfolio-strip">
             <div class="portfolio-kpis">
@@ -3939,12 +3939,17 @@
 
     function renderProjectsDashboard() {
       const summary = projectsState.overview?.summary || {};
-      const projects = projectsState.projects || [];
+      const projects = [...(projectsState.projects || [])].sort((left, right) => {
+        const rightScore = Number(right.health_score || 0);
+        const leftScore = Number(left.health_score || 0);
+        if (rightScore !== leftScore) return rightScore - leftScore;
+        return String(left.name || left.project_id || '').localeCompare(String(right.name || right.project_id || ''));
+      });
       document.getElementById('portfolioProjectCount').textContent = String(summary.total_projects || projects.length || 0);
       document.getElementById('portfolioAvgScore').textContent = String(summary.average_score || 0);
       document.getElementById('portfolioRiskCount').textContent = String(summary.total_risks || 0);
       document.getElementById('portfolioActionCount').textContent = String(summary.total_actions || 0);
-      document.getElementById('projectRankMeta').textContent = `${projects.length} 个项目，低健康分优先`;
+      document.getElementById('projectRankMeta').textContent = `${projects.length} 个项目，健康分从高到低`;
       const list = document.getElementById('projectRankList');
       if (!projects.length) {
         list.innerHTML = '<div class="hint">暂无项目快照。先到采集中心接入项目。</div>';
