@@ -3543,12 +3543,45 @@ fn ensure_knowledgebase_schema_migration(conn: &Connection) -> Result<(), String
           created_at TEXT DEFAULT CURRENT_TIMESTAMP,
           PRIMARY KEY(session_id, evidence_type, source_table, source_id)
         );
+        CREATE TABLE IF NOT EXISTS retrospective_sessions (
+          id TEXT PRIMARY KEY,
+          input_text TEXT NOT NULL,
+          input_type TEXT NOT NULL DEFAULT 'text',
+          parsed_req_id TEXT NOT NULL DEFAULT '',
+          parsed_task_id TEXT NOT NULL DEFAULT '',
+          related_starter_session_id TEXT NOT NULL DEFAULT '',
+          source_summary TEXT NOT NULL DEFAULT '',
+          draft_markdown TEXT NOT NULL DEFAULT '',
+          status TEXT NOT NULL DEFAULT 'draft',
+          confirmed_at TEXT NOT NULL DEFAULT '',
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS retrospective_suggestions (
+          id TEXT PRIMARY KEY,
+          session_id TEXT NOT NULL,
+          suggestion_type TEXT NOT NULL,
+          target_kind TEXT NOT NULL DEFAULT '',
+          target_id TEXT NOT NULL DEFAULT '',
+          title TEXT NOT NULL DEFAULT '',
+          rationale TEXT NOT NULL DEFAULT '',
+          payload_json TEXT NOT NULL DEFAULT '',
+          status TEXT NOT NULL DEFAULT 'pending',
+          approved_at TEXT NOT NULL DEFAULT '',
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
         CREATE INDEX IF NOT EXISTS idx_prompt_templates_status ON prompt_templates(status, category);
         CREATE INDEX IF NOT EXISTS idx_prompt_sources_template ON prompt_template_sources(template_id);
         CREATE INDEX IF NOT EXISTS idx_knowledge_units_status ON knowledge_units(status, unit_type, category);
         CREATE INDEX IF NOT EXISTS idx_task_starter_sessions_created ON task_starter_sessions(created_at DESC);
         CREATE INDEX IF NOT EXISTS idx_task_starter_sessions_req_task ON task_starter_sessions(parsed_req_id, parsed_task_id);
         CREATE INDEX IF NOT EXISTS idx_task_starter_evidence_session ON task_starter_evidence(session_id);
+        CREATE INDEX IF NOT EXISTS idx_retro_sessions_created ON retrospective_sessions(created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_retro_sessions_req_task ON retrospective_sessions(parsed_req_id, parsed_task_id);
+        CREATE INDEX IF NOT EXISTS idx_retro_sessions_starter ON retrospective_sessions(related_starter_session_id);
+        CREATE INDEX IF NOT EXISTS idx_retro_suggestions_session ON retrospective_suggestions(session_id, status);
+        CREATE INDEX IF NOT EXISTS idx_retro_suggestions_type ON retrospective_suggestions(suggestion_type, status);
         "#,
     )
     .map_err(|err| err.to_string())?;
