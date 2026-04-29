@@ -40,6 +40,8 @@ The server uses stdio JSON-RPC and exposes these tools:
 | `build_task_context` | Build a read-only task context package | `input`, `limit` |
 | `get_evidence_trace` | Read one evidence item and trace | `id` |
 | `list_asset_health` | Read health summary and suggested actions | none |
+| `get_workflow_pack` | Read one workflow pack and its indexed items | `pack_id` |
+| `build_workflow_pack_context` | Build a task context view from a workflow pack evidence index | `pack_id` |
 
 ### MCP Smoke Test
 
@@ -53,7 +55,7 @@ printf '%s\n' \
 
 Expected result:
 
-- `tools/list` returns the five tools above.
+- `tools/list` returns the tools above.
 - Tool responses contain JSON text with `readonly: true`.
 - `build_task_context` returns an empty `session_id`, because it does not create starter history.
 
@@ -139,6 +141,18 @@ curl -fsS 'http://127.0.0.1:8788/api/v1/evidence/<item-id>'
 
 ```bash
 curl -fsS 'http://127.0.0.1:8788/api/v1/health'
+```
+
+### Get Workflow Pack
+
+```bash
+curl -fsS 'http://127.0.0.1:8788/api/v1/workflow-packs/<pack-id>'
+```
+
+### Build Workflow Pack Context
+
+```bash
+curl -fsS 'http://127.0.0.1:8788/api/v1/workflow-packs/<pack-id>/task-context'
 ```
 
 ### Inspect Call Logs

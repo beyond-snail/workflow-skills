@@ -56,6 +56,28 @@ const tools = [
       type: "object",
       properties: {}
     }
+  },
+  {
+    name: "get_workflow_pack",
+    description: "Read a workflow pack by pack id, including package JSON, Markdown, and indexed items. Read-only.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        pack_id: { type: "string", description: "Workflow pack id." }
+      },
+      required: ["pack_id"]
+    }
+  },
+  {
+    name: "build_workflow_pack_context",
+    description: "Build a task context view from a workflow pack evidence index. Read-only.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        pack_id: { type: "string", description: "Workflow pack id." }
+      },
+      required: ["pack_id"]
+    }
   }
 ];
 
@@ -217,6 +239,20 @@ async function callTool(name, args) {
   }
   if (name === "list_asset_health") {
     return apiJson("/api/v1/health", {}, {
+      toolName: name,
+      paramsSummary: summarizeArgs(args)
+    });
+  }
+  if (name === "get_workflow_pack") {
+    const packId = encodeURIComponent(requireString(args, "pack_id"));
+    return apiJson(`/api/v1/workflow-packs/${packId}`, {}, {
+      toolName: name,
+      paramsSummary: summarizeArgs(args)
+    });
+  }
+  if (name === "build_workflow_pack_context") {
+    const packId = encodeURIComponent(requireString(args, "pack_id"));
+    return apiJson(`/api/v1/workflow-packs/${packId}/task-context`, {}, {
       toolName: name,
       paramsSummary: summarizeArgs(args)
     });

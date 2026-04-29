@@ -8313,6 +8313,49 @@ fn kb_workflow_pack_detail_internal(pack_id: &str) -> Result<KbWorkflowPackDetai
     })
 }
 
+fn kb_workflow_pack_task_context_internal(pack_id: &str) -> Result<serde_json::Value, String> {
+    let detail = kb_workflow_pack_detail_internal(pack_id)?;
+    let evidence = detail
+        .items
+        .iter()
+        .map(|item| {
+            serde_json::json!({
+                "item_id": item.get("item_id").cloned().unwrap_or_else(|| serde_json::json!("")),
+                "item_type": item.get("item_type").cloned().unwrap_or_else(|| serde_json::json!("")),
+                "title": item.get("title").cloned().unwrap_or_else(|| serde_json::json!("")),
+                "source_ref": item.get("source_ref").cloned().unwrap_or_else(|| serde_json::json!("")),
+                "required": item.get("required").cloned().unwrap_or_else(|| serde_json::json!(false)),
+                "payload": item.get("payload").cloned().unwrap_or_else(|| serde_json::json!({}))
+            })
+        })
+        .collect::<Vec<_>>();
+    let required_count = evidence
+        .iter()
+        .filter(|item| {
+            item.get("required")
+                .and_then(|value| value.as_bool())
+                .unwrap_or(false)
+        })
+        .count();
+    Ok(serde_json::json!({
+        "pack_id": detail.pack_id,
+        "pack_type": detail.pack_type,
+        "schema_version": detail.schema_version,
+        "title": detail.title,
+        "status": detail.status,
+        "checksum": detail.checksum,
+        "source_ref": detail.source_ref,
+        "context_summary": format!(
+            "Workflow pack {} contains {} indexed items, including {} required items.",
+            pack_id,
+            evidence.len(),
+            required_count
+        ),
+        "markdown": detail.markdown,
+        "evidence": evidence
+    }))
+}
+
 #[allow(dead_code)]
 fn kb_health_template_primary_source(conn: &Connection, template_id: &str) -> String {
     conn.query_row(
@@ -10904,6 +10947,69 @@ fn handle_knowledgebase_http_request(mut request: Request) {
                     request,
                     api_call_context.as_ref(),
                     500,
+                    serde_json::json!({ "error": err }).to_string(),
+                    Some(&err),
+                ),
+            }
+        }
+        _ if path.starts_with("/api/v1/workflow-packs/") && path.ends_with("/task-context") => {
+            if request.method() != &Method::Get {
+                http_respond_v1_json(
+                    request,
+                    api_call_context.as_ref(),
+                    403,
+                    serde_json::json!({ "error": "write_protected", "message": "This V1 endpoint is read-only and only accepts GET." }).to_string(),
+                    Some("write_protected"),
+                );
+                return;
+            }
+            let pack_id = url_decode(
+                path.trim_start_matches("/api/v1/workflow-packs/")
+                    .trim_end_matches("/task-context"),
+            );
+            match kb_workflow_pack_task_context_internal(&pack_id) {
+                Ok(data) => http_respond_v1_json(
+                    request,
+                    api_call_context.as_ref(),
+                    200,
+                    serde_json::to_string(&serde_json::json!({ "readonly": true, "data": data }))
+                        .unwrap_or_else(|_| "{}".to_string()),
+                    None,
+                ),
+                Err(err) => http_respond_v1_json(
+                    request,
+                    api_call_context.as_ref(),
+                    if err == "pack_not_found" { 404 } else { 500 },
+                    serde_json::json!({ "error": err }).to_string(),
+                    Some(&err),
+                ),
+            }
+        }
+        _ if path.starts_with("/api/v1/workflow-packs/") => {
+            if request.method() != &Method::Get {
+                http_respond_v1_json(
+                    request,
+                    api_call_context.as_ref(),
+                    403,
+                    serde_json::json!({ "error": "write_protected", "message": "This V1 endpoint is read-only and only accepts GET." }).to_string(),
+                    Some("write_protected"),
+                );
+                return;
+            }
+            let pack_id = url_decode(path.trim_start_matches("/api/v1/workflow-packs/"));
+            match kb_workflow_pack_detail_internal(&pack_id) {
+                Ok(data) => http_respond_v1_json(
+                    request,
+                    api_call_context.as_ref(),
+                    200,
+                    serde_json::to_string(&serde_json::json!({ "readonly": true, "data": data }))
+                        .unwrap_or_else(|_| "{}".to_string()),
+                    None,
+                ),
+                Err(err) => http_respond_v1_json(
+                    request,
+                    api_call_context.as_ref(),
+                    if err == "pack_not_found" { 404 } else { 500 },
                     serde_json::json!({ "error": err }).to_string(),
                     Some(&err),
                 ),
