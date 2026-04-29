@@ -662,6 +662,67 @@ struct KbProjectHealthSnapshotsResponse {
     snapshots: Vec<KbProjectHealthSnapshot>,
 }
 
+#[derive(Clone, Serialize, Deserialize, Debug)]
+#[allow(dead_code)]
+struct KbProjectsOverviewSummary {
+    total_projects: i64,
+    healthy_projects: i64,
+    attention_projects: i64,
+    total_risks: i64,
+    total_actions: i64,
+    average_score: i64,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+#[allow(dead_code)]
+struct KbProjectOverviewItem {
+    project_id: String,
+    name: String,
+    root_path: String,
+    health_score: i64,
+    collection_coverage: i64,
+    template_count: i64,
+    verified_template_count: i64,
+    evidence_completeness: i64,
+    risk_count: i64,
+    action_count: i64,
+    last_item_at: String,
+    primary_risk: String,
+    next_action: String,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+#[allow(dead_code)]
+struct KbProjectsOverviewResponse {
+    summary: KbProjectsOverviewSummary,
+    projects: Vec<KbProjectOverviewItem>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+#[allow(dead_code)]
+struct KbProjectHealthDetailResponse {
+    project: KbProjectHealthSnapshot,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+#[allow(dead_code)]
+struct KbProjectActionItem {
+    project_id: String,
+    title: String,
+    priority: String,
+    reason: String,
+    suggested_action: String,
+    route_hint: String,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+#[allow(dead_code)]
+struct KbProjectActionsResponse {
+    project_id: String,
+    name: String,
+    actions: Vec<KbProjectActionItem>,
+}
+
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 enum AlertProviderMode {
@@ -6818,6 +6879,122 @@ fn kb_project_health_snapshots_internal() -> Result<KbProjectHealthSnapshotsResp
     Ok(KbProjectHealthSnapshotsResponse { snapshots })
 }
 
+fn kb_projects_overview_summary(
+    snapshots: &[KbProjectHealthSnapshot],
+) -> KbProjectsOverviewSummary {
+    let total_projects = snapshots.len() as i64;
+    let total_score: i64 = snapshots.iter().map(|item| item.health_score).sum();
+    KbProjectsOverviewSummary {
+        total_projects,
+        healthy_projects: snapshots.iter().filter(|item| item.health_score >= 80).count() as i64,
+        attention_projects: snapshots.iter().filter(|item| item.health_score < 80).count() as i64,
+        total_risks: snapshots.iter().map(|item| item.risk_count).sum(),
+        total_actions: snapshots.iter().map(|item| item.action_count).sum(),
+        average_score: if total_projects == 0 {
+            0
+        } else {
+            (total_score / total_projects).clamp(0, 100)
+        },
+    }
+}
+
+fn kb_project_overview_item(snapshot: &KbProjectHealthSnapshot) -> KbProjectOverviewItem {
+    KbProjectOverviewItem {
+        project_id: snapshot.project_id.clone(),
+        name: snapshot.name.clone(),
+        root_path: snapshot.root_path.clone(),
+        health_score: snapshot.health_score,
+        collection_coverage: snapshot.collection_coverage,
+        template_count: snapshot.template_count,
+        verified_template_count: snapshot.verified_template_count,
+        evidence_completeness: snapshot.evidence_completeness,
+        risk_count: snapshot.risk_count,
+        action_count: snapshot.action_count,
+        last_item_at: snapshot.last_item_at.clone(),
+        primary_risk: snapshot.risks.first().cloned().unwrap_or_default(),
+        next_action: snapshot
+            .suggested_actions
+            .first()
+            .cloned()
+            .unwrap_or_else(|| "保持当前项目知识维护节奏".into()),
+    }
+}
+
+fn kb_projects_overview_internal() -> Result<KbProjectsOverviewResponse, String> {
+    let mut snapshots = kb_project_health_snapshots_internal()?.snapshots;
+    snapshots.sort_by(|left, right| {
+        left.health_score
+            .cmp(&right.health_score)
+            .then_with(|| right.risk_count.cmp(&left.risk_count))
+            .then_with(|| right.last_item_at.cmp(&left.last_item_at))
+    });
+    let summary = kb_projects_overview_summary(&snapshots);
+    let projects = snapshots.iter().map(kb_project_overview_item).collect();
+    Ok(KbProjectsOverviewResponse { summary, projects })
+}
+
+fn kb_project_snapshot_by_id(project_id: &str) -> Result<KbProjectHealthSnapshot, String> {
+    let snapshots = kb_project_health_snapshots_internal()?.snapshots;
+    snapshots
+        .into_iter()
+        .find(|item| item.project_id == project_id)
+        .ok_or_else(|| "project_not_found".to_string())
+}
+
+fn kb_project_health_detail_internal(
+    project_id: &str,
+) -> Result<KbProjectHealthDetailResponse, String> {
+    Ok(KbProjectHealthDetailResponse {
+        project: kb_project_snapshot_by_id(project_id)?,
+    })
+}
+
+fn kb_project_action_route_hint(action: &str) -> String {
+    if action.contains("复盘") {
+        "retro".into()
+    } else if action.contains("测试") {
+        "search".into()
+    } else if action.contains("模板") {
+        "prompt".into()
+    } else if action.contains("采集") {
+        "collect".into()
+    } else {
+        "health".into()
+    }
+}
+
+fn kb_project_actions_internal(project_id: &str) -> Result<KbProjectActionsResponse, String> {
+    let snapshot = kb_project_snapshot_by_id(project_id)?;
+    let actions = snapshot
+        .suggested_actions
+        .iter()
+        .enumerate()
+        .map(|(index, action)| KbProjectActionItem {
+            project_id: snapshot.project_id.clone(),
+            title: action.clone(),
+            priority: if snapshot.health_score < 50 || index == 0 {
+                "P0".into()
+            } else {
+                "P1".into()
+            },
+            reason: snapshot.risks.get(index).cloned().unwrap_or_else(|| {
+                snapshot
+                    .risks
+                    .first()
+                    .cloned()
+                    .unwrap_or_else(|| "项目知识健康度需要维护".into())
+            }),
+            suggested_action: action.clone(),
+            route_hint: kb_project_action_route_hint(action),
+        })
+        .collect::<Vec<_>>();
+    Ok(KbProjectActionsResponse {
+        project_id: snapshot.project_id,
+        name: snapshot.name,
+        actions,
+    })
+}
+
 #[allow(dead_code)]
 fn kb_health_template_primary_source(conn: &Connection, template_id: &str) -> String {
     conn.query_row(
@@ -8735,6 +8912,18 @@ fn handle_knowledgebase_http_request(mut request: Request) {
                 ),
             }
         }
+        "/api/projects/overview" => match kb_projects_overview_internal() {
+            Ok(data) => http_respond_json(
+                request,
+                200,
+                serde_json::to_string(&data).unwrap_or_else(|_| "{}".to_string()),
+            ),
+            Err(err) => http_respond_json(
+                request,
+                500,
+                serde_json::json!({ "error": err }).to_string(),
+            ),
+        },
         "/api/projects/snapshots" => match kb_project_health_snapshots_internal() {
             Ok(data) => http_respond_json(
                 request,
@@ -8747,6 +8936,42 @@ fn handle_knowledgebase_http_request(mut request: Request) {
                 serde_json::json!({ "error": err }).to_string(),
             ),
         },
+        _ if path.starts_with("/api/projects/") && path.ends_with("/health") => {
+            let project_id = url_decode(
+                path.trim_start_matches("/api/projects/")
+                    .trim_end_matches("/health"),
+            );
+            match kb_project_health_detail_internal(&project_id) {
+                Ok(data) => http_respond_json(
+                    request,
+                    200,
+                    serde_json::to_string(&data).unwrap_or_else(|_| "{}".to_string()),
+                ),
+                Err(err) => http_respond_json(
+                    request,
+                    if err == "project_not_found" { 404 } else { 500 },
+                    serde_json::json!({ "error": err }).to_string(),
+                ),
+            }
+        }
+        _ if path.starts_with("/api/projects/") && path.ends_with("/actions") => {
+            let project_id = url_decode(
+                path.trim_start_matches("/api/projects/")
+                    .trim_end_matches("/actions"),
+            );
+            match kb_project_actions_internal(&project_id) {
+                Ok(data) => http_respond_json(
+                    request,
+                    200,
+                    serde_json::to_string(&data).unwrap_or_else(|_| "{}".to_string()),
+                ),
+                Err(err) => http_respond_json(
+                    request,
+                    if err == "project_not_found" { 404 } else { 500 },
+                    serde_json::json!({ "error": err }).to_string(),
+                ),
+            }
+        }
         "/api/projects" => match kb_list_projects_internal() {
             Ok(data) => http_respond_json(
                 request,
