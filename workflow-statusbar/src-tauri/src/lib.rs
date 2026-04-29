@@ -50,6 +50,7 @@ const TRAY_MENU_QUIT: &str = "quit";
 const KNOWLEDGEBASE_DEFAULT_WEB_URL: &str = "http://127.0.0.1:8788";
 const KNOWLEDGEBASE_DEFAULT_BIND_ADDR: &str = "127.0.0.1:8788";
 const KNOWLEDGEBASE_WEB_HTML: &str = include_str!("../resources/knowledgebase/index.html");
+const WORKFLOW_PACK_SCHEMA_VERSION: &str = "1.0.0";
 
 type SharedRuntimeCache = Arc<Mutex<RuntimeCache>>;
 type SharedAlertSettings = Arc<Mutex<AlertSettings>>;
@@ -725,6 +726,26 @@ struct KbProjectActionsResponse {
     project_id: String,
     name: String,
     actions: Vec<KbProjectActionItem>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+#[allow(dead_code)]
+struct KbWorkflowPackTypeSchema {
+    pack_type: String,
+    title: String,
+    description: String,
+    required_sections: Vec<String>,
+    required_fields: Vec<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+#[allow(dead_code)]
+struct KbWorkflowPackSchemaResponse {
+    schema_version: String,
+    checksum_algorithm: String,
+    envelope_required_fields: Vec<String>,
+    item_required_fields: Vec<String>,
+    supported_pack_types: Vec<KbWorkflowPackTypeSchema>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq, Default)]
@@ -3800,6 +3821,32 @@ fn ensure_knowledgebase_schema_migration(conn: &Connection) -> Result<(), String
           created_at TEXT DEFAULT CURRENT_TIMESTAMP,
           updated_at TEXT DEFAULT CURRENT_TIMESTAMP
         );
+        CREATE TABLE IF NOT EXISTS workflow_packs (
+          id TEXT PRIMARY KEY,
+          pack_type TEXT NOT NULL,
+          schema_version TEXT NOT NULL,
+          title TEXT NOT NULL,
+          source_ref TEXT NOT NULL DEFAULT '',
+          package_json TEXT NOT NULL DEFAULT '{}',
+          package_markdown TEXT NOT NULL DEFAULT '',
+          checksum TEXT NOT NULL DEFAULT '',
+          status TEXT NOT NULL DEFAULT 'draft',
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS workflow_pack_items (
+          id TEXT PRIMARY KEY,
+          pack_id TEXT NOT NULL,
+          item_type TEXT NOT NULL,
+          source_table TEXT NOT NULL DEFAULT '',
+          source_id TEXT NOT NULL DEFAULT '',
+          title TEXT NOT NULL DEFAULT '',
+          path TEXT NOT NULL DEFAULT '',
+          content_hash TEXT NOT NULL DEFAULT '',
+          required INTEGER NOT NULL DEFAULT 0,
+          payload_json TEXT NOT NULL DEFAULT '{}',
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
         CREATE INDEX IF NOT EXISTS idx_prompt_templates_status ON prompt_templates(status, category);
         CREATE INDEX IF NOT EXISTS idx_prompt_sources_template ON prompt_template_sources(template_id);
         CREATE INDEX IF NOT EXISTS idx_knowledge_units_status ON knowledge_units(status, unit_type, category);
@@ -3815,6 +3862,8 @@ fn ensure_knowledgebase_schema_migration(conn: &Connection) -> Result<(), String
         CREATE INDEX IF NOT EXISTS idx_api_call_logs_client_tool ON api_call_logs(client_id, tool_name, created_at DESC);
         CREATE INDEX IF NOT EXISTS idx_project_health_snapshots_score ON project_health_snapshots(health_score, risk_count);
         CREATE INDEX IF NOT EXISTS idx_project_action_items_project ON project_action_items(project_id, status, priority);
+        CREATE INDEX IF NOT EXISTS idx_workflow_packs_type ON workflow_packs(pack_type, status, updated_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_workflow_pack_items_pack ON workflow_pack_items(pack_id, item_type);
         "#,
     )
     .map_err(|err| err.to_string())?;
@@ -7153,6 +7202,114 @@ fn kb_project_actions_internal(project_id: &str) -> Result<KbProjectActionsRespo
     })
 }
 
+fn kb_workflow_pack_type_schema(
+    pack_type: &str,
+    title: &str,
+    description: &str,
+    required_sections: &[&str],
+    required_fields: &[&str],
+) -> KbWorkflowPackTypeSchema {
+    KbWorkflowPackTypeSchema {
+        pack_type: pack_type.into(),
+        title: title.into(),
+        description: description.into(),
+        required_sections: required_sections
+            .iter()
+            .map(|item| (*item).into())
+            .collect(),
+        required_fields: required_fields.iter().map(|item| (*item).into()).collect(),
+    }
+}
+
+fn kb_workflow_pack_schema_internal() -> KbWorkflowPackSchemaResponse {
+    KbWorkflowPackSchemaResponse {
+        schema_version: WORKFLOW_PACK_SCHEMA_VERSION.into(),
+        checksum_algorithm: "sha256".into(),
+        envelope_required_fields: vec![
+            "schema_version".into(),
+            "pack_type".into(),
+            "pack_id".into(),
+            "title".into(),
+            "created_at".into(),
+            "source".into(),
+            "items".into(),
+            "markdown".into(),
+            "checksum".into(),
+        ],
+        item_required_fields: vec![
+            "item_id".into(),
+            "item_type".into(),
+            "title".into(),
+            "source_ref".into(),
+            "required".into(),
+            "payload".into(),
+        ],
+        supported_pack_types: vec![
+            kb_workflow_pack_type_schema(
+                "requirement_context_pack",
+                "需求上下文包",
+                "围绕 REQ 聚合 PRD、任务拆解、设计材料、关键约束和验收口径。",
+                &[
+                    "metadata",
+                    "requirement",
+                    "tasks",
+                    "evidence_index",
+                    "acceptance",
+                ],
+                &["req_id", "title", "prd_ref", "task_refs"],
+            ),
+            kb_workflow_pack_type_schema(
+                "development_handoff_pack",
+                "开发交接包",
+                "面向开发 AI 的任务输入，包含目标、上下文、相关文件、风险和验证命令。",
+                &[
+                    "metadata",
+                    "task",
+                    "context",
+                    "files",
+                    "risks",
+                    "verification",
+                ],
+                &["task_id", "goal", "context_summary", "suggested_files"],
+            ),
+            kb_workflow_pack_type_schema(
+                "verification_evidence_pack",
+                "验证证据包",
+                "沉淀构建、API、UI、联调和残余风险，供复盘或后续审计使用。",
+                &["metadata", "commands", "api_smoke", "ui_checks", "risks"],
+                &["target_ref", "commands", "results"],
+            ),
+            kb_workflow_pack_type_schema(
+                "retrospective_pack",
+                "复盘沉淀包",
+                "保存执行结论、遗漏信息、沉淀建议和与开工包的关联评估。",
+                &[
+                    "metadata",
+                    "summary",
+                    "lessons",
+                    "suggestions",
+                    "starter_evaluation",
+                ],
+                &["input_ref", "summary", "suggestions"],
+            ),
+            kb_workflow_pack_type_schema(
+                "project_knowledge_pack",
+                "项目知识包",
+                "面向单项目迁移或交接，聚合项目画像、关键证据、模板、风险和健康快照。",
+                &[
+                    "metadata",
+                    "project",
+                    "health",
+                    "evidence_index",
+                    "templates",
+                    "actions",
+                ],
+                &["project_id", "project_name", "root_path", "health_snapshot"],
+            ),
+        ],
+    }
+}
+
 #[allow(dead_code)]
 fn kb_health_template_primary_source(conn: &Connection, template_id: &str) -> String {
     conn.query_row(
@@ -9258,6 +9415,22 @@ fn handle_knowledgebase_http_request(mut request: Request) {
                 serde_json::json!({ "error": err }).to_string(),
             ),
         },
+        "/api/workflow-packs/schema" => {
+            if request.method() != &Method::Get {
+                http_respond_json(
+                    request,
+                    405,
+                    serde_json::json!({ "error": "method_not_allowed" }).to_string(),
+                );
+                return;
+            }
+            let data = kb_workflow_pack_schema_internal();
+            http_respond_json(
+                request,
+                200,
+                serde_json::to_string(&data).unwrap_or_else(|_| "{}".to_string()),
+            );
+        }
         _ if path.starts_with("/api/projects/") && path.ends_with("/health") => {
             let project_id = url_decode(
                 path.trim_start_matches("/api/projects/")
