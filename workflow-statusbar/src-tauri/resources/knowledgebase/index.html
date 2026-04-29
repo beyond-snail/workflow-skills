@@ -2312,8 +2312,6 @@
       border-radius: 12px;
       background: #fff;
       padding: 10px;
-      text-align: left;
-      cursor: pointer;
       display: grid;
       gap: 6px;
       color: #263852;
@@ -2334,6 +2332,30 @@
       color: var(--muted);
       font-size: 10px;
       line-height: 1.45;
+    }
+
+    .health-action-links {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 6px;
+      margin-top: 2px;
+    }
+
+    .health-action-link {
+      border: 1px solid #cfe0f2;
+      border-radius: 8px;
+      background: #fbfdff;
+      color: #28415f;
+      font-size: 10px;
+      font-weight: 700;
+      line-height: 1.2;
+      padding: 7px 6px;
+      cursor: pointer;
+    }
+
+    .health-action-link:hover {
+      border-color: #91cfd8;
+      background: #eef8f9;
     }
 
     .prompt-layout {
@@ -3348,11 +3370,17 @@
         return;
       }
       target.innerHTML = healthState.actions.slice(0, 24).map((item) => `
-        <button class="health-action" type="button" data-health-action-type="${esc(item.target_type)}" data-health-action-id="${esc(item.target_id)}" data-health-action-title="${esc(item.title)}">
+        <article class="health-action">
           <b>${esc(item.priority || 'P1')} · ${esc(item.title || item.target_id)}</b>
           <span>${esc(item.reason || '需要整理')} · score ${Number(item.score || 0)}</span>
           <span>${esc(item.suggested_action || '补充证据和验证记录')}</span>
-        </button>
+          <div class="health-action-links">
+            <button class="health-action-link" type="button" data-health-action-nav="primary" data-health-action-type="${esc(item.target_type)}" data-health-action-id="${esc(item.target_id)}" data-health-action-title="${esc(item.title)}">主目标</button>
+            <button class="health-action-link" type="button" data-health-action-nav="evidence" data-health-evidence-id="${esc(item.evidence_item_id || '')}" data-health-query="${esc(item.search_query || item.title)}">原始证据</button>
+            <button class="health-action-link" type="button" data-health-action-nav="graph" data-health-query="${esc(item.graph_query || item.search_query || item.title)}">图谱</button>
+            <button class="health-action-link" type="button" data-health-action-nav="starter" data-health-starter-input="${esc(item.starter_input || item.title)}">开工包</button>
+          </div>
+        </article>
       `).join('');
     }
 
@@ -3392,6 +3420,47 @@
       document.getElementById('q').value = title || id || '';
       setActiveWorkspace('search');
       await runSearch();
+    }
+
+    async function openHealthEvidence(itemId, query) {
+      setActiveWorkspace('search');
+      if (itemId) {
+        const res = await fetch('/api/item/' + encodeURIComponent(itemId));
+        const data = await res.json();
+        if (data.item) {
+          const item = {
+            ...data.item,
+            snippet: String(data.item.content_text || '').slice(0, 180),
+            source_tool: inferTool(data.item)
+          };
+          state.selected = item;
+          state.detailCache[item.item_id] = data.item;
+          renderDetail(item);
+          await renderDetailContent(item);
+          await renderTrace(item.item_id);
+          document.getElementById('q').value = item.title || query || '';
+          return;
+        }
+      }
+      document.getElementById('q').value = query || '';
+      await runSearch();
+    }
+
+    async function openHealthGraph(query) {
+      graphState.selectedId = graphCoreNodes.some((node) => node.id === 'ku-prompt-engineering')
+        ? 'ku-prompt-engineering'
+        : 'theme-search';
+      setActiveWorkspace('graph');
+      graphUpdateDetail(graphState.selectedId);
+      document.getElementById('graphDetailSummary').textContent = query
+        ? `健康度建议关联：${query}。可从图谱回到模板、搜索或证据继续追溯。`
+        : '健康度建议已切到图谱视角。';
+    }
+
+    async function openHealthStarter(input) {
+      setActiveWorkspace('starter');
+      document.getElementById('starterInput').value = input || '整理知识资产健康度';
+      await runStarterPreview();
     }
 
     const GRAPH_AUTO_SPIN_SPEED = 0.000075;
@@ -5891,13 +5960,25 @@
 
       document.getElementById('healthActions').addEventListener('click', (event) => {
         if (!(event.target instanceof Element)) return;
-        const btn = event.target.closest('button[data-health-action-type]');
+        const btn = event.target.closest('button[data-health-action-nav]');
         if (!btn) return;
-        openHealthTarget(
-          btn.getAttribute('data-health-action-type') || '',
-          btn.getAttribute('data-health-action-id') || '',
-          btn.getAttribute('data-health-action-title') || ''
-        );
+        const nav = btn.getAttribute('data-health-action-nav') || 'primary';
+        if (nav === 'evidence') {
+          openHealthEvidence(
+            btn.getAttribute('data-health-evidence-id') || '',
+            btn.getAttribute('data-health-query') || ''
+          );
+        } else if (nav === 'graph') {
+          openHealthGraph(btn.getAttribute('data-health-query') || '');
+        } else if (nav === 'starter') {
+          openHealthStarter(btn.getAttribute('data-health-starter-input') || '');
+        } else {
+          openHealthTarget(
+            btn.getAttribute('data-health-action-type') || '',
+            btn.getAttribute('data-health-action-id') || '',
+            btn.getAttribute('data-health-action-title') || ''
+          );
+        }
       });
 
       document.getElementById('resetFiltersBtn').addEventListener('click', () => {

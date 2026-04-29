@@ -524,6 +524,11 @@ struct KbHealthAction {
     priority: String,
     reason: String,
     suggested_action: String,
+    primary_route: String,
+    evidence_item_id: String,
+    search_query: String,
+    graph_query: String,
+    starter_input: String,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -6363,11 +6368,29 @@ fn kb_health_projects_internal() -> Result<KbHealthProjectsResponse, String> {
 }
 
 #[allow(dead_code)]
+fn kb_health_template_primary_source(conn: &Connection, template_id: &str) -> String {
+    conn.query_row(
+        r#"
+        SELECT item_id
+        FROM prompt_template_sources
+        WHERE template_id = ?1
+        ORDER BY confidence DESC, created_at DESC
+        LIMIT 1
+        "#,
+        params![template_id],
+        |row| row.get::<_, String>(0),
+    )
+    .unwrap_or_default()
+}
+
+#[allow(dead_code)]
 fn kb_health_actions_internal() -> Result<KbHealthActionsResponse, String> {
+    let conn = connect_knowledgebase()?;
     let assets = kb_health_assets_internal()?.assets;
     let projects = kb_health_projects_internal()?.projects;
     let mut actions = Vec::new();
     for asset in assets.iter().filter(|item| item.score < 80).take(8) {
+        let evidence_item_id = kb_health_template_primary_source(&conn, &asset.asset_id);
         actions.push(KbHealthAction {
             target_type: asset.asset_type.clone(),
             target_id: asset.asset_id.clone(),
@@ -6376,6 +6399,11 @@ fn kb_health_actions_internal() -> Result<KbHealthActionsResponse, String> {
             priority: if asset.score < 50 { "P0".into() } else { "P1".into() },
             reason: asset.reasons.first().cloned().unwrap_or_default(),
             suggested_action: asset.suggested_action.clone(),
+            primary_route: "prompt".into(),
+            evidence_item_id,
+            search_query: asset.title.clone(),
+            graph_query: asset.category.clone(),
+            starter_input: format!("整理健康度模板：{}。问题：{}", asset.title, asset.reasons.first().cloned().unwrap_or_default()),
         });
     }
     for project in projects.iter().filter(|item| item.score < 80).take(5) {
@@ -6387,6 +6415,11 @@ fn kb_health_actions_internal() -> Result<KbHealthActionsResponse, String> {
             priority: if project.score < 50 { "P0".into() } else { "P1".into() },
             reason: project.reasons.first().cloned().unwrap_or_default(),
             suggested_action: project.suggested_action.clone(),
+            primary_route: "project".into(),
+            evidence_item_id: String::new(),
+            search_query: project.name.clone(),
+            graph_query: project.name.clone(),
+            starter_input: format!("整理项目知识健康度：{}。问题：{}", project.name, project.reasons.first().cloned().unwrap_or_default()),
         });
     }
     actions.sort_by(|left, right| left.score.cmp(&right.score));
