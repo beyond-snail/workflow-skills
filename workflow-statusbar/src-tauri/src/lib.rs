@@ -480,6 +480,85 @@ struct KbTaskStarterSessionDetailResponse {
     markdown: String,
 }
 
+#[derive(Clone, Serialize, Deserialize, Debug)]
+#[allow(dead_code)]
+struct KbHealthAsset {
+    asset_type: String,
+    asset_id: String,
+    title: String,
+    category: String,
+    status: String,
+    score: i64,
+    level: String,
+    source_count: i64,
+    reasons: Vec<String>,
+    suggested_action: String,
+    updated_at: String,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+#[allow(dead_code)]
+struct KbHealthProject {
+    project_id: String,
+    name: String,
+    root_path: String,
+    score: i64,
+    level: String,
+    item_count: i64,
+    document_count: i64,
+    conversation_count: i64,
+    memory_count: i64,
+    workflow_count: i64,
+    reasons: Vec<String>,
+    suggested_action: String,
+    last_item_at: String,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+#[allow(dead_code)]
+struct KbHealthAction {
+    target_type: String,
+    target_id: String,
+    title: String,
+    score: i64,
+    priority: String,
+    reason: String,
+    suggested_action: String,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+#[allow(dead_code)]
+struct KbHealthSummary {
+    total_assets: i64,
+    healthy_assets: i64,
+    attention_assets: i64,
+    noise_candidates: i64,
+    total_projects: i64,
+    healthy_projects: i64,
+    attention_projects: i64,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+#[allow(dead_code)]
+struct KbHealthAssetsResponse {
+    summary: KbHealthSummary,
+    assets: Vec<KbHealthAsset>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+#[allow(dead_code)]
+struct KbHealthProjectsResponse {
+    summary: KbHealthSummary,
+    projects: Vec<KbHealthProject>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+#[allow(dead_code)]
+struct KbHealthActionsResponse {
+    summary: KbHealthSummary,
+    actions: Vec<KbHealthAction>,
+}
+
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 enum AlertProviderMode {
@@ -6040,6 +6119,279 @@ fn kb_prompt_template_candidate_note_internal(
         "candidate_note": candidate_note.trim(),
         "changed": changed
     }))
+}
+
+#[allow(dead_code)]
+fn kb_health_level(score: i64) -> String {
+    if score >= 80 {
+        "healthy".into()
+    } else if score >= 60 {
+        "attention".into()
+    } else {
+        "risk".into()
+    }
+}
+
+#[allow(dead_code)]
+fn kb_health_suggested_action(asset_type: &str, score: i64, reasons: &[String]) -> String {
+    if score >= 80 {
+        return "保持现状，后续复用时补充最新验证记录".into();
+    }
+    if reasons.iter().any(|item| item.contains("来源证据")) {
+        return "补充来源证据或重新采集关联文档".into();
+    }
+    if reasons.iter().any(|item| item.contains("示例") || item.contains("输出格式")) {
+        return "补齐变量、示例输入和输出格式".into();
+    }
+    if reasons.iter().any(|item| item.contains("候选") || item.contains("噪音")) {
+        return "人工审核候选，明确进入精修、以后再看或标记噪音".into();
+    }
+    if asset_type == "project" {
+        return "补采集 workflow、memory、document 和 conversation 来源".into();
+    }
+    "补充证据、审核状态和最近验证记录".into()
+}
+
+#[allow(dead_code)]
+fn kb_health_summary(assets: &[KbHealthAsset], projects: &[KbHealthProject]) -> KbHealthSummary {
+    KbHealthSummary {
+        total_assets: assets.len() as i64,
+        healthy_assets: assets.iter().filter(|item| item.score >= 80).count() as i64,
+        attention_assets: assets.iter().filter(|item| item.score < 80).count() as i64,
+        noise_candidates: assets
+            .iter()
+            .filter(|item| item.status == "noise" || item.reasons.iter().any(|reason| reason.contains("噪音")))
+            .count() as i64,
+        total_projects: projects.len() as i64,
+        healthy_projects: projects.iter().filter(|item| item.score >= 80).count() as i64,
+        attention_projects: projects.iter().filter(|item| item.score < 80).count() as i64,
+    }
+}
+
+#[allow(dead_code)]
+fn kb_health_template_score(
+    status: &str,
+    quality_score: i64,
+    source_count: i64,
+    variables_json: &str,
+    example_input: &str,
+    output_format: &str,
+    usage_boundary: &str,
+    review_note: &str,
+) -> (i64, Vec<String>) {
+    let mut score = quality_score.clamp(0, 100);
+    let mut reasons = Vec::new();
+
+    match status {
+        "verified" => score += 8,
+        "reviewed" => score += 4,
+        "candidate" | "refining" => {
+            score -= 18;
+            reasons.push("仍处于候选或精修状态".into());
+        }
+        "later" => {
+            score -= 24;
+            reasons.push("已标记以后再看".into());
+        }
+        "noise" => {
+            score -= 42;
+            reasons.push("候选噪音需要清理".into());
+        }
+        "deprecated" => {
+            score -= 50;
+            reasons.push("模板已废弃".into());
+        }
+        _ => {}
+    }
+
+    if source_count <= 0 {
+        score -= 18;
+        reasons.push("缺少来源证据".into());
+    }
+    if variables_json.trim().is_empty() {
+        score -= 8;
+        reasons.push("缺少输入变量".into());
+    }
+    if example_input.trim().is_empty() {
+        score -= 8;
+        reasons.push("缺少示例输入".into());
+    }
+    if output_format.trim().is_empty() {
+        score -= 8;
+        reasons.push("缺少输出格式".into());
+    }
+    if usage_boundary.trim().is_empty() {
+        score -= 6;
+        reasons.push("缺少适用边界".into());
+    }
+    if review_note.trim().is_empty() && matches!(status, "reviewed" | "verified") {
+        score -= 5;
+        reasons.push("缺少审核备注".into());
+    }
+    if reasons.is_empty() {
+        reasons.push("模板字段、状态和来源证据完整度良好".into());
+    }
+    (score.clamp(0, 100), reasons)
+}
+
+#[allow(dead_code)]
+fn kb_health_assets_internal() -> Result<KbHealthAssetsResponse, String> {
+    let conn = connect_knowledgebase()?;
+    let mut stmt = conn
+        .prepare(
+            r#"
+            SELECT t.id, t.name, t.category, t.status, COALESCE(t.quality_score, 60),
+                   COALESCE(t.variables_json, ''), COALESCE(t.example_input, ''),
+                   COALESCE(t.output_format, ''), COALESCE(t.usage_boundary, ''),
+                   COALESCE(t.review_note, ''), COALESCE(t.updated_at, ''),
+                   COUNT(s.template_id) AS source_count
+            FROM prompt_templates t
+            LEFT JOIN prompt_template_sources s ON s.template_id = t.id
+            GROUP BY t.id
+            ORDER BY t.updated_at DESC
+            "#,
+        )
+        .map_err(|err| err.to_string())?;
+    let rows = stmt
+        .query_map([], |row| {
+            let status = row.get::<_, String>(3).unwrap_or_default();
+            let source_count = row.get::<_, i64>(11).unwrap_or(0);
+            let (score, reasons) = kb_health_template_score(
+                &status,
+                row.get::<_, i64>(4).unwrap_or(60),
+                source_count,
+                &row.get::<_, String>(5).unwrap_or_default(),
+                &row.get::<_, String>(6).unwrap_or_default(),
+                &row.get::<_, String>(7).unwrap_or_default(),
+                &row.get::<_, String>(8).unwrap_or_default(),
+                &row.get::<_, String>(9).unwrap_or_default(),
+            );
+            Ok(KbHealthAsset {
+                asset_type: "prompt_template".into(),
+                asset_id: row.get::<_, String>(0)?,
+                title: row.get::<_, String>(1)?,
+                category: row.get::<_, String>(2).unwrap_or_default(),
+                status: status.clone(),
+                score,
+                level: kb_health_level(score),
+                source_count,
+                reasons: reasons.clone(),
+                suggested_action: kb_health_suggested_action("prompt_template", score, &reasons),
+                updated_at: row.get::<_, String>(10).unwrap_or_default(),
+            })
+        })
+        .map_err(|err| err.to_string())?;
+    let mut assets = Vec::new();
+    for row in rows {
+        assets.push(row.map_err(|err| err.to_string())?);
+    }
+    assets.sort_by(|left, right| left.score.cmp(&right.score).then_with(|| right.updated_at.cmp(&left.updated_at)));
+    let summary = kb_health_summary(&assets, &[]);
+    Ok(KbHealthAssetsResponse { summary, assets })
+}
+
+#[allow(dead_code)]
+fn kb_health_project_score(project: &KbProjectStatus) -> (i64, Vec<String>) {
+    let mut score = 20_i64;
+    let mut reasons = Vec::new();
+    if project.document_count > 0 {
+        score += 18;
+    } else {
+        reasons.push("缺少文档采集".into());
+    }
+    if project.workflow_count > 0 {
+        score += 18;
+    } else {
+        reasons.push("缺少 workflow 治理材料".into());
+    }
+    if project.memory_count > 0 {
+        score += 14;
+    } else {
+        reasons.push("缺少任务记忆".into());
+    }
+    if project.conversation_count > 0 {
+        score += 12;
+    } else {
+        reasons.push("缺少 AI 会话采集".into());
+    }
+    if project.item_count >= 20 {
+        score += 12;
+    } else if project.item_count > 0 {
+        score += 6;
+        reasons.push("知识条目数量偏少".into());
+    } else {
+        reasons.push("项目尚无可用知识条目".into());
+    }
+    if project.path_exists {
+        score += 6;
+    } else {
+        reasons.push("项目路径不可访问".into());
+    }
+    if reasons.is_empty() {
+        reasons.push("项目采集覆盖较完整".into());
+    }
+    (score.clamp(0, 100), reasons)
+}
+
+#[allow(dead_code)]
+fn kb_health_projects_internal() -> Result<KbHealthProjectsResponse, String> {
+    let statuses = kb_list_projects_internal()?;
+    let mut projects = statuses
+        .into_iter()
+        .map(|project| {
+            let (score, reasons) = kb_health_project_score(&project);
+            KbHealthProject {
+                project_id: project.project_id,
+                name: project.name,
+                root_path: project.root_path,
+                score,
+                level: kb_health_level(score),
+                item_count: project.item_count,
+                document_count: project.document_count,
+                conversation_count: project.conversation_count,
+                memory_count: project.memory_count,
+                workflow_count: project.workflow_count,
+                reasons: reasons.clone(),
+                suggested_action: kb_health_suggested_action("project", score, &reasons),
+                last_item_at: project.last_item_at,
+            }
+        })
+        .collect::<Vec<_>>();
+    projects.sort_by(|left, right| left.score.cmp(&right.score).then_with(|| right.last_item_at.cmp(&left.last_item_at)));
+    let summary = kb_health_summary(&[], &projects);
+    Ok(KbHealthProjectsResponse { summary, projects })
+}
+
+#[allow(dead_code)]
+fn kb_health_actions_internal() -> Result<KbHealthActionsResponse, String> {
+    let assets = kb_health_assets_internal()?.assets;
+    let projects = kb_health_projects_internal()?.projects;
+    let mut actions = Vec::new();
+    for asset in assets.iter().filter(|item| item.score < 80).take(8) {
+        actions.push(KbHealthAction {
+            target_type: asset.asset_type.clone(),
+            target_id: asset.asset_id.clone(),
+            title: asset.title.clone(),
+            score: asset.score,
+            priority: if asset.score < 50 { "P0".into() } else { "P1".into() },
+            reason: asset.reasons.first().cloned().unwrap_or_default(),
+            suggested_action: asset.suggested_action.clone(),
+        });
+    }
+    for project in projects.iter().filter(|item| item.score < 80).take(5) {
+        actions.push(KbHealthAction {
+            target_type: "project".into(),
+            target_id: project.project_id.clone(),
+            title: project.name.clone(),
+            score: project.score,
+            priority: if project.score < 50 { "P0".into() } else { "P1".into() },
+            reason: project.reasons.first().cloned().unwrap_or_default(),
+            suggested_action: project.suggested_action.clone(),
+        });
+    }
+    actions.sort_by(|left, right| left.score.cmp(&right.score));
+    let summary = kb_health_summary(&assets, &projects);
+    Ok(KbHealthActionsResponse { summary, actions })
 }
 
 fn kb_task_starter_extract_identifier(input: &str, prefix: &str) -> String {
