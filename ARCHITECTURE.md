@@ -1,10 +1,12 @@
-# 项目架构与技术说明
+# Architecture
 
-## 1. 项目定位
+## 1. Project Scope
 
-`workflow-skills` 是一套面向 AI 协作研发的治理型 skill 包。它不替代业务系统，也不是单纯的脚手架；核心目标是把仓库初始化、需求治理、执行验证、证据沉淀和运行状态放到同一套可追溯链路里。
+`workflow-skills` is a local workflow toolkit for repositories that use AI coding hosts. It provides three workflow skills plus an optional desktop monitor.
 
-项目由三个必选 workflow skill 和一个可选桌面观察层组成：
+The project is intentionally file-based. It uses repository-local workflow documents, `.ai/memory`, and `.ai/runtime/project-state.json` instead of a remote project-management service.
+
+## 2. Components
 
 | 模块 | 定位 | 是否必选 | 主要产物 |
 | --- | --- | --- | --- |
@@ -13,34 +15,46 @@
 | `workflow-execution` | 在人工审核后执行开发收口 | 必选 | 代码改动、验证记录、证据、任务记忆、提交/闸门结论、状态回写 |
 | `workflow-statusbar` | 桌面状态聚合与提醒 | 可选 | 菜单栏/托盘面板、悬浮窗、通知、本地知识库 Web/API/MCP |
 
-## 2. 总体架构
+## 3. System Architecture
 
 ```mermaid
 flowchart LR
-    A[workflow-bootstrap<br/>初始化协作底座] --> B[workflow-requirement<br/>需求治理]
-    B --> G[人工审核门]
-    G --> C[workflow-execution<br/>实现与验证收口]
+    subgraph Skills[Workflow Skills]
+        A[workflow-bootstrap<br/>init files and profile]
+        B[workflow-requirement<br/>requirements and handoff]
+        C[workflow-execution<br/>implementation and evidence]
+    end
 
-    A -.写入.-> S[(.ai/runtime/project-state.json)]
-    B -.写入.-> S
-    C -.写入.-> S
+    G[Human review gate]
+    S[(.ai/runtime/project-state.json)]
+    M[(.ai/memory)]
+    D[workflow-statusbar<br/>Tauri desktop monitor]
+    H[AI host sessions<br/>Codex / Claude]
+    K[Local knowledgebase<br/>SQLite + HTTP API + MCP]
+    N[Notifications]
 
-    S -.读取.-> D[workflow-statusbar<br/>桌面状态聚合]
-    H[Codex / Claude 本机会话] -.读取.-> D
-    D --> K[本地知识库 Web/API/MCP]
-    D --> N[系统通知 / 远程提醒]
+    A --> B --> G --> C
+    A -.writes.-> S
+    B -.writes.-> S
+    C -.writes.-> S
+    B -.writes.-> M
+    C -.writes.-> M
+    S -.reads.-> D
+    H -.reads.-> D
+    D --> K
+    D --> N
 ```
 
-核心原则：
+Core rules:
 
-1. 三个 skill 是治理动作层，按 `bootstrap -> requirement -> execution` 顺序推进。
-2. `.ai/runtime/project-state.json` 是跨阶段状态事实源，供脚本、AI 和 statusbar 共同读取。
-3. `workflow-statusbar` 是观察层，不参与阶段门决策，不自动替代人工审核。
-4. `.ai/memory/` 和 `docs/workflow/requirements/` 是长期证据与复用知识的主位置。
+1. The skills are the action layer.
+2. `project-state.json` is the runtime state source.
+3. `workflow-statusbar` is an observation layer.
+4. Requirement review and execution start remain explicit human-controlled gates.
 
-## 3. 技术栈
+## 4. Technology Stack
 
-### 3.1 Workflow Skill 层
+### Workflow Skills
 
 - 语言：`Python 3`
 - 文档与状态格式：`Markdown`、`YAML`、`JSON`
@@ -48,7 +62,7 @@ flowchart LR
 - 短命令封装：`.ai/bin/workflow`、`wf-init`、`wf-doctor`、`wf-cons`、`wf-req`、`wf-exec`、`wf-arc`
 - 主要数据源：`docs/workflow/`、`.ai/memory/`、`.ai/runtime/project-state.json`
 
-### 3.2 workflow-statusbar 桌面层
+### workflow-statusbar
 
 - 桌面框架：`Tauri 2`
 - 后端：`Rust 2021`
@@ -58,51 +72,40 @@ flowchart LR
 - 本地知识库：`SQLite` / `rusqlite` / `FTS5`
 - MCP 入口：`Node.js` stdio 脚本 `workflow-statusbar/scripts/kb-mcp-server.mjs`
 
-## 4. 核心目录
+## 5. Runtime State Flow
 
 ```text
-workflow-bootstrap/
-workflow-requirement/
-workflow-execution/
-workflow-statusbar/
-docs/workflow/
-.ai/
-```
-
-关键文件：
-
-- `README.md`：项目总入口。
-- `ARCHITECTURE.md`：本文档，说明架构、技术栈和模块关系。
-- `workflow-statusbar/README.md`：statusbar 使用与打包说明。
-- `workflow-statusbar/docs/架构与功能说明.md`：statusbar 详细实现说明。
-- `docs/workflow/PROJECT_CONTEXT.md`：当前工作区共享事实。
-- `docs/workflow/开发协作约定.md`：当前工作区协作约束。
-
-## 5. 运行与接口链路
-
-### 5.1 Skill 命令链路
-
-```text
-wf-init / wf-req / wf-exec
--> .ai/bin/workflow
--> workflow-bootstrap/scripts/workflow_cli.py
--> workflow-bootstrap / workflow-requirement / workflow-execution 对应脚本
--> docs/workflow + .ai/memory + .ai/runtime/project-state.json
-```
-
-### 5.2 Statusbar 状态链路
-
-```text
-~/.codex/state_5.sqlite + ~/.codex/logs_2.sqlite
-+ 项目 .ai/runtime/project-state.json
--> Rust 轮询聚合
+workflow skills
+-> docs/workflow + .ai/memory
+-> .ai/runtime/project-state.json
+-> workflow-statusbar Rust backend
 -> RuntimeState
--> Tauri command get_runtime_state
--> Tauri event runtime-state
--> React 面板 / 悬浮窗 / 通知
+-> Tauri get_runtime_state command + runtime-state event
+-> React UI
 ```
 
-### 5.3 本地知识库链路
+`RuntimeState` currently contains legacy `codex` compatibility fields plus the multi-host fields:
+
+- `hosts`
+- `active_host`
+- `other_host_summary`
+- `projects`
+- `groups`
+- `summary`
+- `spotlight_project`
+
+## 6. Host Monitoring Sources
+
+| Host | Sources | Notes |
+| --- | --- | --- |
+| Codex | `~/.codex/state_5.sqlite`, `~/.codex/logs_2.sqlite`, `pgrep -f "codex"` | Used for active thread, heartbeat, recent message, process state, and token usage where available. |
+| Claude | `~/.claude/history.jsonl`, `~/.claude/projects/*/*.jsonl`, `pgrep -f "claude"` | Used for recent project sessions, heartbeat, last message, and process state. |
+| Workflow project | `.ai/runtime/project-state.json` found from project paths | Used for workflow stage, gate, current requirement/task, risk, health, and blocked state. |
+| Alert settings | Tauri config plus environment variables | Used for local notifications and optional remote forwarding. |
+
+The primary host is selected by status priority, project-path match, recent activity, and a final stable tie-breaker.
+
+## 7. Local Knowledgebase Flow
 
 ```text
 workflow-statusbar 状态变化
@@ -115,30 +118,15 @@ workflow-statusbar 状态变化
 
 V1 API / MCP 默认只读，写入类外部请求会被拒绝。正式写入仍应通过 Web UI、workflow skill 或后续人工确认链路完成。
 
-## 6. workflow-statusbar 是什么
+## 8. Boundaries
 
-`workflow-statusbar` 是这套 workflow 的桌面观察层。它适合常驻运行，用来回答三个问题：
+- The skills do not provide a cloud backend.
+- The statusbar does not approve requirements or start execution.
+- The local API/MCP surface is for localhost usage.
+- The statusbar depends on local Codex/Claude storage formats; adapters may need updates if those formats change.
+- The current desktop experience is mostly tuned for macOS.
 
-1. 当前 AI Host 还在跑、在等输入、卡住，还是已经空闲？
-2. 当前接入 workflow 的项目处在什么阶段、哪个任务、风险如何？
-3. 关键事件是否需要提醒，是否要沉淀进本地知识库？
-
-它主要做：
-
-- 自动发现最近活跃的 workflow 项目。
-- 读取 `.ai/runtime/project-state.json` 和本机 AI Host 会话。
-- 展示项目阶段、任务状态、阻塞、Token 和健康摘要。
-- 在执行中、阻塞、完成、离线等状态变化时触发通知。
-- 提供本地知识库 Web 页面、只读 V1 API 和 stdio MCP server。
-
-它不做：
-
-- 不替代 `workflow-requirement` 的人工审核门。
-- 不直接启动 `workflow-execution`。
-- 不替代 Git 提交、发布闸门或测试验收。
-- 不作为公网服务暴露，默认只面向本机使用。
-
-## 7. 更新文档时的同步规则
+## 9. Documentation Sync Rules
 
 当三 skill 或 statusbar 的职责、状态字段、接口、技术栈发生变化时，至少同步检查：
 

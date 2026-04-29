@@ -5,8 +5,9 @@
 `workflow-statusbar` 是 `workflow-skills-copy` 仓库内的桌面子工程，用于常驻监听：
 
 - 三类 workflow skill 写入的 `.ai/runtime/project-state.json`
-- 本机 `~/.codex` 会话、日志与最近线程
-- Codex 当前是否仍在持续执行
+- 本机 Codex 会话、日志、最近线程与进程状态
+- 本机 Claude 会话、项目日志与进程状态
+- 当前主要 Host 是否仍在执行、等待输入、卡住或空闲
 
 产品形态：
 
@@ -22,11 +23,19 @@
 运行链路：
 
 ```text
-~/.codex state/logs + 项目 .ai/runtime/project-state.json
--> Rust 聚合 RuntimeState
+Codex/Claude 本机状态源 + 项目 .ai/runtime/project-state.json
+-> Rust 聚合多 Host RuntimeState
 -> Tauri command / runtime-state event
 -> React 面板、悬浮窗、通知
 ```
+
+当前 Host 数据源：
+
+| Host | 数据源 |
+| --- | --- |
+| Codex | `~/.codex/state_5.sqlite`、`~/.codex/logs_2.sqlite`、`pgrep -f "codex"` |
+| Claude | `~/.claude/history.jsonl`、`~/.claude/projects/*/*.jsonl`、`pgrep -f "claude"` |
+| workflow 项目 | `.ai/runtime/project-state.json` |
 
 技术栈：
 

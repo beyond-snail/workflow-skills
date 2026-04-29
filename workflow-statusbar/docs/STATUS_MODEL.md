@@ -1,6 +1,6 @@
 # Runtime State Model
 
-前端统一读取如下结构：
+前端统一读取如下结构。当前主模型是 `hosts` / `active_host` / `other_host_summary`；`codex` 字段仍保留，是为了兼容旧 UI 和旧调用方，不代表当前状态模型仍是单 Host 模型。
 
 ```ts
 type RuntimeState = {
@@ -65,7 +65,7 @@ type HostSession = {
 - `waiting_input`: 进程存在且最近日志心跳在 90 秒内
 - `stalled`: 进程存在但心跳超时
 - `idle`: 进程不存在
-- `offline`: 无法访问 `~/.codex`
+- `offline`: 对应 Host 的本地状态源不可访问或不可用
 
 多 Host 情况下，主 Host 选择优先级为：
 
@@ -73,6 +73,6 @@ type HostSession = {
 2. `waiting_input`
 3. `stalled`
 4. 最近活跃时间最新
-5. `codex` 兜底
+5. 完全同分时使用 `codex` 作为稳定兜底
 
 卡片 UI 仅展示主 Host，并通过 `other_host_summary` 提供轻量提示（例如：`另有 Claude 会话`）。

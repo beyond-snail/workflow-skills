@@ -2,8 +2,7 @@
 
 # Workflow Skills + Statusbar
 
-**AI 协作研发治理链路：`bootstrap -> requirement -> execution`**  
-**Unified workflow skills for AI-assisted engineering with optional status monitoring.**
+**Repository workflow skills for AI-assisted engineering, plus an optional local desktop status monitor.**
 
 [![GitHub Repo stars](https://img.shields.io/github/stars/beyond-snail/workflow-skills?style=flat-square)](https://github.com/beyond-snail/workflow-skills/stargazers)
 [![GitHub release](https://img.shields.io/github/v/release/beyond-snail/workflow-skills?style=flat-square)](https://github.com/beyond-snail/workflow-skills/releases)
@@ -11,209 +10,134 @@
 [![Contributing](https://img.shields.io/badge/Contributing-Welcome-1f6feb?style=flat-square)](CONTRIBUTING.md)
 [![Security](https://img.shields.io/badge/Security-Policy-2ea44f?style=flat-square)](SECURITY.md)
 
-[快速开始](#快速开始--quick-start) • [架构与技术说明](ARCHITECTURE.md) • [架构草图](docs/可视化草图.md) • [状态看板](workflow-statusbar/README.md) • [开源与贡献](#14-开源与贡献)
+[Architecture](ARCHITECTURE.md) · [Statusbar](workflow-statusbar/README.md) · [Workflow Bootstrap](workflow-bootstrap/SKILL.md) · [Workflow Requirement](workflow-requirement/SKILL.md) · [Workflow Execution](workflow-execution/SKILL.md)
 
 </div>
 
 ---
 
-## 项目简介 | Overview
+## What This Project Is
 
-很多团队在引入 AI 之后会遇到一个反直觉问题：代码产出更快了，但项目不一定更顺，甚至更乱。
+`workflow-skills` is a set of local AI workflow skills for repositories that use Codex, Claude, or similar AI coding hosts. It keeps project context, requirements, task boards, execution evidence, and runtime state in predictable files so a human and multiple AI sessions can resume work without rediscovering the project from scratch.
 
-常见症状：
+The repository contains four main parts:
 
-- AI 每次进仓库都像第一次来，不知道上下文和阶段
-- 需求、任务、代码、测试记录分散，团队没有共同事实源
-- 需求还没治理清楚就开始实现，返工变快
-- 代码改完缺证据，下一轮无法顺畅接力
+| Component | Type | Purpose |
+| --- | --- | --- |
+| `workflow-bootstrap` | Skill | Initializes the repository workflow foundation: `AGENTS.md`, `docs/workflow/`, `.ai/`, runtime profile, state file, and `wf-*` commands. |
+| `workflow-requirement` | Skill | Turns PRD or requirement input into a requirement pool, task board, handoff documents, and task memory. It stops at the human review gate. |
+| `workflow-execution` | Skill | Runs after human approval and explicit start. It guides implementation, verification, evidence recording, memory updates, and optional commit/release gates. |
+| `workflow-statusbar` | Desktop app | Optional Tauri app that monitors local AI host sessions and workflow project state, then shows status, alerts, and local knowledgebase access. |
 
-`workflow-skills` 不是“再加一个工具”，而是把上面的问题拆成三个阶段治理：
+This project is not a SaaS service and does not require a remote database. The workflow files live in the target repository; the desktop app reads local files and localhost services.
 
-- `workflow-bootstrap`：初始化协作底座与统一入口
-- `workflow-requirement`：需求入池、任务拆解、交接收口
-- `workflow-execution`：按任务执行、验证回写、发布闸门
-- `workflow-statusbar`（可选）：桌面状态看板，读取 `.ai/runtime/project-state.json` 做常驻监控与提醒
-
-你可以先把它理解成三句话：
-
-1. 先把仓库治理底座搭起来（建制度）
-2. 把需求治理成可交接、可执行材料（做交接）
-3. 审核通过并显式授权后，进入执行闭环把任务收口（做交付）
-
-适用团队：
-
-- 需要让 PRD、任务看板、执行证据保持一致
-- 需要 AI 参与开发但仍保留人工审核阶段门
-- 需要跨项目快速接入同一套流程规范
-
-## 架构图 | Architecture
+## Architecture
 
 ```mermaid
 flowchart LR
-    A[workflow-bootstrap<br/>底座初始化] --> B[workflow-requirement<br/>需求治理]
-    B --> C[workflow-execution<br/>执行收口]
-    C --> D[workflow-statusbar<br/>状态聚合展示 可选]
+    subgraph Skills[Workflow Skills]
+        A[workflow-bootstrap<br/>Initialize repository foundation]
+        B[workflow-requirement<br/>Requirement governance]
+        C[workflow-execution<br/>Implementation and verification]
+    end
 
-    A -.回写状态.-> S[(.ai/runtime/project-state.json)]
-    B -.回写状态.-> S
-    C -.回写状态.-> S
-    S -.读取.-> D
+    G[Human review gate]
+    S[(.ai/runtime/project-state.json)]
+    M[(.ai/memory<br/>task and knowledge memory)]
+    D[workflow-statusbar<br/>Tauri desktop monitor]
+    H[AI host sessions<br/>Codex / Claude]
+    K[Local knowledgebase<br/>SQLite + HTTP API + MCP]
 
-    G[人工审核门] --> C
-    B --> G
-
-    style A fill:#E8F4FF,stroke:#3B82F6,stroke-width:2px
-    style B fill:#FFF7E6,stroke:#F59E0B,stroke-width:2px
-    style C fill:#EAF7EF,stroke:#10B981,stroke-width:2px
-    style D fill:#F5F3FF,stroke:#8B5CF6,stroke-width:2px
-    style G fill:#FEE2E2,stroke:#EF4444,stroke-width:2px
+    A --> B --> G --> C
+    A -.writes.-> S
+    B -.writes.-> S
+    C -.writes.-> S
+    B -.writes.-> M
+    C -.writes.-> M
+    S -.reads.-> D
+    H -.reads.-> D
+    D --> K
 ```
 
-完整版可视化草图见 [docs/可视化草图.md](docs/可视化草图.md)。
+Key facts:
 
-## 架构与技术栈速览 | Architecture & Tech Stack
+- The three workflow skills are the action layer. They create or update files in the repository.
+- `.ai/runtime/project-state.json` is the shared runtime state source for workflow progress.
+- `.ai/memory/` stores reusable task memory and project knowledge.
+- `workflow-statusbar` is an observation layer. It does not approve requirements, start execution, or replace tests.
+- The detailed architecture is documented in [ARCHITECTURE.md](ARCHITECTURE.md).
 
-本项目按“治理动作层 + 运行观察层”组织：
+## workflow-statusbar
 
-- 三个 workflow skill 是治理动作层，负责初始化、需求治理、执行收口和状态回写。
-- `.ai/runtime/project-state.json` 是跨阶段状态事实源。
-- `workflow-statusbar` 是运行观察层，负责读取 workflow 状态和本机 AI Host 会话，展示状态、提醒和本地知识库入口。
+`workflow-statusbar` is a local desktop monitor built with `Tauri 2 + Rust + React + TypeScript + Vite`. It is optional, but useful when you run AI-assisted work across multiple local repositories.
 
-技术栈：
+It currently monitors these sources:
 
-| 层级 | 模块 | 技术 |
+| Source | Files / Signals | Used For |
 | --- | --- | --- |
-| Skill 脚本层 | `workflow-bootstrap` / `workflow-requirement` / `workflow-execution` | `Python 3`、`Markdown`、`YAML`、`JSON` |
-| 统一命令层 | `.ai/bin/workflow`、`wf-*`、`workflow_cli.py` | Shell wrapper + Python CLI |
-| 桌面状态层 | `workflow-statusbar` | `Tauri 2`、`Rust 2021`、`React 19`、`TypeScript 5`、`Vite 7` |
-| 本地知识库层 | statusbar 内置服务 | `SQLite/FTS5`、`tiny_http`、只读 HTTP API、Node.js stdio MCP |
+| Codex | `~/.codex/state_5.sqlite`, `~/.codex/logs_2.sqlite`, `pgrep -f "codex"` | Active thread, heartbeat, recent message, process state, token usage where available. |
+| Claude | `~/.claude/history.jsonl`, `~/.claude/projects/*/*.jsonl`, `pgrep -f "claude"` | Recent project sessions, heartbeat, last message, process state. |
+| Workflow project | `.ai/runtime/project-state.json` discovered from project paths | Stage, gate, current requirement/task, risk, health, blocked state. |
+| Alert settings | Tauri app config and environment variables | Local notifications and optional remote alert forwarding. |
 
-更完整的模块职责、调用链、目录和同步规则见 [ARCHITECTURE.md](ARCHITECTURE.md)。
+The UI chooses a primary host session from all detected host sessions using status priority, recent activity, and project-path match. It can still expose legacy `codex` fields in `RuntimeState` for compatibility, but the current model is multi-host: `hosts`, `active_host`, and `other_host_summary`.
 
-## 阶段门规则 | Stage Gates
+Statusbar docs:
 
-- `bootstrap` 只做底座初始化，不做业务开发
-- `requirement` 默认停在人工审核门，不自动进 `execution`
-- `execution` 仅在“人工审核通过 + 显式开工”后启动
+- [workflow-statusbar/README.md](workflow-statusbar/README.md)
+- [workflow-statusbar/docs/架构与功能说明.md](workflow-statusbar/docs/架构与功能说明.md)
+- [workflow-statusbar/docs/STATUS_MODEL.md](workflow-statusbar/docs/STATUS_MODEL.md)
 
-这套仓库的核心不是“自动化越多越好”，而是“在正确阶段做正确动作”。
+## Local Knowledgebase, API, and MCP
 
-## 快速开始 | Quick Start
+The desktop app also includes a local knowledgebase service:
 
-1. 安装三 Skill 到宿主目录（Codex/Claude）
-2. 在业务仓库执行 `init` 建立底座
-3. 按 `req -> 人工审核 -> exec` 推进
-4. （可选）启动 `workflow-statusbar` 观察项目状态与执行进度
+- Local Web/API default: `http://127.0.0.1:8788`
+- Storage: local SQLite database
+- V1 HTTP API: read-only endpoints for search, templates, task context, evidence, health, and workflow packs
+- MCP server: `npm run kb:mcp`, implemented as a Node.js stdio server
 
-最简命令版（推荐）：
+The V1 API and MCP tools are designed for localhost use. Write-like external requests are rejected; formal writes should go through workflow skills, the Web UI, or a future confirmation flow.
 
-```bash
-wf-init
-wf-req --theme "你的需求主题"
-wf-exec
-```
+See [workflow-statusbar/docs/KNOWLEDGEBASE_MCP_API.md](workflow-statusbar/docs/KNOWLEDGEBASE_MCP_API.md).
 
-可选参数（需要时再加）：
-
-```bash
-wf-req --theme "你的需求主题" --summary "一句话描述"
-wf-exec --req-id REQ-xxxx --task-id TASK-xxxx --summary "执行收口"
-```
-
-说明：若提示 `command not found`，先把仓库内 `.ai/bin` 加到 `PATH`，再使用这些短命令；若尚未生成 `wf-*`，先按下方“快速接入（新项目）”完成冷启动初始化。
-
-`workflow-statusbar` 说明见 [workflow-statusbar/README.md](workflow-statusbar/README.md)。
-
-详细说明见下方目录中的第 6/7/8/9 节。
-
-## 目录
-
-- [1. 这套仓库解决什么问题](#1-这套仓库解决什么问题)
-- [2. 三个 Skill 的职责边界](#2-三个-skill-的职责边界)
-- [3. 阶段门与状态流转](#3-阶段门与状态流转)
-- [4. 目录与核心产物](#4-目录与核心产物)
-- [5. 项目架构与技术栈](#5-项目架构与技术栈)
-- [6. 快速接入（新项目）](#6-快速接入新项目)
-- [7. 快速迁移（老项目）](#7-快速迁移老项目)
-- [8. 命令矩阵（统一入口）](#8-命令矩阵统一入口)
-- [9. 两条典型流程](#9-两条典型流程)
-- [10. 常见误区与推荐姿势](#10-常见误区与推荐姿势)
-- [11. 排障指南](#11-排障指南)
-- [12. 升级与版本一致性](#12-升级与版本一致性)
-- [13. FAQ](#13-faq)
-- [14. 开源与贡献](#14-开源与贡献)
-- [15. workflow-statusbar（可视化监控，可选）](#15-workflow-statusbar可视化监控可选)
-
----
-
-## 1. 这套仓库解决什么问题
-
-很多团队在 AI 协作开发里会遇到三类问题：
-
-1. 需求与执行脱节：PRD 说一套，代码改一套。
-2. 任务与证据脱节：任务看板更新了，但验证和结论没沉淀。
-3. 项目状态脱节：产品、开发、测试看到的是不同“真相”。
-
-本仓库通过三 skill 分阶段协作，把关键信息统一到：
-
-- `docs/workflow/requirements/`（需求与任务治理）
-- `.ai/memory/`（任务记忆与知识复用）
-- `.ai/runtime/project-state.json`（阶段状态单一事实源）
-
----
-
-## 2. 三个 Skill 的职责边界
-
-| Skill | 核心职责 | 进入条件 | 停止位置 |
-| --- | --- | --- | --- |
-| `workflow-bootstrap` | 初始化底座（目录、模板、profile、state 骨架） | 新项目接入 / 老项目迁移 | 完成底座与自检 |
-| `workflow-requirement` | PRD 入池、建包、拆任务、交接材料收口 | 有正式 PRD 或明确需求主题 | 停在人工审核门 |
-| `workflow-execution` | 按任务执行开发、验证、证据回写、提交收口 | 人工审核完成 + 显式开工指令 | done / blocked / still doing |
-
-每个 skill 的详细规则见：
-
-- [workflow-bootstrap/SKILL.md](workflow-bootstrap/SKILL.md)
-- [workflow-requirement/SKILL.md](workflow-requirement/SKILL.md)
-- [workflow-execution/SKILL.md](workflow-execution/SKILL.md)
-
----
-
-## 3. 阶段门与状态流转
-
-### 3.1 必守阶段门
-
-1. `bootstrap` 不做需求拆解，不做业务编码。
-2. `requirement` 默认停在人工审核门，不能直接进入 execution。
-3. `execution` 只有在“人工审核通过 + 显式开工”后才允许进入。
-
-### 3.2 状态单一事实源
-
-三阶段都应回写：
-
-- `.ai/runtime/project-state.json`
-
-建议把它当成驾驶舱数据源，而不是手工表格。
-
----
-
-## 4. 目录与核心产物
-
-本仓库内三 skill 目录：
+## Repository Layout
 
 ```text
 workflow-bootstrap/
+  SKILL.md
+  scripts/
+  references/
+
 workflow-requirement/
+  SKILL.md
+  scripts/
+  references/
+  assets/
+  templates/
+
 workflow-execution/
-```
+  SKILL.md
+  scripts/
+  references/
+  assets/
 
-可选可视化子工程：
-
-```text
 workflow-statusbar/
+  src/                  React UI
+  src-tauri/            Rust/Tauri backend
+  docs/                 Status model, API/MCP, regression notes
+  scripts/              MCP server and packaging helpers
+  fixtures/             Sample runtime state
+
+ARCHITECTURE.md
+CONTRIBUTING.md
+SECURITY.md
+LICENSE
 ```
 
-业务仓库初始化后，关键产物通常包括：
+## Generated Files in a Target Repository
+
+After `workflow-bootstrap` initializes another repository, that target repository normally gets files like:
 
 ```text
 AGENTS.md
@@ -226,58 +150,33 @@ docs/workflow/requirements/任务看板.md
 .ai/runtime/profile/project-profile.yml
 .ai/runtime/project-state.json
 .ai/bin/workflow
-.ai/bin/wf-init wf-doctor wf-cons wf-req wf-exec wf-arc
+.ai/bin/wf-init
+.ai/bin/wf-doctor
+.ai/bin/wf-cons
+.ai/bin/wf-req
+.ai/bin/wf-exec
+.ai/bin/wf-arc
 ```
 
----
+## Quick Start
 
-## 5. 项目架构与技术栈
+### 1. Install the Three Skills
 
-推荐先读 [ARCHITECTURE.md](ARCHITECTURE.md)。
-
-最短理解：
-
-```text
-workflow-bootstrap
--> workflow-requirement
--> 人工审核门
--> workflow-execution
--> .ai/runtime/project-state.json
--> workflow-statusbar 读取展示
-```
-
-其中：
-
-- `workflow-bootstrap` 负责仓库接入和底座初始化。
-- `workflow-requirement` 负责把 PRD 治理成需求池、任务看板和交接材料。
-- `workflow-execution` 负责在显式开工后完成实现、验证、证据回写和收口。
-- `workflow-statusbar` 负责桌面状态聚合、提醒和本地知识库入口。
-
-技术上，三 skill 主要是 Python + Markdown/YAML/JSON；statusbar 是 Tauri + Rust + React/TypeScript/Vite，并内置 SQLite/FTS5 本地知识库、只读 HTTP API 和 MCP server。
-
----
-
-## 6. 快速接入（新项目）
-
-下面是一条可直接复制的“从零接入”路径。
-
-### 第一步：同步到宿主 skill 目录
-
-在 `workflow-skills-copy` 仓库根目录执行：
+From this repository root:
 
 ```bash
-# 同步到 Codex
 for d in workflow-bootstrap workflow-requirement workflow-execution; do
   rsync -a ./$d/ ~/.codex/skills/$d/
 done
 
-# 同步到 Claude
 for d in workflow-bootstrap workflow-requirement workflow-execution; do
   rsync -a ./$d/ ~/.claude/skills/$d/
 done
 ```
 
-### 第二步：在业务仓库初始化底座
+### 2. Initialize a Target Repository
+
+Run inside the target repository:
 
 ```bash
 python3 ~/.codex/skills/workflow-bootstrap/scripts/workflow_cli.py init \
@@ -285,7 +184,7 @@ python3 ~/.codex/skills/workflow-bootstrap/scripts/workflow_cli.py init \
   --host codex --host claude
 ```
 
-如需先看变更再落盘：
+Dry run:
 
 ```bash
 python3 ~/.codex/skills/workflow-bootstrap/scripts/workflow_cli.py init \
@@ -294,250 +193,96 @@ python3 ~/.codex/skills/workflow-bootstrap/scripts/workflow_cli.py init \
   --dry-run
 ```
 
-### 第三步：需求入池与任务拆解
+### 3. Run Requirement Governance
 
 ```bash
 python3 ~/.codex/skills/workflow-bootstrap/scripts/workflow_cli.py req \
   --workspace-root . \
-  --theme "订单销售成本结转优化" \
-  --summary "补齐主链路并沉淀可执行任务"
+  --theme "Your requirement theme" \
+  --summary "One-line summary"
 ```
 
-### 第四步：审核通过后开工执行
+This stage should stop at a human review gate.
+
+### 4. Run Execution After Approval
 
 ```bash
 python3 ~/.codex/skills/workflow-bootstrap/scripts/workflow_cli.py exec \
   --workspace-root . \
   --req-id REQ-xxxx \
   --task-id TASK-xxxx \
-  --summary "本轮开发与验证收口"
+  --summary "Implementation and verification summary"
 ```
 
-> `workflow_cli.py exec` 内部会自动追加 `--confirm-start`，表示你在命令层已明确进入执行阶段。
+Short commands such as `wf-init`, `wf-req`, and `wf-exec` are generated into the target repository under `.ai/bin/`.
 
----
-
-## 7. 快速迁移（老项目）
-
-推荐顺序：
-
-1. 先 dry-run 看迁移计划。
-2. 再 live 落盘。
-3. 跑健康检查 + 一致性检查。
+## Statusbar Development
 
 ```bash
-python3 ~/.codex/skills/workflow-bootstrap/scripts/workflow_cli.py init \
-  --workspace-root . --host codex --host claude --dry-run
-
-python3 ~/.codex/skills/workflow-bootstrap/scripts/workflow_cli.py init \
-  --workspace-root . --host codex --host claude
-
-python3 ~/.codex/skills/workflow-bootstrap/scripts/workflow_cli.py doctor --workspace-root .
-python3 ~/.codex/skills/workflow-bootstrap/scripts/workflow_cli.py cons --workspace-root .
+cd workflow-statusbar
+source "$HOME/.cargo/env"
+npm install
+npm run tauri dev
 ```
 
----
-
-## 8. 命令矩阵（统一入口）
-
-统一入口脚本：
-
-- `workflow-bootstrap/scripts/workflow_cli.py`
-
-### 8.1 基础命令
-
-| 命令 | 作用 | 关键参数 |
-| --- | --- | --- |
-| `init` (`bootstrap`) | 初始化底座 | `--workspace-root` `--host` `--dry-run` |
-| `doctor` (`health`) | 底座健康检查 | `--workspace-root` |
-| `cons` (`consistency`) | 三 skill 一致性检查 | `--workspace-root` `--fail-on-warn` |
-| `req` (`requirement`) | 需求治理回合 | `--theme` `--summary` `--dry-run` |
-| `exec` (`execution`) | 执行治理回合 | `--req-id` `--task-id` `--mode` `--dry-run` |
-| `arc` (`archive`) | 任务记忆归档 | `--task-id` `--task-dir` `--dry-run` |
-
-### 8.2 常见执行参数
-
-`req` 常用：
-
-- `--skip-content-population`：只建骨架，不填充正文
-- `--skip-handoff-check`：跳过交接检查（仅在你明确知道后果时使用）
-
-`exec` 常用：
-
-- `--mode auto|feature|bugfix|continuation`
-- `--no-commit` `--no-push` `--no-release-gate`（缩小执行范围）
-- `--archive-task-memory`（任务收口后归档记忆）
-
----
-
-## 9. 两条典型流程
-
-### 9.1 标准需求流程（推荐）
-
-1. `init` 建立底座。
-2. `req` 生成需求包和任务看板，停在人工审核门。
-3. 人工审核通过。
-4. `exec` 开工，完成验证和证据回写。
-5. 需要时 `arc` 归档任务记忆。
-
-### 9.2 小修复轻量流程
-
-1. `req --dry-run` 先出最小治理骨架。
-2. 根据需要使用 `--skip-content-population`。
-3. 审核后 `exec --mode bugfix --no-release-gate`（若你确实只做局部修复）。
-4. 下轮补齐验证与闸门。
-
----
-
-## 10. 常见误区与推荐姿势
-
-### 误区 1：requirement 完成就直接开写代码
-
-不推荐。应先过人工审核门，再进入 execution。
-
-### 误区 2：execution 只改代码不回写证据
-
-不推荐。至少要补齐任务证据和记忆，避免下轮重复排查。
-
-### 误区 3：把 `--skip-*` 当常态
-
-不推荐。`skip` 只用于临时缩范围，后续需要补齐治理动作。
-
-### 误区 4：三 skill 版本不一致
-
-高风险。可能出现规则漂移、状态字段不一致、行为分叉。
-
----
-
-## 11. 排障指南
-
-### 11.1 找不到统一入口命令
-
-检查路径：
-
-- `~/.codex/skills/workflow-bootstrap/scripts/workflow_cli.py`
-- `~/.claude/skills/workflow-bootstrap/scripts/workflow_cli.py`
-
-如果本地刚更新了仓库，先重新 rsync 到宿主目录。
-
-### 11.2 `exec` 无法进入执行
-
-确认两件事：
-
-1. 需求已过人工审核门。
-2. 通过统一入口 `exec` 触发（其内部会加 `--confirm-start`）。
-
-### 11.3 健康检查/一致性检查报警
-
-先跑：
+Build checks:
 
 ```bash
-python3 ~/.codex/skills/workflow-bootstrap/scripts/workflow_cli.py doctor --workspace-root .
-python3 ~/.codex/skills/workflow-bootstrap/scripts/workflow_cli.py cons --workspace-root .
+cd workflow-statusbar
+npm run build
+
+cd src-tauri
+cargo check
 ```
 
-按输出修复缺失文件、路径漂移或脚本分叉，再重跑。
-
----
-
-## 12. 升级与版本一致性
-
-建议升级策略：
-
-1. 先在本仓库更新三 skill。
-2. 同步到 `~/.codex/skills` 与 `~/.claude/skills`。
-3. 在目标业务仓库跑 `cons` 与 `doctor`。
-
-推荐检查命令：
+Packaging:
 
 ```bash
-python3 ~/.codex/skills/workflow-bootstrap/scripts/workflow_cli.py cons --workspace-root <repo>
-python3 ~/.codex/skills/workflow-bootstrap/scripts/workflow_cli.py doctor --workspace-root <repo>
+cd workflow-statusbar
+npm run package:current
 ```
 
----
+## Workflow Rules
 
-## 13. FAQ
+The intended order is:
 
-### Q1：只用 requirement 和 execution，不跑 bootstrap 可以吗？
+```text
+bootstrap -> requirement -> human review -> execution -> verification -> memory/evidence
+```
 
-可以，但不推荐。没有底座会缺 profile、state 骨架和统一命令入口，后续更容易跑偏。
+Important boundaries:
 
-### Q2：为什么要维护 `.ai/runtime/project-state.json`？
+- `workflow-bootstrap` does not implement business logic.
+- `workflow-requirement` does not write code.
+- `workflow-execution` requires human approval and an explicit start signal.
+- `workflow-statusbar` only observes and alerts. It does not decide stage gates.
 
-它是跨阶段统一状态源，便于驾驶舱、自动化脚本和多角色协作读取同一份事实。
+## Verification Used in This Repository
 
-### Q3：可以在 execution 阶段跳过提交和发布闸门吗？
+Typical checks for this repository:
 
-可以，用 `--no-commit --no-push --no-release-gate`。但建议在后续回合补齐完整收口。
+```bash
+cd workflow-statusbar
+npm run build
 
-### Q4：仓库内有没有更短命令？
+cd src-tauri
+cargo check
+```
 
-有。业务仓库初始化后可用：
+For API/MCP changes, use the smoke examples in:
 
-- `wf-init`
-- `wf-doctor`
-- `wf-cons`
-- `wf-req`
-- `wf-exec`
-- `wf-arc`
+- [workflow-statusbar/docs/KNOWLEDGEBASE_MCP_API.md](workflow-statusbar/docs/KNOWLEDGEBASE_MCP_API.md)
+- [workflow-statusbar/docs/KNOWLEDGEBASE_V5_REGRESSION.md](workflow-statusbar/docs/KNOWLEDGEBASE_V5_REGRESSION.md)
+- [workflow-statusbar/docs/KNOWLEDGEBASE_V6_REGRESSION.md](workflow-statusbar/docs/KNOWLEDGEBASE_V6_REGRESSION.md)
+- [workflow-statusbar/docs/KNOWLEDGEBASE_V7_REGRESSION.md](workflow-statusbar/docs/KNOWLEDGEBASE_V7_REGRESSION.md)
 
----
+## Current Boundaries
 
-## 附：关键入口文件
+- The desktop experience is currently most tuned for macOS, although Tauri supports cross-platform builds.
+- The statusbar reads local AI host files; if Codex or Claude change their local storage format, adapters may need updates.
+- The local API/MCP surface is intended for localhost access, not public network exposure.
+- Some generated workflow documents live in target repositories, not in this source repository.
 
-- `workflow-bootstrap/scripts/workflow_cli.py`
-- `workflow-bootstrap/scripts/init_workflow_bootstrap.py`
-- `workflow-bootstrap/scripts/check_workflow_health.py`
-- `workflow-bootstrap/scripts/check_workflow_consistency.py`
-- `workflow-requirement/scripts/run_requirement_round.py`
-- `workflow-execution/scripts/run_execution_round.py`
+## License
 
----
-
-## 14. 开源与贡献
-
-### 14.1 开源许可
-
-本项目采用 MIT License，允许商用、修改、分发与私有化使用。详情见：
-
-- [LICENSE](LICENSE)
-
-### 14.2 开源项目定位（对外描述）
-
-`workflow-skills` 是一套面向 AI 协作研发的通用工作流技能集，提供从初始化底座、需求治理到执行收口的完整链路，核心目标是让需求、任务、证据与状态保持一致，降低多人协作中的偏航和交接成本。
-
-适合以下场景：
-
-- 需要把 PRD、任务看板、执行证据沉淀为可追溯资产
-- 希望在 AI 参与开发时保留明确的阶段门与人工审核机制
-- 希望以统一脚本入口降低跨项目接入与迁移成本
-
-### 14.3 贡献方式
-
-欢迎通过以下方式参与共建：
-
-1. 提交 Issue：反馈 bug、文档缺失、使用建议
-2. 提交 PR：修复问题、补充脚本能力、完善模板与文档
-3. 在 PR 中说明变更动机、适用场景和验证方式，便于快速评审
-
----
-
-## 15. workflow-statusbar（可视化监控，可选）
-
-`workflow-statusbar` 是本仓库的桌面可视化子工程，不参与阶段门决策，但负责把 workflow 状态更直观地展示出来。
-
-它主要监听：
-
-- `.ai/runtime/project-state.json`（三阶段统一状态源）
-- 本机会话与执行信号（用于显示是否仍在持续执行）
-
-推荐定位：
-
-1. 三个 skill 负责“治理动作与状态回写”
-2. `workflow-statusbar` 负责“状态聚合展示与提醒”
-
-快速入口：
-
-- [workflow-statusbar/README.md](workflow-statusbar/README.md)
-- [workflow-statusbar/docs/架构与功能说明.md](workflow-statusbar/docs/架构与功能说明.md)
+MIT. See [LICENSE](LICENSE).
