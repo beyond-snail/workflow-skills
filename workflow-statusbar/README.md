@@ -1,5 +1,7 @@
 # workflow-statusbar
 
+`workflow-statusbar` 是 workflow 三 skill 的可选桌面观察层。三个 skill 负责执行治理动作与回写状态；statusbar 负责把这些状态和本机 AI Host 会话聚合到菜单栏/托盘、悬浮窗、通知和本地知识库入口中。
+
 `workflow-statusbar` 是 `workflow-skills-copy` 仓库内的桌面子工程，用于常驻监听：
 
 - 三类 workflow skill 写入的 `.ai/runtime/project-state.json`
@@ -12,6 +14,28 @@
 - 卡片式主弹层
 - 执行中小悬浮窗
 - 关键状态变化通知
+
+它不替代 `workflow-requirement` 的人工审核门，也不会自动启动 `workflow-execution`。更完整的系统关系见 [../ARCHITECTURE.md](../ARCHITECTURE.md) 和 [docs/架构与功能说明.md](docs/架构与功能说明.md)。
+
+## 架构与技术栈
+
+运行链路：
+
+```text
+~/.codex state/logs + 项目 .ai/runtime/project-state.json
+-> Rust 聚合 RuntimeState
+-> Tauri command / runtime-state event
+-> React 面板、悬浮窗、通知
+```
+
+技术栈：
+
+- 桌面宿主：`Tauri 2`
+- 后端：`Rust 2021`
+- 前端：`React 19`、`TypeScript 5`、`Vite 7`
+- 本地状态与知识库：`SQLite` / `rusqlite` / `FTS5`
+- 本地 Web/API：`tiny_http`，默认 `http://127.0.0.1:8788`
+- MCP：`Node.js` stdio server，命令为 `npm run kb:mcp`
 
 ## 自动知识采集（Personal Knowledgebase）
 

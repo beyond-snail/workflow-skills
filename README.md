@@ -11,7 +11,7 @@
 [![Contributing](https://img.shields.io/badge/Contributing-Welcome-1f6feb?style=flat-square)](CONTRIBUTING.md)
 [![Security](https://img.shields.io/badge/Security-Policy-2ea44f?style=flat-square)](SECURITY.md)
 
-[快速开始](#快速开始--quick-start) • [架构草图](docs/可视化草图.md) • [状态看板](workflow-statusbar/README.md) • [开源与贡献](#13-开源与贡献)
+[快速开始](#快速开始--quick-start) • [架构与技术说明](ARCHITECTURE.md) • [架构草图](docs/可视化草图.md) • [状态看板](workflow-statusbar/README.md) • [开源与贡献](#14-开源与贡献)
 
 </div>
 
@@ -72,6 +72,25 @@ flowchart LR
 
 完整版可视化草图见 [docs/可视化草图.md](docs/可视化草图.md)。
 
+## 架构与技术栈速览 | Architecture & Tech Stack
+
+本项目按“治理动作层 + 运行观察层”组织：
+
+- 三个 workflow skill 是治理动作层，负责初始化、需求治理、执行收口和状态回写。
+- `.ai/runtime/project-state.json` 是跨阶段状态事实源。
+- `workflow-statusbar` 是运行观察层，负责读取 workflow 状态和本机 AI Host 会话，展示状态、提醒和本地知识库入口。
+
+技术栈：
+
+| 层级 | 模块 | 技术 |
+| --- | --- | --- |
+| Skill 脚本层 | `workflow-bootstrap` / `workflow-requirement` / `workflow-execution` | `Python 3`、`Markdown`、`YAML`、`JSON` |
+| 统一命令层 | `.ai/bin/workflow`、`wf-*`、`workflow_cli.py` | Shell wrapper + Python CLI |
+| 桌面状态层 | `workflow-statusbar` | `Tauri 2`、`Rust 2021`、`React 19`、`TypeScript 5`、`Vite 7` |
+| 本地知识库层 | statusbar 内置服务 | `SQLite/FTS5`、`tiny_http`、只读 HTTP API、Node.js stdio MCP |
+
+更完整的模块职责、调用链、目录和同步规则见 [ARCHITECTURE.md](ARCHITECTURE.md)。
+
 ## 阶段门规则 | Stage Gates
 
 - `bootstrap` 只做底座初始化，不做业务开发
@@ -106,7 +125,7 @@ wf-exec --req-id REQ-xxxx --task-id TASK-xxxx --summary "执行收口"
 
 `workflow-statusbar` 说明见 [workflow-statusbar/README.md](workflow-statusbar/README.md)。
 
-详细说明见下方目录中的第 5/6/7/8 节。
+详细说明见下方目录中的第 6/7/8/9 节。
 
 ## 目录
 
@@ -114,16 +133,17 @@ wf-exec --req-id REQ-xxxx --task-id TASK-xxxx --summary "执行收口"
 - [2. 三个 Skill 的职责边界](#2-三个-skill-的职责边界)
 - [3. 阶段门与状态流转](#3-阶段门与状态流转)
 - [4. 目录与核心产物](#4-目录与核心产物)
-- [5. 快速接入（新项目）](#5-快速接入新项目)
-- [6. 快速迁移（老项目）](#6-快速迁移老项目)
-- [7. 命令矩阵（统一入口）](#7-命令矩阵统一入口)
-- [8. 两条典型流程](#8-两条典型流程)
-- [9. 常见误区与推荐姿势](#9-常见误区与推荐姿势)
-- [10. 排障指南](#10-排障指南)
-- [11. 升级与版本一致性](#11-升级与版本一致性)
-- [12. FAQ](#12-faq)
-- [13. 开源与贡献](#13-开源与贡献)
-- [14. workflow-statusbar（可视化监控，可选）](#14-workflow-statusbar可视化监控可选)
+- [5. 项目架构与技术栈](#5-项目架构与技术栈)
+- [6. 快速接入（新项目）](#6-快速接入新项目)
+- [7. 快速迁移（老项目）](#7-快速迁移老项目)
+- [8. 命令矩阵（统一入口）](#8-命令矩阵统一入口)
+- [9. 两条典型流程](#9-两条典型流程)
+- [10. 常见误区与推荐姿势](#10-常见误区与推荐姿势)
+- [11. 排障指南](#11-排障指南)
+- [12. 升级与版本一致性](#12-升级与版本一致性)
+- [13. FAQ](#13-faq)
+- [14. 开源与贡献](#14-开源与贡献)
+- [15. workflow-statusbar（可视化监控，可选）](#15-workflow-statusbar可视化监控可选)
 
 ---
 
@@ -211,7 +231,33 @@ docs/workflow/requirements/任务看板.md
 
 ---
 
-## 5. 快速接入（新项目）
+## 5. 项目架构与技术栈
+
+推荐先读 [ARCHITECTURE.md](ARCHITECTURE.md)。
+
+最短理解：
+
+```text
+workflow-bootstrap
+-> workflow-requirement
+-> 人工审核门
+-> workflow-execution
+-> .ai/runtime/project-state.json
+-> workflow-statusbar 读取展示
+```
+
+其中：
+
+- `workflow-bootstrap` 负责仓库接入和底座初始化。
+- `workflow-requirement` 负责把 PRD 治理成需求池、任务看板和交接材料。
+- `workflow-execution` 负责在显式开工后完成实现、验证、证据回写和收口。
+- `workflow-statusbar` 负责桌面状态聚合、提醒和本地知识库入口。
+
+技术上，三 skill 主要是 Python + Markdown/YAML/JSON；statusbar 是 Tauri + Rust + React/TypeScript/Vite，并内置 SQLite/FTS5 本地知识库、只读 HTTP API 和 MCP server。
+
+---
+
+## 6. 快速接入（新项目）
 
 下面是一条可直接复制的“从零接入”路径。
 
@@ -271,7 +317,7 @@ python3 ~/.codex/skills/workflow-bootstrap/scripts/workflow_cli.py exec \
 
 ---
 
-## 6. 快速迁移（老项目）
+## 7. 快速迁移（老项目）
 
 推荐顺序：
 
@@ -292,13 +338,13 @@ python3 ~/.codex/skills/workflow-bootstrap/scripts/workflow_cli.py cons --worksp
 
 ---
 
-## 7. 命令矩阵（统一入口）
+## 8. 命令矩阵（统一入口）
 
 统一入口脚本：
 
 - `workflow-bootstrap/scripts/workflow_cli.py`
 
-### 7.1 基础命令
+### 8.1 基础命令
 
 | 命令 | 作用 | 关键参数 |
 | --- | --- | --- |
@@ -309,7 +355,7 @@ python3 ~/.codex/skills/workflow-bootstrap/scripts/workflow_cli.py cons --worksp
 | `exec` (`execution`) | 执行治理回合 | `--req-id` `--task-id` `--mode` `--dry-run` |
 | `arc` (`archive`) | 任务记忆归档 | `--task-id` `--task-dir` `--dry-run` |
 
-### 7.2 常见执行参数
+### 8.2 常见执行参数
 
 `req` 常用：
 
@@ -324,9 +370,9 @@ python3 ~/.codex/skills/workflow-bootstrap/scripts/workflow_cli.py cons --worksp
 
 ---
 
-## 8. 两条典型流程
+## 9. 两条典型流程
 
-### 8.1 标准需求流程（推荐）
+### 9.1 标准需求流程（推荐）
 
 1. `init` 建立底座。
 2. `req` 生成需求包和任务看板，停在人工审核门。
@@ -334,7 +380,7 @@ python3 ~/.codex/skills/workflow-bootstrap/scripts/workflow_cli.py cons --worksp
 4. `exec` 开工，完成验证和证据回写。
 5. 需要时 `arc` 归档任务记忆。
 
-### 8.2 小修复轻量流程
+### 9.2 小修复轻量流程
 
 1. `req --dry-run` 先出最小治理骨架。
 2. 根据需要使用 `--skip-content-population`。
@@ -343,7 +389,7 @@ python3 ~/.codex/skills/workflow-bootstrap/scripts/workflow_cli.py cons --worksp
 
 ---
 
-## 9. 常见误区与推荐姿势
+## 10. 常见误区与推荐姿势
 
 ### 误区 1：requirement 完成就直接开写代码
 
@@ -363,9 +409,9 @@ python3 ~/.codex/skills/workflow-bootstrap/scripts/workflow_cli.py cons --worksp
 
 ---
 
-## 10. 排障指南
+## 11. 排障指南
 
-### 10.1 找不到统一入口命令
+### 11.1 找不到统一入口命令
 
 检查路径：
 
@@ -374,14 +420,14 @@ python3 ~/.codex/skills/workflow-bootstrap/scripts/workflow_cli.py cons --worksp
 
 如果本地刚更新了仓库，先重新 rsync 到宿主目录。
 
-### 10.2 `exec` 无法进入执行
+### 11.2 `exec` 无法进入执行
 
 确认两件事：
 
 1. 需求已过人工审核门。
 2. 通过统一入口 `exec` 触发（其内部会加 `--confirm-start`）。
 
-### 10.3 健康检查/一致性检查报警
+### 11.3 健康检查/一致性检查报警
 
 先跑：
 
@@ -394,7 +440,7 @@ python3 ~/.codex/skills/workflow-bootstrap/scripts/workflow_cli.py cons --worksp
 
 ---
 
-## 11. 升级与版本一致性
+## 12. 升级与版本一致性
 
 建议升级策略：
 
@@ -411,7 +457,7 @@ python3 ~/.codex/skills/workflow-bootstrap/scripts/workflow_cli.py doctor --work
 
 ---
 
-## 12. FAQ
+## 13. FAQ
 
 ### Q1：只用 requirement 和 execution，不跑 bootstrap 可以吗？
 
@@ -449,15 +495,15 @@ python3 ~/.codex/skills/workflow-bootstrap/scripts/workflow_cli.py doctor --work
 
 ---
 
-## 13. 开源与贡献
+## 14. 开源与贡献
 
-### 13.1 开源许可
+### 14.1 开源许可
 
 本项目采用 MIT License，允许商用、修改、分发与私有化使用。详情见：
 
 - [LICENSE](LICENSE)
 
-### 13.2 开源项目定位（对外描述）
+### 14.2 开源项目定位（对外描述）
 
 `workflow-skills` 是一套面向 AI 协作研发的通用工作流技能集，提供从初始化底座、需求治理到执行收口的完整链路，核心目标是让需求、任务、证据与状态保持一致，降低多人协作中的偏航和交接成本。
 
@@ -467,7 +513,7 @@ python3 ~/.codex/skills/workflow-bootstrap/scripts/workflow_cli.py doctor --work
 - 希望在 AI 参与开发时保留明确的阶段门与人工审核机制
 - 希望以统一脚本入口降低跨项目接入与迁移成本
 
-### 13.3 贡献方式
+### 14.3 贡献方式
 
 欢迎通过以下方式参与共建：
 
@@ -477,7 +523,7 @@ python3 ~/.codex/skills/workflow-bootstrap/scripts/workflow_cli.py doctor --work
 
 ---
 
-## 14. workflow-statusbar（可视化监控，可选）
+## 15. workflow-statusbar（可视化监控，可选）
 
 `workflow-statusbar` 是本仓库的桌面可视化子工程，不参与阶段门决策，但负责把 workflow 状态更直观地展示出来。
 
@@ -494,3 +540,4 @@ python3 ~/.codex/skills/workflow-bootstrap/scripts/workflow_cli.py doctor --work
 快速入口：
 
 - [workflow-statusbar/README.md](workflow-statusbar/README.md)
+- [workflow-statusbar/docs/架构与功能说明.md](workflow-statusbar/docs/架构与功能说明.md)
