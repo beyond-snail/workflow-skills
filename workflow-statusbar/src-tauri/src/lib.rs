@@ -8502,6 +8502,16 @@ fn handle_knowledgebase_http_request(mut request: Request) {
             ),
         },
         "/api/v1/search" => {
+            if request.method() != &Method::Get {
+                http_respond_v1_json(
+                    request,
+                    api_call_context.as_ref(),
+                    403,
+                    serde_json::json!({ "error": "write_protected", "message": "This V1 endpoint is read-only and only accepts GET." }).to_string(),
+                    Some("write_protected"),
+                );
+                return;
+            }
             let query_text = query_param(query, "q").unwrap_or_default();
             match kb_search_internal(&query_text) {
                 Ok(data) => http_respond_v1_json(
@@ -8521,6 +8531,16 @@ fn handle_knowledgebase_http_request(mut request: Request) {
             }
         }
         "/api/v1/templates" => {
+            if request.method() != &Method::Get {
+                http_respond_v1_json(
+                    request,
+                    api_call_context.as_ref(),
+                    403,
+                    serde_json::json!({ "error": "write_protected", "message": "This V1 endpoint is read-only and only accepts GET." }).to_string(),
+                    Some("write_protected"),
+                );
+                return;
+            }
             let status = query_param(query, "status");
             match kb_prompt_templates_internal(status.as_deref()) {
                 Ok(data) => http_respond_v1_json(
@@ -8573,6 +8593,16 @@ fn handle_knowledgebase_http_request(mut request: Request) {
             }
         }
         _ if path.starts_with("/api/v1/evidence/") => {
+            if request.method() != &Method::Get {
+                http_respond_v1_json(
+                    request,
+                    api_call_context.as_ref(),
+                    403,
+                    serde_json::json!({ "error": "write_protected", "message": "This V1 endpoint is read-only and only accepts GET." }).to_string(),
+                    Some("write_protected"),
+                );
+                return;
+            }
             let item_id = url_decode(path.trim_start_matches("/api/v1/evidence/"));
             match (kb_item_detail_internal(&item_id), kb_trace_internal(&item_id)) {
                 (Ok(item), Ok(trace)) => http_respond_v1_json(
@@ -8592,6 +8622,16 @@ fn handle_knowledgebase_http_request(mut request: Request) {
             }
         }
         "/api/v1/call-logs" => {
+            if request.method() != &Method::Get {
+                http_respond_v1_json(
+                    request,
+                    api_call_context.as_ref(),
+                    403,
+                    serde_json::json!({ "error": "write_protected", "message": "This V1 endpoint is read-only and only accepts GET." }).to_string(),
+                    Some("write_protected"),
+                );
+                return;
+            }
             let limit = query_param(query, "limit")
                 .and_then(|value| value.parse::<usize>().ok())
                 .unwrap_or(50);
@@ -8612,33 +8652,63 @@ fn handle_knowledgebase_http_request(mut request: Request) {
                 ),
             }
         }
-        "/api/v1/health" => match (
-            kb_health_assets_internal(),
-            kb_health_projects_internal(),
-            kb_health_actions_internal(),
-        ) {
-            (Ok(assets), Ok(projects), Ok(actions)) => http_respond_v1_json(
+        "/api/v1/health" => {
+            if request.method() != &Method::Get {
+                http_respond_v1_json(
+                    request,
+                    api_call_context.as_ref(),
+                    403,
+                    serde_json::json!({ "error": "write_protected", "message": "This V1 endpoint is read-only and only accepts GET." }).to_string(),
+                    Some("write_protected"),
+                );
+                return;
+            }
+            match (
+                kb_health_assets_internal(),
+                kb_health_projects_internal(),
+                kb_health_actions_internal(),
+            ) {
+                (Ok(assets), Ok(projects), Ok(actions)) => http_respond_v1_json(
+                    request,
+                    api_call_context.as_ref(),
+                    200,
+                    serde_json::to_string(&serde_json::json!({
+                        "readonly": true,
+                        "summary": kb_health_summary(&assets.assets, &projects.projects),
+                        "assets": assets.assets,
+                        "projects": projects.projects,
+                        "actions": actions.actions
+                    }))
+                    .unwrap_or_else(|_| "{}".to_string()),
+                    None,
+                ),
+                (Err(err), _, _) | (_, Err(err), _) | (_, _, Err(err)) => http_respond_v1_json(
+                    request,
+                    api_call_context.as_ref(),
+                    500,
+                    serde_json::json!({ "error": err }).to_string(),
+                    Some(&err),
+                ),
+            }
+        }
+        _ if path.starts_with("/api/v1/") => {
+            let (status_code, error_code, message) = if request.method() == &Method::Post {
+                (
+                    403,
+                    "write_protected",
+                    "Unknown V1 write-like requests are rejected; use the Web UI or a future confirmation queue.",
+                )
+            } else {
+                (404, "not_found", "Unknown V1 endpoint.")
+            };
+            http_respond_v1_json(
                 request,
                 api_call_context.as_ref(),
-                200,
-                serde_json::to_string(&serde_json::json!({
-                    "readonly": true,
-                    "summary": kb_health_summary(&assets.assets, &projects.projects),
-                    "assets": assets.assets,
-                    "projects": projects.projects,
-                    "actions": actions.actions
-                }))
-                .unwrap_or_else(|_| "{}".to_string()),
-                None,
-            ),
-            (Err(err), _, _) | (_, Err(err), _) | (_, _, Err(err)) => http_respond_v1_json(
-                request,
-                api_call_context.as_ref(),
-                500,
-                serde_json::json!({ "error": err }).to_string(),
-                Some(&err),
-            ),
-        },
+                status_code,
+                serde_json::json!({ "error": error_code, "message": message, "readonly": true }).to_string(),
+                Some(error_code),
+            );
+        }
         "/api/health/assets" => match kb_health_assets_internal() {
             Ok(data) => http_respond_json(
                 request,

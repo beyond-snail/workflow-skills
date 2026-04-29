@@ -13,7 +13,7 @@ This document explains how local AI clients can read the workflow knowledgebase 
 - All V1 API responses are read-only.
 - The MCP server only exposes read tools.
 - External AI clients must not write directly to the formal knowledgebase.
-- Write-like workflows must be handled by a future confirmation queue or rejected.
+- Write-like V1 requests are rejected with `403` and `write_protected`.
 - Non-ASCII query parameters, including Chinese text, must be URL encoded when using raw HTTP.
 
 ## MCP Server
@@ -166,3 +166,4 @@ Call log fields include:
 | MCP tool returns `api_error` | Query `/api/v1/call-logs?limit=20` and inspect `status_code` / `error_message`. |
 | Empty `session_id` from `build_task_context` | Expected behavior. The V1 task-context API is read-only and does not create history. |
 | Need write access | Not supported by V1/MCP. Use the Web UI or wait for the confirmation queue task. |
+| `write_protected` | The client used a write-like method or unknown V1 write path. Use a documented read tool instead. |
