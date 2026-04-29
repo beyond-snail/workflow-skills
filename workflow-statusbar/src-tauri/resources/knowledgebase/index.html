@@ -60,6 +60,10 @@
         radial-gradient(circle at 78% 78%, rgba(14, 168, 163, 0.10), transparent 28%);
     }
 
+    .app.workspace-wide {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
     .panel {
       background: var(--panel);
       border: 1px solid var(--line);
@@ -181,6 +185,10 @@
 
     .app.graph-mode .graph-sidebar {
       display: grid;
+    }
+
+    .app.workspace-wide .sidebar {
+      display: none;
     }
 
     .graph-brand {
@@ -1967,16 +1975,46 @@
     .retro-layout > .card {
       min-height: 0;
       overflow: hidden;
+    }
+
+    .assistant-actions {
+      align-self: start;
+      grid-template-columns: repeat(4, minmax(96px, 1fr));
+    }
+
+    .assistant-actions .action {
+      min-height: 34px;
+      height: 34px;
+      padding: 6px 10px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      white-space: nowrap;
+    }
+
+    .starter-input-card,
+    .starter-output-card,
+    .retro-input-card,
+    .retro-output-card {
       display: grid;
-      grid-template-rows: auto auto minmax(0, 1fr);
+      gap: 10px;
     }
 
     .starter-input-card {
-      grid-template-rows: auto auto auto auto auto minmax(0, 1fr);
+      grid-template-rows: auto auto auto auto auto minmax(124px, 1fr);
     }
 
     .starter-output-card {
-      grid-template-rows: auto minmax(0, 1fr) auto;
+      grid-template-rows: auto minmax(180px, 1fr) minmax(120px, .65fr);
+    }
+
+    .retro-input-card {
+      align-content: start;
+      grid-template-rows: auto auto auto auto auto;
+    }
+
+    .retro-output-card {
+      grid-template-rows: auto minmax(220px, 1fr) auto minmax(120px, .65fr);
     }
 
     .starter-textarea {
@@ -2084,6 +2122,7 @@
     .starter-history {
       display: grid;
       gap: 6px;
+      align-content: start;
       min-height: 0;
       overflow: auto;
       scrollbar-width: none;
@@ -2105,6 +2144,7 @@
       color: #31435f;
       display: grid;
       gap: 4px;
+      min-height: 54px;
     }
 
     .starter-history-item b {
@@ -2144,7 +2184,6 @@
       gap: 8px;
       min-height: 0;
       overflow: auto;
-      padding-top: 10px;
       scrollbar-width: none;
     }
 
@@ -2832,6 +2871,7 @@
       .detail-meta-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .kv.full { grid-column: auto; }
       .action-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .assistant-actions { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
       .graph-stage { min-height: 74vh; }
       .graph-hero,
       .graph-bottom-wrap {
@@ -2863,6 +2903,7 @@
       .kv:nth-child(-n+2) { border-bottom: none; }
       .kv { grid-template-columns: 42px minmax(0, 1fr); }
       .action-row { grid-template-columns: 1fr 1fr; }
+      .assistant-actions { grid-template-columns: 1fr 1fr; }
     }
 
     #spacesMenu,
@@ -3077,7 +3118,7 @@
             <p>输入需求、REQ-ID 或 TASK-ID，生成可复制的任务上下文包。</p>
           </div>
           <textarea class="starter-textarea" id="starterInput" placeholder="例如：REQ-2026-04-28-05 或 实现开工助手 UI 工作区"></textarea>
-          <div class="action-row">
+          <div class="action-row assistant-actions">
             <button class="action" id="starterPreviewBtn" type="button">生成预览</button>
             <button class="action" id="starterPackageBtn" type="button">生成开工包</button>
             <button class="action" id="starterCopyBtn" type="button">复制开工包</button>
@@ -3165,13 +3206,13 @@
       </div>
 
       <div class="workspace retro-layout" id="retro">
-        <article class="card">
+        <article class="card retro-input-card">
           <div class="prompt-head">
             <h3>复盘助手</h3>
             <p>输入已完成的 TASK/REQ 或执行摘要，生成复盘草稿和沉淀建议。</p>
           </div>
           <textarea class="starter-textarea" id="retroInput" placeholder="例如：TASK-2026-04-28-26 或 本轮完成了复盘建议队列"></textarea>
-          <div class="action-row">
+          <div class="action-row assistant-actions">
             <button class="action" id="retroPreviewBtn" type="button">生成复盘</button>
             <button class="action" id="retroPackageBtn" type="button">取回复盘包</button>
             <button class="action" id="retroCopyBtn" type="button">复制复盘</button>
@@ -3186,7 +3227,7 @@
           <div class="hint" id="retroTip">等待输入。生成后可编辑草稿、确认建议，再复制到任务记忆。</div>
         </article>
 
-        <aside class="card">
+        <aside class="card retro-output-card">
           <div class="prompt-head">
             <h3 id="retroOutputTitle">复盘草稿</h3>
             <p id="retroOutputMeta">尚未生成复盘。</p>
@@ -3451,7 +3492,10 @@
     function setActiveWorkspace(target) {
       tabs.forEach((item) => item.classList.toggle('active', item.dataset.target === target));
       workspaces.forEach((item) => item.classList.toggle('active', item.id === target));
-      document.querySelector('.app')?.classList.toggle('graph-mode', target === 'graph');
+      const appShell = document.querySelector('.app');
+      const sidebarWorkspaces = new Set(['search', 'graph']);
+      appShell?.classList.toggle('graph-mode', target === 'graph');
+      appShell?.classList.toggle('workspace-wide', !sidebarWorkspaces.has(target));
       if (target === 'graph') {
         graphState.lastFrameTime = 0;
         requestAnimationFrame(() => {
