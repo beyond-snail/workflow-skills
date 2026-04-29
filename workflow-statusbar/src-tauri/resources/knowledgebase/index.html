@@ -559,6 +559,12 @@
       min-height: 0;
     }
 
+    .health-layout {
+      grid-template-columns: 260px minmax(0, 1fr) minmax(320px, .72fr);
+      gap: 10px;
+      min-height: 0;
+    }
+
     .search-layout > aside.card {
       min-height: 0;
     }
@@ -2120,6 +2126,216 @@
       display: none;
     }
 
+    .health-filter-card,
+    .health-board-card,
+    .health-action-card {
+      min-height: 0;
+      overflow: hidden;
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+    }
+
+    .health-scroll {
+      min-height: 0;
+      overflow: auto;
+      padding-top: 10px;
+      scrollbar-width: none;
+    }
+
+    .health-scroll::-webkit-scrollbar {
+      width: 0;
+      height: 0;
+      display: none;
+    }
+
+    .health-kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 7px;
+      margin-bottom: 10px;
+    }
+
+    .health-kpi {
+      border: 1px solid #dbe7f5;
+      border-radius: 10px;
+      background: #fbfdff;
+      padding: 8px;
+      min-width: 0;
+    }
+
+    .health-kpi b {
+      display: block;
+      color: #172941;
+      font-size: 18px;
+      line-height: 1.1;
+    }
+
+    .health-kpi span {
+      color: var(--muted);
+      font-size: 10px;
+      line-height: 1.4;
+    }
+
+    .health-filter-group {
+      display: grid;
+      gap: 7px;
+    }
+
+    .health-filter {
+      border: 1px solid transparent;
+      border-radius: 10px;
+      background: transparent;
+      color: #31435f;
+      padding: 8px 9px;
+      font-size: 12px;
+      text-align: left;
+      cursor: pointer;
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .health-filter.active {
+      background: #edf7f4;
+      border-color: #bee5d5;
+      color: #0d7052;
+      font-weight: 700;
+    }
+
+    .health-toolbar {
+      display: flex;
+      gap: 8px;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+
+    .health-toolbar select {
+      min-width: 150px;
+      border: 1px solid #d4e1f1;
+      border-radius: 9px;
+      background: #fff;
+      color: #31435f;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 7px 8px;
+    }
+
+    .health-list,
+    .health-actions {
+      display: grid;
+      gap: 8px;
+    }
+
+    .health-item {
+      border: 1px solid #dbe7f5;
+      border-radius: 12px;
+      background: #fff;
+      padding: 10px;
+      display: grid;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .health-item-head {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: start;
+    }
+
+    .health-item h4 {
+      margin: 0;
+      color: #1d304b;
+      font-size: 13px;
+      line-height: 1.35;
+      overflow-wrap: anywhere;
+    }
+
+    .health-item p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.45;
+    }
+
+    .health-score {
+      width: 48px;
+      height: 48px;
+      border-radius: 12px;
+      border: 1px solid #d5e4f4;
+      display: grid;
+      place-items: center;
+      color: #17324d;
+      background: #f9fcff;
+      font-size: 15px;
+      font-weight: 800;
+    }
+
+    .health-score.risk {
+      border-color: #f1b8c4;
+      background: #fff0f4;
+      color: #9d1f39;
+    }
+
+    .health-score.attention {
+      border-color: #f2d59d;
+      background: #fff7e9;
+      color: #8b5200;
+    }
+
+    .health-score.healthy {
+      border-color: #b8e5d1;
+      background: #ecfbf4;
+      color: #0d7052;
+    }
+
+    .health-reasons {
+      display: flex;
+      gap: 5px;
+      flex-wrap: wrap;
+    }
+
+    .health-reason {
+      border-radius: 999px;
+      border: 1px solid #d9e5f2;
+      background: #f8fbff;
+      color: #526983;
+      padding: 4px 7px;
+      font-size: 10px;
+      line-height: 1.2;
+    }
+
+    .health-action {
+      border: 1px solid #dbe7f5;
+      border-radius: 12px;
+      background: #fff;
+      padding: 10px;
+      text-align: left;
+      cursor: pointer;
+      display: grid;
+      gap: 6px;
+      color: #263852;
+    }
+
+    .health-action:hover {
+      border-color: #91cfd8;
+      background: #f5fbfc;
+    }
+
+    .health-action b {
+      font-size: 12px;
+      line-height: 1.35;
+      overflow-wrap: anywhere;
+    }
+
+    .health-action span {
+      color: var(--muted);
+      font-size: 10px;
+      line-height: 1.45;
+    }
+
     .prompt-layout {
       grid-template-columns: 270px minmax(0, 0.9fr) minmax(360px, 1.1fr);
       gap: 10px;
@@ -2403,6 +2619,7 @@
     @media (max-width: 1220px) {
       .search-layout { grid-template-columns: 1fr; }
       .starter-layout { grid-template-columns: 1fr; }
+      .health-layout { grid-template-columns: 1fr; }
       .graph-layout { grid-template-columns: 1fr; }
       .prompt-layout { grid-template-columns: 1fr; }
       .overview-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -2556,6 +2773,7 @@
           <button class="tab" data-target="search">搜索工作台</button>
           <button class="tab active" data-target="graph">知识图谱中枢</button>
           <button class="tab" data-target="prompt">提示词工程</button>
+          <button class="tab" data-target="health">健康度</button>
           <button class="tab" data-target="starter">开工助手</button>
           <button class="tab" data-target="collector">采集中心</button>
         </div>
@@ -2681,6 +2899,62 @@
             <div class="hint">输入任务后点击“生成预览”。</div>
           </div>
           <pre class="starter-package" id="starterPackage">Markdown 开工包会显示在这里。</pre>
+        </aside>
+      </div>
+
+      <div class="workspace health-layout" id="health">
+        <aside class="card health-filter-card">
+          <div class="prompt-head">
+            <h3>资产健康度</h3>
+            <p id="healthMeta">正在加载健康度快照...</p>
+          </div>
+          <div class="health-scroll">
+            <div class="health-kpi-grid">
+              <div class="health-kpi"><b id="healthAssetCount">0</b><span>模板资产</span></div>
+              <div class="health-kpi"><b id="healthProjectCount">0</b><span>项目覆盖</span></div>
+              <div class="health-kpi"><b id="healthAttentionCount">0</b><span>待整理</span></div>
+              <div class="health-kpi"><b id="healthActionCount">0</b><span>建议动作</span></div>
+            </div>
+            <div class="health-filter-group" id="healthFilters">
+              <button class="health-filter active" data-health-view="all"><span>全部资产</span><span class="tag t-info" id="healthAllCount">0</span></button>
+              <button class="health-filter" data-health-view="risk"><span>高风险</span><span class="tag t-danger" id="healthRiskCount">0</span></button>
+              <button class="health-filter" data-health-view="attention"><span>需关注</span><span class="tag t-warn" id="healthWarnCount">0</span></button>
+              <button class="health-filter" data-health-view="project"><span>项目覆盖</span><span class="tag t-info" id="healthProjectFilterCount">0</span></button>
+              <button class="health-filter" data-health-view="template"><span>提示词模板</span><span class="tag t-info" id="healthTemplateCount">0</span></button>
+            </div>
+            <div class="prompt-origin">
+              <button class="prompt-review-action" id="healthRefreshBtn" type="button">刷新健康度</button>
+              <div class="prompt-origin-note" id="healthFocusNote">按低分优先展示，点击建议可跳转到模板、项目或搜索。</div>
+            </div>
+          </div>
+        </aside>
+
+        <article class="card health-board-card">
+          <div class="prompt-head">
+            <h3>低健康资产</h3>
+            <p id="healthListMeta">等待健康度 API 返回。</p>
+          </div>
+          <div class="health-scroll">
+            <div class="health-toolbar">
+              <select id="healthSort">
+                <option value="score">低分优先</option>
+                <option value="updated">最近更新</option>
+                <option value="type">类型分组</option>
+              </select>
+              <span class="tag t-info" id="healthScopeTag">全部</span>
+            </div>
+            <div class="health-list" id="healthList"></div>
+          </div>
+        </article>
+
+        <aside class="card health-action-card">
+          <div class="prompt-head">
+            <h3>行动建议</h3>
+            <p id="healthActionMeta">优先处理 P0，避免低质量模板继续被复用。</p>
+          </div>
+          <div class="health-scroll">
+            <div class="health-actions" id="healthActions"></div>
+          </div>
         </aside>
       </div>
 
@@ -2891,6 +3165,8 @@
           graphUpdateDetail(graphState.selectedId);
           graphDraw();
         });
+      } else if (target === 'health' && !healthState.loaded) {
+        loadHealthDashboard();
       }
     }
 
@@ -2926,6 +3202,16 @@
       sessions: []
     };
 
+    const healthState = {
+      loaded: false,
+      assets: [],
+      projects: [],
+      actions: [],
+      summary: {},
+      activeView: 'all',
+      sort: 'score'
+    };
+
     const graphState = {
       width: 0,
       height: 0,
@@ -2955,6 +3241,158 @@
       resumeUntil: 0,
       resumeBoost: 1
     };
+
+    function healthTypeLabel(item) {
+      if (item.kind === 'project' || item.asset_type === 'project') return '项目';
+      return '模板';
+    }
+
+    function healthCombinedItems() {
+      const assets = healthState.assets.map((item) => ({ ...item, kind: 'template' }));
+      const projects = healthState.projects.map((item) => ({
+        ...item,
+        kind: 'project',
+        asset_id: item.project_id,
+        title: item.name,
+        category: '项目覆盖',
+        status: item.root_path,
+        source_count: item.item_count,
+        updated_at: item.last_item_at
+      }));
+      return [...assets, ...projects];
+    }
+
+    function healthVisibleItems() {
+      let items = healthCombinedItems();
+      if (healthState.activeView === 'risk') {
+        items = items.filter((item) => item.level === 'risk' || Number(item.score || 0) < 60);
+      } else if (healthState.activeView === 'attention') {
+        items = items.filter((item) => item.level === 'attention' || Number(item.score || 0) < 80);
+      } else if (healthState.activeView === 'project') {
+        items = items.filter((item) => item.kind === 'project');
+      } else if (healthState.activeView === 'template') {
+        items = items.filter((item) => item.kind === 'template');
+      }
+      if (healthState.sort === 'updated') {
+        items.sort((a, b) => String(b.updated_at || '').localeCompare(String(a.updated_at || '')));
+      } else if (healthState.sort === 'type') {
+        items.sort((a, b) => healthTypeLabel(a).localeCompare(healthTypeLabel(b)) || Number(a.score || 0) - Number(b.score || 0));
+      } else {
+        items.sort((a, b) => Number(a.score || 0) - Number(b.score || 0));
+      }
+      return items;
+    }
+
+    function renderHealthDashboard() {
+      const assets = healthState.assets;
+      const projects = healthState.projects;
+      const actions = healthState.actions;
+      const allItems = healthCombinedItems();
+      const riskCount = allItems.filter((item) => item.level === 'risk' || Number(item.score || 0) < 60).length;
+      const attentionCount = allItems.filter((item) => Number(item.score || 0) < 80).length;
+      document.getElementById('healthAssetCount').textContent = String(assets.length);
+      document.getElementById('healthProjectCount').textContent = String(projects.length);
+      document.getElementById('healthAttentionCount').textContent = String(attentionCount);
+      document.getElementById('healthActionCount').textContent = String(actions.length);
+      document.getElementById('healthAllCount').textContent = String(allItems.length);
+      document.getElementById('healthRiskCount').textContent = String(riskCount);
+      document.getElementById('healthWarnCount').textContent = String(Math.max(0, attentionCount - riskCount));
+      document.getElementById('healthProjectFilterCount').textContent = String(projects.length);
+      document.getElementById('healthTemplateCount').textContent = String(assets.length);
+      document.getElementById('healthMeta').textContent = `模板 ${assets.length} · 项目 ${projects.length} · 建议 ${actions.length}`;
+      document.getElementById('healthScopeTag').textContent = {
+        all: '全部',
+        risk: '高风险',
+        attention: '需关注',
+        project: '项目',
+        template: '模板'
+      }[healthState.activeView] || '全部';
+      renderHealthList();
+      renderHealthActions();
+    }
+
+    function renderHealthList() {
+      const list = healthVisibleItems();
+      document.getElementById('healthListMeta').textContent = `${list.length} 条，按 ${healthState.sort === 'score' ? '低分' : healthState.sort === 'updated' ? '更新时间' : '类型'} 排序`;
+      const target = document.getElementById('healthList');
+      if (!list.length) {
+        target.innerHTML = '<div class="hint">当前筛选下没有低健康资产。</div>';
+        return;
+      }
+      target.innerHTML = list.map((item) => {
+        const reasons = Array.isArray(item.reasons) ? item.reasons.slice(0, 3) : [];
+        const meta = item.kind === 'project'
+          ? `${Number(item.item_count || 0)} 条目 · workflow ${Number(item.workflow_count || 0)} · memory ${Number(item.memory_count || 0)}`
+          : `${esc(item.category || '-')} · ${esc(promptStatusLabel(item.status || ''))} · ${Number(item.source_count || 0)} 来源`;
+        return `
+          <article class="health-item" data-health-kind="${esc(item.kind)}" data-health-id="${esc(item.asset_id || item.project_id || '')}">
+            <div class="health-item-head">
+              <div>
+                <h4>${esc(item.title || item.name || '未命名资产')}</h4>
+                <p>${meta}</p>
+              </div>
+              <div class="health-score ${esc(item.level || 'risk')}">${Number(item.score || 0)}</div>
+            </div>
+            <div class="health-reasons">${reasons.map((reason) => `<span class="health-reason">${esc(reason)}</span>`).join('')}</div>
+            <p>${esc(item.suggested_action || '补充证据和验证记录')}</p>
+          </article>
+        `;
+      }).join('');
+    }
+
+    function renderHealthActions() {
+      const target = document.getElementById('healthActions');
+      document.getElementById('healthActionMeta').textContent = `${healthState.actions.length} 条建议，点击后跳转到对应工作区`;
+      if (!healthState.actions.length) {
+        target.innerHTML = '<div class="hint">暂无建议动作。</div>';
+        return;
+      }
+      target.innerHTML = healthState.actions.slice(0, 24).map((item) => `
+        <button class="health-action" type="button" data-health-action-type="${esc(item.target_type)}" data-health-action-id="${esc(item.target_id)}" data-health-action-title="${esc(item.title)}">
+          <b>${esc(item.priority || 'P1')} · ${esc(item.title || item.target_id)}</b>
+          <span>${esc(item.reason || '需要整理')} · score ${Number(item.score || 0)}</span>
+          <span>${esc(item.suggested_action || '补充证据和验证记录')}</span>
+        </button>
+      `).join('');
+    }
+
+    async function loadHealthDashboard(useRefresh = false) {
+      document.getElementById('healthMeta').textContent = '正在刷新健康度...';
+      const data = useRefresh
+        ? await fetch('/api/health/refresh', { method: 'POST' }).then((res) => res.json())
+        : await Promise.all([
+            fetch('/api/health/assets').then((res) => res.json()),
+            fetch('/api/health/projects').then((res) => res.json()),
+            fetch('/api/health/actions').then((res) => res.json())
+          ]).then(([assets, projects, actions]) => ({
+            assets: assets.assets || [],
+            projects: projects.projects || [],
+            actions: actions.actions || [],
+            summary: actions.summary || assets.summary || projects.summary || {}
+          }));
+      healthState.assets = Array.isArray(data.assets) ? data.assets : [];
+      healthState.projects = Array.isArray(data.projects) ? data.projects : [];
+      healthState.actions = Array.isArray(data.actions) ? data.actions : [];
+      healthState.summary = data.summary || {};
+      healthState.loaded = true;
+      renderHealthDashboard();
+    }
+
+    async function openHealthTarget(type, id, title) {
+      if (type === 'prompt_template') {
+        setActiveWorkspace('prompt');
+        await loadPromptDetail(id);
+        return;
+      }
+      const project = healthState.projects.find((item) => item.project_id === id);
+      if (project) {
+        await selectProjectAndSearch(project.project_id, project.name || title || '项目');
+        return;
+      }
+      document.getElementById('q').value = title || id || '';
+      setActiveWorkspace('search');
+      await runSearch();
+    }
 
     const GRAPH_AUTO_SPIN_SPEED = 0.000075;
 
@@ -5429,6 +5867,37 @@
         const btn = event.target.closest('button[data-starter-session-id]');
         if (!btn) return;
         openStarterSession(btn.getAttribute('data-starter-session-id') || '');
+      });
+
+      document.getElementById('healthFilters').addEventListener('click', (event) => {
+        if (!(event.target instanceof Element)) return;
+        const btn = event.target.closest('button[data-health-view]');
+        if (!btn) return;
+        healthState.activeView = btn.getAttribute('data-health-view') || 'all';
+        document.querySelectorAll('.health-filter').forEach((item) => {
+          item.classList.toggle('active', item.getAttribute('data-health-view') === healthState.activeView);
+        });
+        renderHealthDashboard();
+      });
+
+      document.getElementById('healthSort').addEventListener('change', (event) => {
+        healthState.sort = event.target.value || 'score';
+        renderHealthList();
+      });
+
+      document.getElementById('healthRefreshBtn').addEventListener('click', () => {
+        loadHealthDashboard(true);
+      });
+
+      document.getElementById('healthActions').addEventListener('click', (event) => {
+        if (!(event.target instanceof Element)) return;
+        const btn = event.target.closest('button[data-health-action-type]');
+        if (!btn) return;
+        openHealthTarget(
+          btn.getAttribute('data-health-action-type') || '',
+          btn.getAttribute('data-health-action-id') || '',
+          btn.getAttribute('data-health-action-title') || ''
+        );
       });
 
       document.getElementById('resetFiltersBtn').addEventListener('click', () => {
