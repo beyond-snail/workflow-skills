@@ -2412,6 +2412,133 @@
       background: #eef8f9;
     }
 
+    .projects-layout {
+      grid-template-columns: 260px minmax(0, 1fr) 320px;
+      gap: 10px;
+      min-height: 0;
+    }
+
+    .project-overview-card,
+    .project-rank-card,
+    .project-detail-card {
+      min-height: 0;
+      overflow: hidden;
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+    }
+
+    .project-overview-scroll,
+    .project-rank-scroll,
+    .project-detail-scroll {
+      min-height: 0;
+      overflow: auto;
+      padding-top: 10px;
+      scrollbar-width: none;
+    }
+
+    .project-overview-scroll::-webkit-scrollbar,
+    .project-rank-scroll::-webkit-scrollbar,
+    .project-detail-scroll::-webkit-scrollbar {
+      width: 0;
+      height: 0;
+      display: none;
+    }
+
+    .portfolio-kpis {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 7px;
+    }
+
+    .portfolio-kpi {
+      border: 1px solid #dbe7f5;
+      border-radius: 10px;
+      background: #fbfdff;
+      padding: 8px;
+      min-width: 0;
+    }
+
+    .portfolio-kpi b {
+      display: block;
+      color: #172941;
+      font-size: 18px;
+      line-height: 1.1;
+    }
+
+    .portfolio-kpi span {
+      color: var(--muted);
+      font-size: 10px;
+      line-height: 1.35;
+    }
+
+    .project-rank-list,
+    .project-action-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .project-rank-item {
+      border: 1px solid #dbe7f5;
+      border-radius: 12px;
+      background: #fff;
+      padding: 10px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 10px;
+      cursor: pointer;
+      text-align: left;
+      color: #263852;
+    }
+
+    .project-rank-item:hover,
+    .project-rank-item.active {
+      border-color: #91cfd8;
+      background: #f5fbfc;
+    }
+
+    .project-rank-item b {
+      display: block;
+      font-size: 13px;
+      line-height: 1.35;
+      overflow-wrap: anywhere;
+    }
+
+    .project-rank-item span,
+    .project-rank-item p {
+      display: block;
+      margin: 4px 0 0;
+      color: var(--muted);
+      font-size: 10px;
+      line-height: 1.45;
+    }
+
+    .project-detail-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 7px;
+      margin-bottom: 10px;
+    }
+
+    .project-action-item {
+      border: 1px solid #dbe7f5;
+      border-radius: 11px;
+      background: #fff;
+      padding: 9px;
+      display: grid;
+      gap: 6px;
+    }
+
+    .project-action-item b {
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    .project-action-item span {
+      color: var(--muted);
+      font-size: 10px;
+      line-height: 1.45;
+    }
+
     .prompt-layout {
       grid-template-columns: 270px minmax(0, 0.9fr) minmax(360px, 1.1fr);
       gap: 10px;
@@ -2851,6 +2978,7 @@
           <button class="tab active" data-target="graph">知识图谱中枢</button>
           <button class="tab" data-target="prompt">提示词工程</button>
           <button class="tab" data-target="health">健康度</button>
+          <button class="tab" data-target="projects">多项目看板</button>
           <button class="tab" data-target="starter">开工助手</button>
           <button class="tab" data-target="retro">复盘助手</button>
           <button class="tab" data-target="collector">采集中心</button>
@@ -3072,6 +3200,58 @@
         </aside>
       </div>
 
+      <div class="workspace projects-layout" id="projects">
+        <aside class="card project-overview-card">
+          <div class="prompt-head">
+            <h3>项目组合</h3>
+            <p id="projectOverviewMeta">按健康分和风险数定位优先治理项目。</p>
+          </div>
+          <div class="project-overview-scroll">
+            <div class="portfolio-kpis">
+              <div class="portfolio-kpi"><b id="portfolioProjectCount">0</b><span>接入项目</span></div>
+              <div class="portfolio-kpi"><b id="portfolioAvgScore">0</b><span>平均健康分</span></div>
+              <div class="portfolio-kpi"><b id="portfolioRiskCount">0</b><span>风险数</span></div>
+              <div class="portfolio-kpi"><b id="portfolioActionCount">0</b><span>建议动作</span></div>
+            </div>
+            <div class="prompt-origin" style="margin-top:10px;">
+              <button class="prompt-review-action" id="projectOverviewRefreshBtn" type="button">刷新看板</button>
+              <div class="prompt-origin-note" id="projectOverviewNote">低分项目优先；详情区展示证据覆盖和建议动作。</div>
+            </div>
+          </div>
+        </aside>
+
+        <article class="card project-rank-card">
+          <div class="prompt-head">
+            <h3>项目健康排行</h3>
+            <p id="projectRankMeta">等待 overview API 返回。</p>
+          </div>
+          <div class="project-rank-scroll">
+            <div class="project-rank-list" id="projectRankList"></div>
+          </div>
+        </article>
+
+        <aside class="card project-detail-card">
+          <div class="prompt-head">
+            <h3 id="projectDetailTitle">项目详情</h3>
+            <p id="projectDetailMeta">选择项目后查看健康快照和行动建议。</p>
+          </div>
+          <div class="project-detail-scroll">
+            <div class="project-detail-grid">
+              <div class="portfolio-kpi"><b id="projectDetailScore">-</b><span>健康分</span></div>
+              <div class="portfolio-kpi"><b id="projectDetailCoverage">-</b><span>采集覆盖</span></div>
+              <div class="portfolio-kpi"><b id="projectDetailTemplates">-</b><span>模板</span></div>
+              <div class="portfolio-kpi"><b id="projectDetailEvidence">-</b><span>证据完整</span></div>
+            </div>
+            <div class="health-reasons" id="projectDetailRisks"></div>
+            <div class="prompt-head" style="margin-top:10px;">
+              <h3>行动建议</h3>
+              <p id="projectActionMeta">等待项目选择。</p>
+            </div>
+            <div class="project-action-list" id="projectActionList"></div>
+          </div>
+        </aside>
+      </div>
+
       <div class="workspace graph-layout active" id="graph">
         <article class="graph-stage">
           <div class="graph-hero">
@@ -3281,6 +3461,8 @@
         });
       } else if (target === 'health' && !healthState.loaded) {
         loadHealthDashboard();
+      } else if (target === 'projects' && !projectsState.loaded) {
+        loadProjectsDashboard();
       }
     }
 
@@ -3331,6 +3513,15 @@
       summary: {},
       activeView: 'all',
       sort: 'score'
+    };
+
+    const projectsState = {
+      loaded: false,
+      overview: null,
+      projects: [],
+      selectedId: '',
+      detail: null,
+      actions: []
     };
 
     const graphState = {
@@ -3503,6 +3694,106 @@
       healthState.summary = data.summary || {};
       healthState.loaded = true;
       renderHealthDashboard();
+    }
+
+    function renderProjectsDashboard() {
+      const summary = projectsState.overview?.summary || {};
+      const projects = projectsState.projects || [];
+      document.getElementById('portfolioProjectCount').textContent = String(summary.total_projects || projects.length || 0);
+      document.getElementById('portfolioAvgScore').textContent = String(summary.average_score || 0);
+      document.getElementById('portfolioRiskCount').textContent = String(summary.total_risks || 0);
+      document.getElementById('portfolioActionCount').textContent = String(summary.total_actions || 0);
+      document.getElementById('projectRankMeta').textContent = `${projects.length} 个项目，低健康分优先`;
+      const list = document.getElementById('projectRankList');
+      if (!projects.length) {
+        list.innerHTML = '<div class="hint">暂无项目快照。先到采集中心接入项目。</div>';
+        return;
+      }
+      list.innerHTML = projects.map((project) => `
+        <button class="project-rank-item ${project.project_id === projectsState.selectedId ? 'active' : ''}" type="button" data-project-overview-id="${esc(project.project_id)}">
+          <div>
+            <b>${esc(project.name || project.project_id)}</b>
+            <span>${esc(project.primary_risk || '暂无主要风险')}</span>
+            <p>${Number(project.template_count || 0)} 模板 · 覆盖 ${Number(project.collection_coverage || 0)}% · 证据 ${Number(project.evidence_completeness || 0)}%</p>
+          </div>
+          <div class="health-score ${Number(project.health_score || 0) < 60 ? 'risk' : Number(project.health_score || 0) < 80 ? 'attention' : 'healthy'}">${Number(project.health_score || 0)}</div>
+        </button>
+      `).join('');
+      const selected = projects.find((project) => project.project_id === projectsState.selectedId) || projects[0];
+      if (selected && selected.project_id !== projectsState.selectedId) {
+        void selectProjectOverview(selected.project_id);
+      }
+    }
+
+    function renderProjectDetail() {
+      const detail = projectsState.detail;
+      const actions = projectsState.actions || [];
+      if (!detail) {
+        document.getElementById('projectDetailTitle').textContent = '项目详情';
+        document.getElementById('projectDetailMeta').textContent = '选择项目后查看健康快照和行动建议。';
+        document.getElementById('projectActionList').innerHTML = '<div class="hint">等待项目选择。</div>';
+        return;
+      }
+      document.getElementById('projectDetailTitle').textContent = detail.name || detail.project_id;
+      document.getElementById('projectDetailMeta').textContent = `${esc(detail.root_path || '')}`;
+      document.getElementById('projectDetailScore').textContent = String(detail.health_score || 0);
+      document.getElementById('projectDetailCoverage').textContent = `${Number(detail.collection_coverage || 0)}%`;
+      document.getElementById('projectDetailTemplates').textContent = `${Number(detail.verified_template_count || 0)}/${Number(detail.template_count || 0)}`;
+      document.getElementById('projectDetailEvidence').textContent = `${Number(detail.evidence_completeness || 0)}%`;
+      document.getElementById('projectDetailRisks').innerHTML = (detail.risks || []).slice(0, 6).map((risk) => `<span class="health-reason">${esc(risk)}</span>`).join('') || '<span class="health-reason">暂无风险</span>';
+      document.getElementById('projectActionMeta').textContent = `${actions.length} 条项目建议`;
+      document.getElementById('projectActionList').innerHTML = actions.length ? actions.map((action) => `
+        <article class="project-action-item">
+          <b>${esc(action.priority || 'P1')} · ${esc(action.title || action.suggested_action)}</b>
+          <span>${esc(action.reason || '项目需要维护')}</span>
+          <div class="health-action-links">
+            <button class="health-action-link" type="button" data-project-action-route="${esc(action.route_hint || 'health')}" data-project-action-id="${esc(action.project_id)}" data-project-action-name="${esc(detail.name)}">打开</button>
+            <button class="health-action-link" type="button" data-project-action-route="search" data-project-action-id="${esc(action.project_id)}" data-project-action-name="${esc(detail.name)}">搜索</button>
+          </div>
+        </article>
+      `).join('') : '<div class="hint">暂无建议动作。</div>';
+    }
+
+    async function loadProjectsDashboard() {
+      document.getElementById('projectOverviewMeta').textContent = '正在加载项目组合...';
+      const overview = await fetch('/api/projects/overview').then((res) => res.json());
+      projectsState.overview = overview;
+      projectsState.projects = Array.isArray(overview.projects) ? overview.projects : [];
+      projectsState.loaded = true;
+      document.getElementById('projectOverviewMeta').textContent = `项目 ${projectsState.projects.length} · 风险 ${overview.summary?.total_risks || 0}`;
+      renderProjectsDashboard();
+    }
+
+    async function selectProjectOverview(projectId) {
+      if (!projectId) return;
+      projectsState.selectedId = projectId;
+      const [detail, actions] = await Promise.all([
+        fetch('/api/projects/' + encodeURIComponent(projectId) + '/health').then((res) => res.json()),
+        fetch('/api/projects/' + encodeURIComponent(projectId) + '/actions').then((res) => res.json())
+      ]);
+      projectsState.detail = detail.project || null;
+      projectsState.actions = Array.isArray(actions.actions) ? actions.actions : [];
+      renderProjectsDashboard();
+      renderProjectDetail();
+    }
+
+    async function handleProjectAction(route, projectId, projectName) {
+      if (route === 'collect') {
+        const detail = projectsState.detail;
+        document.getElementById('projectPath').value = detail?.root_path || '';
+        setActiveWorkspace('collector');
+        return;
+      }
+      if (route === 'retro') {
+        document.getElementById('retroInput').value = `复盘项目：${projectName || projectId}`;
+        setActiveWorkspace('retro');
+        return;
+      }
+      if (route === 'prompt') {
+        setActiveWorkspace('prompt');
+        return;
+      }
+      await selectProjectAndSearch(projectId, projectName || '项目');
     }
 
     async function openHealthTarget(type, id, title) {
@@ -6223,6 +6514,29 @@
             btn.getAttribute('data-health-action-title') || ''
           );
         }
+      });
+
+      document.getElementById('projectOverviewRefreshBtn').addEventListener('click', () => {
+        projectsState.loaded = false;
+        loadProjectsDashboard();
+      });
+
+      document.getElementById('projectRankList').addEventListener('click', (event) => {
+        if (!(event.target instanceof Element)) return;
+        const item = event.target.closest('[data-project-overview-id]');
+        if (!item) return;
+        selectProjectOverview(item.getAttribute('data-project-overview-id') || '');
+      });
+
+      document.getElementById('projectActionList').addEventListener('click', (event) => {
+        if (!(event.target instanceof Element)) return;
+        const button = event.target.closest('[data-project-action-route]');
+        if (!button) return;
+        handleProjectAction(
+          button.getAttribute('data-project-action-route') || 'health',
+          button.getAttribute('data-project-action-id') || '',
+          button.getAttribute('data-project-action-name') || ''
+        );
       });
 
       document.getElementById('resetFiltersBtn').addEventListener('click', () => {
