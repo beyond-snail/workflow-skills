@@ -74,8 +74,11 @@ Required item fields:
 
 - Schema endpoint: `GET /api/workflow-packs/schema`
 - Export endpoint: `POST /api/workflow-packs/export`
+- Validate endpoint: `POST /api/workflow-packs/validate`
+- Import endpoint: `POST /api/workflow-packs/import`
+- Detail endpoint: `GET /api/workflow-packs/:id`
 - Checksum algorithm: `sha256`
-- Import/validate endpoints are intentionally left for the following V7 tasks.
+- Imported packs are stored as candidate workflow packs and do not write into formal knowledge items directly.
 
 ### Export Examples
 
@@ -93,4 +96,20 @@ Project knowledge pack:
 curl -X POST http://127.0.0.1:8788/api/workflow-packs/export \
   -H 'content-type: application/json' \
   -d '{"pack_type":"project_knowledge_pack","project_id":"proj-example"}'
+```
+
+Validate an exported package:
+
+```bash
+curl -X POST http://127.0.0.1:8788/api/workflow-packs/validate \
+  -H 'content-type: application/json' \
+  -d '{"package_json":{"schema_version":"1.0.0","pack_type":"development_handoff_pack","pack_id":"workflow-pack-example","title":"Example","created_at":"2026-04-29T00:00:00Z","source":{},"items":[],"markdown":"","checksum":"sha256:..."}}'
+```
+
+Import a valid package as a candidate workflow pack:
+
+```bash
+curl -X POST http://127.0.0.1:8788/api/workflow-packs/import \
+  -H 'content-type: application/json' \
+  -d '{"package_json":{...}}'
 ```

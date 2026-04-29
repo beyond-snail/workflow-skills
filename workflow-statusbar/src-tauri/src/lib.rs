@@ -774,6 +774,69 @@ struct KbWorkflowPackExportResponse {
     package_json: serde_json::Value,
 }
 
+#[derive(Clone, Serialize, Deserialize, Debug, Default)]
+#[allow(dead_code)]
+struct KbWorkflowPackValidateRequest {
+    pack_id: Option<String>,
+    package_json: Option<serde_json::Value>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug, Default)]
+#[allow(dead_code)]
+struct KbWorkflowPackImportRequest {
+    package_json: Option<serde_json::Value>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+#[allow(dead_code)]
+struct KbWorkflowPackValidationIssue {
+    severity: String,
+    code: String,
+    path: String,
+    message: String,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+#[allow(dead_code)]
+struct KbWorkflowPackValidateResponse {
+    valid: bool,
+    importable: bool,
+    pack_id: String,
+    pack_type: String,
+    schema_version: String,
+    checksum: String,
+    calculated_checksum: String,
+    item_count: usize,
+    issues: Vec<KbWorkflowPackValidationIssue>,
+    package_json: serde_json::Value,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+#[allow(dead_code)]
+struct KbWorkflowPackImportResponse {
+    imported: bool,
+    pack_id: String,
+    status: String,
+    validation: KbWorkflowPackValidateResponse,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+#[allow(dead_code)]
+struct KbWorkflowPackDetailResponse {
+    pack_id: String,
+    pack_type: String,
+    schema_version: String,
+    title: String,
+    source_ref: String,
+    checksum: String,
+    status: String,
+    markdown: String,
+    package_json: serde_json::Value,
+    items: Vec<serde_json::Value>,
+    updated_at: String,
+    created_at: String,
+}
+
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 enum AlertProviderMode {
@@ -7342,6 +7405,165 @@ fn sha256_hex(value: &str) -> String {
     format!("{:x}", hasher.finalize())
 }
 
+fn canonical_json_string(value: &serde_json::Value) -> String {
+    match value {
+        serde_json::Value::Null
+        | serde_json::Value::Bool(_)
+        | serde_json::Value::Number(_)
+        | serde_json::Value::String(_) => {
+            serde_json::to_string(value).unwrap_or_else(|_| "null".to_string())
+        }
+        serde_json::Value::Array(items) => {
+            let parts = items
+                .iter()
+                .map(canonical_json_string)
+                .collect::<Vec<_>>()
+                .join(",");
+            format!("[{parts}]")
+        }
+        serde_json::Value::Object(map) => {
+            let mut keys = map.keys().collect::<Vec<_>>();
+            keys.sort();
+            let parts = keys
+                .into_iter()
+                .map(|key| {
+                    let key_json =
+                        serde_json::to_string(key).unwrap_or_else(|_| "\"\"".to_string());
+                    let value_json = map
+                        .get(key)
+                        .map(canonical_json_string)
+                        .unwrap_or_else(|| "null".to_string());
+                    format!("{key_json}:{value_json}")
+                })
+                .collect::<Vec<_>>()
+                .join(",");
+            format!("{{{parts}}}")
+        }
+    }
+}
+
+fn kb_workflow_pack_checksum_for_stable(stable: &serde_json::Value) -> String {
+    format!("sha256:{}", sha256_hex(&canonical_json_string(stable)))
+}
+
+fn kb_workflow_pack_supported_type(pack_type: &str) -> bool {
+    matches!(
+        pack_type,
+        "requirement_context_pack"
+            | "development_handoff_pack"
+            | "verification_evidence_pack"
+            | "retrospective_pack"
+            | "project_knowledge_pack"
+    )
+}
+
+fn kb_workflow_pack_issue(
+    severity: &str,
+    code: &str,
+    path: &str,
+    message: &str,
+) -> KbWorkflowPackValidationIssue {
+    KbWorkflowPackValidationIssue {
+        severity: severity.into(),
+        code: code.into(),
+        path: path.into(),
+        message: message.into(),
+    }
+}
+
+fn kb_workflow_pack_required_string(
+    package_json: &serde_json::Value,
+    field: &str,
+    issues: &mut Vec<KbWorkflowPackValidationIssue>,
+) -> String {
+    let value = package_json
+        .get(field)
+        .and_then(|value| value.as_str())
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    if value.is_empty() {
+        issues.push(kb_workflow_pack_issue(
+            "error",
+            "missing_required_field",
+            &format!("$.{field}"),
+            "缺少必填字符串字段。",
+        ));
+    }
+    value
+}
+
+fn kb_workflow_pack_calculated_checksum(package_json: &serde_json::Value) -> String {
+    let stable = serde_json::json!({
+        "schema_version": package_json.get("schema_version").cloned().unwrap_or_else(|| serde_json::json!("")),
+        "pack_type": package_json.get("pack_type").cloned().unwrap_or_else(|| serde_json::json!("")),
+        "title": package_json.get("title").cloned().unwrap_or_else(|| serde_json::json!("")),
+        "source": package_json.get("source").cloned().unwrap_or_else(|| serde_json::json!({})),
+        "items": package_json.get("items").cloned().unwrap_or_else(|| serde_json::json!([])),
+        "markdown": package_json.get("markdown").cloned().unwrap_or_else(|| serde_json::json!("")),
+    });
+    kb_workflow_pack_checksum_for_stable(&stable)
+}
+
+fn kb_workflow_pack_string_field(package_json: &serde_json::Value, field: &str) -> String {
+    package_json
+        .get(field)
+        .and_then(|value| value.as_str())
+        .unwrap_or_default()
+        .trim()
+        .to_string()
+}
+
+fn kb_workflow_pack_load_package(
+    conn: &Connection,
+    pack_id: &str,
+) -> Result<serde_json::Value, String> {
+    let raw: String = conn
+        .query_row(
+            "SELECT package_json FROM workflow_packs WHERE id=?1",
+            params![pack_id],
+            |row| row.get(0),
+        )
+        .map_err(|err| {
+            if matches!(err, rusqlite::Error::QueryReturnedNoRows) {
+                "pack_not_found".to_string()
+            } else {
+                err.to_string()
+            }
+        })?;
+    serde_json::from_str(&raw).map_err(|err| err.to_string())
+}
+
+fn kb_workflow_pack_source_exists(
+    conn: &Connection,
+    source_ref: &str,
+) -> Result<Option<bool>, String> {
+    let Some((source_table, source_id)) = source_ref.split_once(':') else {
+        return Ok(None);
+    };
+    if source_id.trim().is_empty() {
+        return Ok(Some(false));
+    }
+    let sql = match source_table {
+        "items" => "SELECT 1 FROM items WHERE item_id=?1 LIMIT 1",
+        "task_starter_sessions" => "SELECT 1 FROM task_starter_sessions WHERE id=?1 LIMIT 1",
+        "task_starter_evidence" => "SELECT 1 FROM task_starter_evidence WHERE id=?1 LIMIT 1",
+        "project_health_snapshots" => {
+            "SELECT 1 FROM project_health_snapshots WHERE project_id=?1 LIMIT 1"
+        }
+        "project_action_items" => "SELECT 1 FROM project_action_items WHERE project_id=?1 LIMIT 1",
+        "prompt_templates" => "SELECT 1 FROM prompt_templates WHERE id=?1 LIMIT 1",
+        "knowledge_units" => "SELECT 1 FROM knowledge_units WHERE id=?1 LIMIT 1",
+        "workflow_packs" => "SELECT 1 FROM workflow_packs WHERE id=?1 LIMIT 1",
+        _ => return Ok(None),
+    };
+    let mut stmt = conn.prepare(sql).map_err(|err| err.to_string())?;
+    let exists = stmt
+        .exists(params![source_id])
+        .map_err(|err| err.to_string())?;
+    Ok(Some(exists))
+}
+
 fn kb_workflow_pack_markdown_section(title: &str, items: &[serde_json::Value]) -> String {
     if items.is_empty() {
         return format!("## {title}\n\n- 暂无。\n\n");
@@ -7402,13 +7624,14 @@ fn kb_workflow_pack_insert(
     package_json: &serde_json::Value,
     markdown: &str,
     checksum: &str,
+    status: &str,
 ) -> Result<(), String> {
     conn.execute(
         r#"
         INSERT INTO workflow_packs(
           id, pack_type, schema_version, title, source_ref,
           package_json, package_markdown, checksum, status, updated_at
-        ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'exported', CURRENT_TIMESTAMP)
+        ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, CURRENT_TIMESTAMP)
         ON CONFLICT(id) DO UPDATE SET
           title=excluded.title,
           source_ref=excluded.source_ref,
@@ -7426,7 +7649,8 @@ fn kb_workflow_pack_insert(
             source_ref,
             package_json.to_string(),
             markdown,
-            checksum
+            checksum,
+            status
         ],
     )
     .map_err(|err| err.to_string())?;
@@ -7458,6 +7682,7 @@ fn kb_workflow_pack_insert(
                 .get("required")
                 .and_then(|value| value.as_bool())
                 .unwrap_or(false) as i64;
+            let db_item_id = format!("{pack_id}:{item_id}");
             conn.execute(
                 r#"
                 INSERT INTO workflow_pack_items(
@@ -7465,7 +7690,7 @@ fn kb_workflow_pack_insert(
                 ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
                 "#,
                 params![
-                    item_id,
+                    db_item_id,
                     pack_id,
                     item_type,
                     source_table,
@@ -7490,15 +7715,11 @@ fn kb_workflow_pack_finalize(
     mut package_json: serde_json::Value,
     markdown: String,
 ) -> Result<KbWorkflowPackExportResponse, String> {
-    let stable = serde_json::json!({
-        "schema_version": WORKFLOW_PACK_SCHEMA_VERSION,
-        "pack_type": pack_type,
-        "title": title,
-        "source": source.clone(),
-        "items": package_json.get("items").cloned().unwrap_or_else(|| serde_json::json!([])),
-        "markdown": markdown,
-    });
-    let checksum = format!("sha256:{}", sha256_hex(&stable.to_string()));
+    package_json["markdown"] = serde_json::json!(markdown);
+    let checksum_package_json =
+        serde_json::from_str::<serde_json::Value>(&package_json.to_string())
+            .unwrap_or_else(|_| package_json.clone());
+    let checksum = kb_workflow_pack_calculated_checksum(&checksum_package_json);
     let pack_id = format!(
         "workflow-pack-{}-{}",
         pack_type,
@@ -7506,7 +7727,6 @@ fn kb_workflow_pack_finalize(
     );
     package_json["pack_id"] = serde_json::json!(pack_id);
     package_json["checksum"] = serde_json::json!(checksum);
-    package_json["markdown"] = serde_json::json!(markdown);
     kb_workflow_pack_insert(
         conn,
         &pack_id,
@@ -7522,6 +7742,7 @@ fn kb_workflow_pack_finalize(
             .get("checksum")
             .and_then(|value| value.as_str())
             .unwrap_or_default(),
+        "exported",
     )?;
     let items = package_json
         .get("items")
@@ -7714,6 +7935,382 @@ fn kb_workflow_pack_export_internal(
         "retrospective_pack" => kb_workflow_pack_export_development(&conn, &payload, pack_type),
         _ => Err("unsupported_pack_type".into()),
     }
+}
+
+fn kb_workflow_pack_validate_package(
+    conn: &Connection,
+    package_json: serde_json::Value,
+) -> Result<KbWorkflowPackValidateResponse, String> {
+    if !package_json.is_object() {
+        return Ok(KbWorkflowPackValidateResponse {
+            valid: false,
+            importable: false,
+            pack_id: String::new(),
+            pack_type: String::new(),
+            schema_version: String::new(),
+            checksum: String::new(),
+            calculated_checksum: String::new(),
+            item_count: 0,
+            issues: vec![kb_workflow_pack_issue(
+                "error",
+                "invalid_package_json",
+                "$",
+                "工作流包必须是 JSON object。",
+            )],
+            package_json,
+        });
+    }
+
+    let mut issues = Vec::new();
+    let pack_id = kb_workflow_pack_required_string(&package_json, "pack_id", &mut issues);
+    let pack_type = kb_workflow_pack_required_string(&package_json, "pack_type", &mut issues);
+    let schema_version =
+        kb_workflow_pack_required_string(&package_json, "schema_version", &mut issues);
+    let title = kb_workflow_pack_required_string(&package_json, "title", &mut issues);
+    let created_at = kb_workflow_pack_required_string(&package_json, "created_at", &mut issues);
+    let markdown = kb_workflow_pack_required_string(&package_json, "markdown", &mut issues);
+    let checksum = kb_workflow_pack_required_string(&package_json, "checksum", &mut issues);
+    let _ = (title, created_at, markdown);
+
+    if !pack_type.is_empty() && !kb_workflow_pack_supported_type(&pack_type) {
+        issues.push(kb_workflow_pack_issue(
+            "error",
+            "unsupported_pack_type",
+            "$.pack_type",
+            "不支持的工作流包类型。",
+        ));
+    }
+    if !schema_version.is_empty() && schema_version != WORKFLOW_PACK_SCHEMA_VERSION {
+        issues.push(kb_workflow_pack_issue(
+            "error",
+            "incompatible_schema_version",
+            "$.schema_version",
+            "当前应用只支持 workflow pack schema 1.0.0。",
+        ));
+    }
+    if !package_json
+        .get("source")
+        .map(|value| value.is_object())
+        .unwrap_or(false)
+    {
+        issues.push(kb_workflow_pack_issue(
+            "error",
+            "missing_required_field",
+            "$.source",
+            "缺少必填对象字段。",
+        ));
+    }
+
+    let items = package_json
+        .get("items")
+        .and_then(|value| value.as_array())
+        .cloned()
+        .unwrap_or_default();
+    if !package_json
+        .get("items")
+        .map(|value| value.is_array())
+        .unwrap_or(false)
+    {
+        issues.push(kb_workflow_pack_issue(
+            "error",
+            "missing_required_field",
+            "$.items",
+            "缺少必填数组字段。",
+        ));
+    }
+
+    for (index, item) in items.iter().enumerate() {
+        let path = format!("$.items[{index}]");
+        if !item.is_object() {
+            issues.push(kb_workflow_pack_issue(
+                "error",
+                "invalid_item",
+                &path,
+                "包内条目必须是 JSON object。",
+            ));
+            continue;
+        }
+        for field in ["item_id", "item_type", "title", "source_ref"] {
+            let value = item
+                .get(field)
+                .and_then(|value| value.as_str())
+                .unwrap_or_default()
+                .trim();
+            if value.is_empty() {
+                issues.push(kb_workflow_pack_issue(
+                    "error",
+                    "missing_item_field",
+                    &format!("{path}.{field}"),
+                    "缺少包内条目必填字符串字段。",
+                ));
+            }
+        }
+        if !item
+            .get("required")
+            .map(|value| value.is_boolean())
+            .unwrap_or(false)
+        {
+            issues.push(kb_workflow_pack_issue(
+                "error",
+                "missing_item_field",
+                &format!("{path}.required"),
+                "缺少包内条目必填布尔字段。",
+            ));
+        }
+        if item.get("payload").is_none() {
+            issues.push(kb_workflow_pack_issue(
+                "error",
+                "missing_item_field",
+                &format!("{path}.payload"),
+                "缺少包内条目 payload 字段。",
+            ));
+        }
+
+        let source_ref = item
+            .get("source_ref")
+            .and_then(|value| value.as_str())
+            .unwrap_or_default()
+            .trim();
+        if !source_ref.is_empty() {
+            match kb_workflow_pack_source_exists(conn, source_ref)? {
+                Some(true) => {}
+                Some(false) => issues.push(kb_workflow_pack_issue(
+                    "warning",
+                    "missing_source_ref",
+                    &format!("{path}.source_ref"),
+                    "本地知识库未找到该来源引用，导入后只能作为候选证据保留。",
+                )),
+                None => issues.push(kb_workflow_pack_issue(
+                    "warning",
+                    "unknown_source_ref",
+                    &format!("{path}.source_ref"),
+                    "暂不支持自动检查该来源类型。",
+                )),
+            }
+        }
+
+        if let Some(source_path) = item
+            .get("payload")
+            .and_then(|payload| payload.get("source_path"))
+            .and_then(|value| value.as_str())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            let path_obj = Path::new(source_path);
+            if !path_obj.exists() {
+                issues.push(kb_workflow_pack_issue(
+                    "warning",
+                    "missing_source_file",
+                    &format!("{path}.payload.source_path"),
+                    "本地文件路径不存在。",
+                ));
+            }
+        }
+    }
+
+    let calculated_checksum = kb_workflow_pack_calculated_checksum(&package_json);
+    if !checksum.is_empty() && checksum != calculated_checksum {
+        issues.push(kb_workflow_pack_issue(
+            "error",
+            "checksum_mismatch",
+            "$.checksum",
+            "包内 checksum 与当前内容计算结果不一致。",
+        ));
+    }
+
+    if !pack_id.is_empty() {
+        let existing_checksum = conn
+            .query_row(
+                "SELECT checksum FROM workflow_packs WHERE id=?1",
+                params![pack_id],
+                |row| row.get::<_, String>(0),
+            )
+            .ok();
+        if let Some(existing_checksum) = existing_checksum {
+            if existing_checksum == checksum {
+                issues.push(kb_workflow_pack_issue(
+                    "warning",
+                    "duplicate_pack",
+                    "$.pack_id",
+                    "本地已存在相同 checksum 的工作流包，导入会幂等更新候选包记录。",
+                ));
+            } else {
+                issues.push(kb_workflow_pack_issue(
+                    "error",
+                    "pack_id_conflict",
+                    "$.pack_id",
+                    "本地已存在同 ID 但 checksum 不同的工作流包。",
+                ));
+            }
+        }
+    }
+
+    let valid = !issues.iter().any(|issue| issue.severity == "error");
+    Ok(KbWorkflowPackValidateResponse {
+        valid,
+        importable: valid,
+        pack_id,
+        pack_type,
+        schema_version,
+        checksum,
+        calculated_checksum,
+        item_count: items.len(),
+        issues,
+        package_json,
+    })
+}
+
+fn kb_workflow_pack_validate_internal(
+    payload: KbWorkflowPackValidateRequest,
+) -> Result<KbWorkflowPackValidateResponse, String> {
+    let conn = connect_knowledgebase()?;
+    let package_json = if let Some(package_json) = payload.package_json {
+        package_json
+    } else if let Some(pack_id) = payload
+        .pack_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        kb_workflow_pack_load_package(&conn, pack_id)?
+    } else {
+        return Err("empty_package".into());
+    };
+    kb_workflow_pack_validate_package(&conn, package_json)
+}
+
+fn kb_workflow_pack_import_internal(
+    payload: KbWorkflowPackImportRequest,
+) -> Result<KbWorkflowPackImportResponse, String> {
+    let conn = connect_knowledgebase()?;
+    let package_json = payload
+        .package_json
+        .ok_or_else(|| "empty_package".to_string())?;
+    let validation = kb_workflow_pack_validate_package(&conn, package_json)?;
+    if !validation.importable {
+        return Ok(KbWorkflowPackImportResponse {
+            imported: false,
+            pack_id: validation.pack_id.clone(),
+            status: "rejected".into(),
+            validation,
+        });
+    }
+    let title = kb_workflow_pack_string_field(&validation.package_json, "title");
+    let source_ref = validation
+        .package_json
+        .get("source")
+        .and_then(|source| {
+            source
+                .get("task_id")
+                .or_else(|| source.get("req_id"))
+                .or_else(|| source.get("project_id"))
+        })
+        .and_then(|value| value.as_str())
+        .unwrap_or(&validation.pack_id)
+        .to_string();
+    let markdown = kb_workflow_pack_string_field(&validation.package_json, "markdown");
+    kb_workflow_pack_insert(
+        &conn,
+        &validation.pack_id,
+        &validation.pack_type,
+        &title,
+        &source_ref,
+        &validation.package_json,
+        &markdown,
+        &validation.checksum,
+        "imported",
+    )?;
+    Ok(KbWorkflowPackImportResponse {
+        imported: true,
+        pack_id: validation.pack_id.clone(),
+        status: "imported".into(),
+        validation,
+    })
+}
+
+fn kb_workflow_pack_detail_internal(pack_id: &str) -> Result<KbWorkflowPackDetailResponse, String> {
+    let conn = connect_knowledgebase()?;
+    let (
+        pack_id,
+        pack_type,
+        schema_version,
+        title,
+        source_ref,
+        package_json_raw,
+        markdown,
+        checksum,
+        status,
+        updated_at,
+        created_at,
+    ): (
+        String,
+        String,
+        String,
+        String,
+        String,
+        String,
+        String,
+        String,
+        String,
+        String,
+        String,
+    ) = conn
+        .query_row(
+            "SELECT id, pack_type, schema_version, title, source_ref, package_json,
+                    package_markdown, checksum, status, updated_at, created_at
+             FROM workflow_packs
+             WHERE id=?1",
+            params![pack_id],
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                    row.get(6)?,
+                    row.get(7)?,
+                    row.get(8)?,
+                    row.get(9)?,
+                    row.get(10)?,
+                ))
+            },
+        )
+        .map_err(|err| {
+            if matches!(err, rusqlite::Error::QueryReturnedNoRows) {
+                "pack_not_found".to_string()
+            } else {
+                err.to_string()
+            }
+        })?;
+    let package_json =
+        serde_json::from_str(&package_json_raw).unwrap_or_else(|_| serde_json::json!({}));
+    let mut stmt = conn
+        .prepare(
+            "SELECT payload_json FROM workflow_pack_items WHERE pack_id=?1 ORDER BY required DESC, item_type, title",
+        )
+        .map_err(|err| err.to_string())?;
+    let items = stmt
+        .query_map(params![pack_id], |row| row.get::<_, String>(0))
+        .map_err(|err| err.to_string())?
+        .filter_map(|row| row.ok())
+        .filter_map(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+        .collect::<Vec<_>>();
+    Ok(KbWorkflowPackDetailResponse {
+        pack_id,
+        pack_type,
+        schema_version,
+        title,
+        source_ref,
+        checksum,
+        status,
+        markdown,
+        package_json,
+        items,
+        updated_at,
+        created_at,
+    })
 }
 
 #[allow(dead_code)]
@@ -9754,6 +10351,24 @@ fn read_workflow_pack_export_request(request: &mut Request) -> KbWorkflowPackExp
     }
 }
 
+fn read_workflow_pack_validate_request(request: &mut Request) -> KbWorkflowPackValidateRequest {
+    let mut body = String::new();
+    if request.as_reader().read_to_string(&mut body).is_ok() {
+        serde_json::from_str::<KbWorkflowPackValidateRequest>(&body).unwrap_or_default()
+    } else {
+        KbWorkflowPackValidateRequest::default()
+    }
+}
+
+fn read_workflow_pack_import_request(request: &mut Request) -> KbWorkflowPackImportRequest {
+    let mut body = String::new();
+    if request.as_reader().read_to_string(&mut body).is_ok() {
+        serde_json::from_str::<KbWorkflowPackImportRequest>(&body).unwrap_or_default()
+    } else {
+        KbWorkflowPackImportRequest::default()
+    }
+}
+
 fn handle_knowledgebase_http_request(mut request: Request) {
     if request.method() != &Method::Get && request.method() != &Method::Post {
         http_respond_json(
@@ -9907,11 +10522,25 @@ fn handle_knowledgebase_http_request(mut request: Request) {
                     query_param(query, "limit").and_then(|value| value.parse::<usize>().ok());
             }
             match kb_workflow_pack_export_internal(payload) {
-                Ok(data) => http_respond_json(
-                    request,
-                    200,
-                    serde_json::to_string(&data).unwrap_or_else(|_| "{}".to_string()),
-                ),
+                Ok(mut data) => {
+                    let checksum_package_json =
+                        serde_json::from_str::<serde_json::Value>(&data.package_json.to_string())
+                            .unwrap_or_else(|_| data.package_json.clone());
+                    let checksum = kb_workflow_pack_calculated_checksum(&checksum_package_json);
+                    data.checksum = checksum.clone();
+                    data.package_json["checksum"] = serde_json::json!(checksum);
+                    data.markdown = data
+                        .package_json
+                        .get("markdown")
+                        .and_then(|value| value.as_str())
+                        .unwrap_or_default()
+                        .into();
+                    http_respond_json(
+                        request,
+                        200,
+                        serde_json::to_string(&data).unwrap_or_else(|_| "{}".to_string()),
+                    )
+                }
                 Err(err) => http_respond_json(
                     request,
                     if err == "empty_input"
@@ -9924,6 +10553,90 @@ fn handle_knowledgebase_http_request(mut request: Request) {
                     } else {
                         500
                     },
+                    serde_json::json!({ "error": err }).to_string(),
+                ),
+            }
+        }
+        "/api/workflow-packs/validate" => {
+            if request.method() != &Method::Post {
+                http_respond_json(
+                    request,
+                    405,
+                    serde_json::json!({ "error": "method_not_allowed" }).to_string(),
+                );
+                return;
+            }
+            let mut payload = read_workflow_pack_validate_request(&mut request);
+            if payload
+                .pack_id
+                .as_deref()
+                .unwrap_or_default()
+                .trim()
+                .is_empty()
+            {
+                payload.pack_id = query_param(query, "pack_id");
+            }
+            match kb_workflow_pack_validate_internal(payload) {
+                Ok(data) => http_respond_json(
+                    request,
+                    200,
+                    serde_json::to_string(&data).unwrap_or_else(|_| "{}".to_string()),
+                ),
+                Err(err) => http_respond_json(
+                    request,
+                    if err == "empty_package" {
+                        400
+                    } else if err == "pack_not_found" {
+                        404
+                    } else {
+                        500
+                    },
+                    serde_json::json!({ "error": err }).to_string(),
+                ),
+            }
+        }
+        "/api/workflow-packs/import" => {
+            if request.method() != &Method::Post {
+                http_respond_json(
+                    request,
+                    405,
+                    serde_json::json!({ "error": "method_not_allowed" }).to_string(),
+                );
+                return;
+            }
+            let payload = read_workflow_pack_import_request(&mut request);
+            match kb_workflow_pack_import_internal(payload) {
+                Ok(data) => http_respond_json(
+                    request,
+                    if data.imported { 200 } else { 422 },
+                    serde_json::to_string(&data).unwrap_or_else(|_| "{}".to_string()),
+                ),
+                Err(err) => http_respond_json(
+                    request,
+                    if err == "empty_package" { 400 } else { 500 },
+                    serde_json::json!({ "error": err }).to_string(),
+                ),
+            }
+        }
+        _ if path.starts_with("/api/workflow-packs/") => {
+            if request.method() != &Method::Get {
+                http_respond_json(
+                    request,
+                    405,
+                    serde_json::json!({ "error": "method_not_allowed" }).to_string(),
+                );
+                return;
+            }
+            let pack_id = url_decode(path.trim_start_matches("/api/workflow-packs/"));
+            match kb_workflow_pack_detail_internal(&pack_id) {
+                Ok(data) => http_respond_json(
+                    request,
+                    200,
+                    serde_json::to_string(&data).unwrap_or_else(|_| "{}".to_string()),
+                ),
+                Err(err) => http_respond_json(
+                    request,
+                    if err == "pack_not_found" { 404 } else { 500 },
                     serde_json::json!({ "error": err }).to_string(),
                 ),
             }
