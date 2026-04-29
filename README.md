@@ -2,6 +2,7 @@
 
 # Workflow Skills + Statusbar
 
+**面向 AI 辅助研发的仓库工作流 Skill，以及一个可选的本地桌面状态监控工具。**<br>
 **Repository workflow skills for AI-assisted engineering, plus an optional local desktop status monitor.**
 
 [![GitHub Repo stars](https://img.shields.io/github/stars/beyond-snail/workflow-skills?style=flat-square)](https://github.com/beyond-snail/workflow-skills/stargazers)
@@ -10,98 +11,105 @@
 [![Contributing](https://img.shields.io/badge/Contributing-Welcome-1f6feb?style=flat-square)](CONTRIBUTING.md)
 [![Security](https://img.shields.io/badge/Security-Policy-2ea44f?style=flat-square)](SECURITY.md)
 
-[Architecture](ARCHITECTURE.md) · [Statusbar](workflow-statusbar/README.md) · [Workflow Bootstrap](workflow-bootstrap/SKILL.md) · [Workflow Requirement](workflow-requirement/SKILL.md) · [Workflow Execution](workflow-execution/SKILL.md)
+[架构说明](ARCHITECTURE.md) · [状态栏](workflow-statusbar/README.md) · [Bootstrap Skill](workflow-bootstrap/SKILL.md) · [Requirement Skill](workflow-requirement/SKILL.md) · [Execution Skill](workflow-execution/SKILL.md)
 
 </div>
 
 ---
 
-## What This Project Is
+## 项目是什么 | What This Project Is
 
-`workflow-skills` is a set of local AI workflow skills for repositories that use Codex, Claude, or similar AI coding hosts. It keeps project context, requirements, task boards, execution evidence, and runtime state in predictable files so a human and multiple AI sessions can resume work without rediscovering the project from scratch.
+`workflow-skills` 是一套本地仓库工作流工具，用来让 Codex、Claude 或其他 AI 编程 Host 在同一个代码仓库里更稳定地接力工作。
 
-The repository contains four main parts:
+它做的事情很具体：
 
-| Component | Type | Purpose |
+- 初始化仓库里的协作约定、项目上下文、运行态文件和任务记忆目录。
+- 把 PRD / 需求输入治理成需求池、任务看板和交接材料。
+- 在人工审核通过后，辅助执行开发、验证、证据回写和任务收口。
+- 可选启动桌面状态栏，观察本机 Codex / Claude 会话和 workflow 项目状态。
+
+它不是 SaaS 服务，也不依赖远程数据库。workflow 产物保存在目标仓库中；statusbar 读取本地文件、本地进程和 localhost 服务。
+
+## 仓库组件 | Components
+
+| 组件 | 类型 | 真实职责 |
 | --- | --- | --- |
-| `workflow-bootstrap` | Skill | Initializes the repository workflow foundation: `AGENTS.md`, `docs/workflow/`, `.ai/`, runtime profile, state file, and `wf-*` commands. |
-| `workflow-requirement` | Skill | Turns PRD or requirement input into a requirement pool, task board, handoff documents, and task memory. It stops at the human review gate. |
-| `workflow-execution` | Skill | Runs after human approval and explicit start. It guides implementation, verification, evidence recording, memory updates, and optional commit/release gates. |
-| `workflow-statusbar` | Desktop app | Optional Tauri app that monitors local AI host sessions and workflow project state, then shows status, alerts, and local knowledgebase access. |
+| `workflow-bootstrap` | Skill | 初始化仓库工作流底座，包括 `AGENTS.md`、`docs/workflow/`、`.ai/`、runtime profile、状态文件和 `wf-*` 命令。 |
+| `workflow-requirement` | Skill | 将 PRD 或需求主题沉淀为需求池、任务看板、交接文档和任务记忆；默认停在人工审核门。 |
+| `workflow-execution` | Skill | 在人工审核通过且显式开工后，推进实现、验证、证据记录、记忆更新，以及可选提交/发布闸门。 |
+| `workflow-statusbar` | 桌面应用 | 可选的 Tauri 桌面工具，用于监控本机 AI Host 会话和 workflow 项目状态，并提供提醒、本地知识库 Web/API/MCP 入口。 |
 
-This project is not a SaaS service and does not require a remote database. The workflow files live in the target repository; the desktop app reads local files and localhost services.
-
-## Architecture
+## 架构图 | Architecture
 
 ```mermaid
 flowchart LR
     subgraph Skills[Workflow Skills]
-        A[workflow-bootstrap<br/>Initialize repository foundation]
-        B[workflow-requirement<br/>Requirement governance]
-        C[workflow-execution<br/>Implementation and verification]
+        A[workflow-bootstrap<br/>初始化仓库底座]
+        B[workflow-requirement<br/>需求治理与交接]
+        C[workflow-execution<br/>实现、验证与证据]
     end
 
-    G[Human review gate]
+    G[人工审核门<br/>Human review gate]
     S[(.ai/runtime/project-state.json)]
-    M[(.ai/memory<br/>task and knowledge memory)]
-    D[workflow-statusbar<br/>Tauri desktop monitor]
-    H[AI host sessions<br/>Codex / Claude]
-    K[Local knowledgebase<br/>SQLite + HTTP API + MCP]
+    M[(.ai/memory<br/>任务与知识记忆)]
+    D[workflow-statusbar<br/>Tauri 桌面状态监控]
+    H[AI Host 会话<br/>Codex / Claude]
+    K[本地知识库<br/>SQLite + HTTP API + MCP]
 
     A --> B --> G --> C
-    A -.writes.-> S
-    B -.writes.-> S
-    C -.writes.-> S
-    B -.writes.-> M
-    C -.writes.-> M
-    S -.reads.-> D
-    H -.reads.-> D
+    A -.写入.-> S
+    B -.写入.-> S
+    C -.写入.-> S
+    B -.写入.-> M
+    C -.写入.-> M
+    S -.读取.-> D
+    H -.读取.-> D
     D --> K
 ```
 
-Key facts:
+关键事实：
 
-- The three workflow skills are the action layer. They create or update files in the repository.
-- `.ai/runtime/project-state.json` is the shared runtime state source for workflow progress.
-- `.ai/memory/` stores reusable task memory and project knowledge.
-- `workflow-statusbar` is an observation layer. It does not approve requirements, start execution, or replace tests.
-- The detailed architecture is documented in [ARCHITECTURE.md](ARCHITECTURE.md).
+- 三个 workflow skill 是动作层，会创建或更新目标仓库中的文件。
+- `.ai/runtime/project-state.json` 是 workflow 进度的共享运行态文件。
+- `.ai/memory/` 保存可复用的任务记忆和项目知识。
+- `workflow-statusbar` 是观察层，不负责审核需求、不启动执行、不替代测试。
+- 更详细的架构说明见 [ARCHITECTURE.md](ARCHITECTURE.md)。
 
-## workflow-statusbar
+## workflow-statusbar 做什么
 
-`workflow-statusbar` is a local desktop monitor built with `Tauri 2 + Rust + React + TypeScript + Vite`. It is optional, but useful when you run AI-assisted work across multiple local repositories.
+`workflow-statusbar` 是本仓库里的本地桌面监控工具，技术栈是 `Tauri 2 + Rust + React + TypeScript + Vite`。它适合在本机同时跑多个 AI 辅助开发任务时使用。
 
-It currently monitors these sources:
+当前真实监控的数据源如下：
 
-| Source | Files / Signals | Used For |
+| 来源 | 文件 / 信号 | 用途 |
 | --- | --- | --- |
-| Codex | `~/.codex/state_5.sqlite`, `~/.codex/logs_2.sqlite`, `pgrep -f "codex"` | Active thread, heartbeat, recent message, process state, token usage where available. |
-| Claude | `~/.claude/history.jsonl`, `~/.claude/projects/*/*.jsonl`, `pgrep -f "claude"` | Recent project sessions, heartbeat, last message, process state. |
-| Workflow project | `.ai/runtime/project-state.json` discovered from project paths | Stage, gate, current requirement/task, risk, health, blocked state. |
-| Alert settings | Tauri app config and environment variables | Local notifications and optional remote alert forwarding. |
+| Codex | `~/.codex/state_5.sqlite`、`~/.codex/logs_2.sqlite`、`pgrep -f "codex"` | 活跃线程、心跳、最近消息、进程状态，以及可用时的 Token 用量。 |
+| Claude | `~/.claude/history.jsonl`、`~/.claude/projects/*/*.jsonl`、`pgrep -f "claude"` | 最近项目会话、心跳、最后消息和进程状态。 |
+| Workflow 项目 | 从项目路径发现的 `.ai/runtime/project-state.json` | 阶段、Gate、当前需求/任务、风险、健康度和阻塞状态。 |
+| 提醒配置 | Tauri 应用配置和环境变量 | 本机通知，以及可选的远程提醒转发。 |
 
-The UI chooses a primary host session from all detected host sessions using status priority, recent activity, and project-path match. It can still expose legacy `codex` fields in `RuntimeState` for compatibility, but the current model is multi-host: `hosts`, `active_host`, and `other_host_summary`.
+当前状态模型是多 Host 模型：`hosts`、`active_host`、`other_host_summary`。`RuntimeState` 中仍保留 `codex` 字段，是为了兼容旧 UI 和旧调用方。
 
-Statusbar docs:
+相关文档：
 
 - [workflow-statusbar/README.md](workflow-statusbar/README.md)
 - [workflow-statusbar/docs/架构与功能说明.md](workflow-statusbar/docs/架构与功能说明.md)
 - [workflow-statusbar/docs/STATUS_MODEL.md](workflow-statusbar/docs/STATUS_MODEL.md)
 
-## Local Knowledgebase, API, and MCP
+## 本地知识库、API 和 MCP
 
-The desktop app also includes a local knowledgebase service:
+`workflow-statusbar` 内置一个本地知识库服务：
 
-- Local Web/API default: `http://127.0.0.1:8788`
-- Storage: local SQLite database
-- V1 HTTP API: read-only endpoints for search, templates, task context, evidence, health, and workflow packs
-- MCP server: `npm run kb:mcp`, implemented as a Node.js stdio server
+- 本地 Web/API 默认地址：`http://127.0.0.1:8788`
+- 存储：本地 SQLite 数据库
+- V1 HTTP API：只读接口，覆盖搜索、模板、任务上下文、证据、健康度和 workflow pack
+- MCP server：`npm run kb:mcp`，基于 Node.js stdio
 
-The V1 API and MCP tools are designed for localhost use. Write-like external requests are rejected; formal writes should go through workflow skills, the Web UI, or a future confirmation flow.
+V1 API 和 MCP 面向 localhost 使用。外部写入类请求会被拒绝；正式写入应通过 workflow skill、Web UI 或后续人工确认链路完成。
 
-See [workflow-statusbar/docs/KNOWLEDGEBASE_MCP_API.md](workflow-statusbar/docs/KNOWLEDGEBASE_MCP_API.md).
+接入说明见 [workflow-statusbar/docs/KNOWLEDGEBASE_MCP_API.md](workflow-statusbar/docs/KNOWLEDGEBASE_MCP_API.md)。
 
-## Repository Layout
+## 仓库目录 | Repository Layout
 
 ```text
 workflow-bootstrap/
@@ -125,9 +133,9 @@ workflow-execution/
 workflow-statusbar/
   src/                  React UI
   src-tauri/            Rust/Tauri backend
-  docs/                 Status model, API/MCP, regression notes
-  scripts/              MCP server and packaging helpers
-  fixtures/             Sample runtime state
+  docs/                 状态模型、API/MCP、回归记录
+  scripts/              MCP server 和打包脚本
+  fixtures/             示例运行态
 
 ARCHITECTURE.md
 CONTRIBUTING.md
@@ -135,9 +143,9 @@ SECURITY.md
 LICENSE
 ```
 
-## Generated Files in a Target Repository
+## 初始化目标仓库后会生成什么
 
-After `workflow-bootstrap` initializes another repository, that target repository normally gets files like:
+当 `workflow-bootstrap` 初始化另一个业务仓库后，目标仓库通常会出现：
 
 ```text
 AGENTS.md
@@ -158,11 +166,11 @@ docs/workflow/requirements/任务看板.md
 .ai/bin/wf-arc
 ```
 
-## Quick Start
+## 快速开始 | Quick Start
 
-### 1. Install the Three Skills
+### 1. 安装三个 Skill
 
-From this repository root:
+在本仓库根目录执行：
 
 ```bash
 for d in workflow-bootstrap workflow-requirement workflow-execution; do
@@ -174,9 +182,9 @@ for d in workflow-bootstrap workflow-requirement workflow-execution; do
 done
 ```
 
-### 2. Initialize a Target Repository
+### 2. 初始化目标仓库
 
-Run inside the target repository:
+进入目标仓库后执行：
 
 ```bash
 python3 ~/.codex/skills/workflow-bootstrap/scripts/workflow_cli.py init \
@@ -184,7 +192,7 @@ python3 ~/.codex/skills/workflow-bootstrap/scripts/workflow_cli.py init \
   --host codex --host claude
 ```
 
-Dry run:
+Dry run：
 
 ```bash
 python3 ~/.codex/skills/workflow-bootstrap/scripts/workflow_cli.py init \
@@ -193,30 +201,30 @@ python3 ~/.codex/skills/workflow-bootstrap/scripts/workflow_cli.py init \
   --dry-run
 ```
 
-### 3. Run Requirement Governance
+### 3. 需求治理
 
 ```bash
 python3 ~/.codex/skills/workflow-bootstrap/scripts/workflow_cli.py req \
   --workspace-root . \
-  --theme "Your requirement theme" \
-  --summary "One-line summary"
+  --theme "你的需求主题" \
+  --summary "一句话摘要"
 ```
 
-This stage should stop at a human review gate.
+这个阶段默认应该停在人工审核门。
 
-### 4. Run Execution After Approval
+### 4. 审核通过后进入执行
 
 ```bash
 python3 ~/.codex/skills/workflow-bootstrap/scripts/workflow_cli.py exec \
   --workspace-root . \
   --req-id REQ-xxxx \
   --task-id TASK-xxxx \
-  --summary "Implementation and verification summary"
+  --summary "本轮实现与验证摘要"
 ```
 
-Short commands such as `wf-init`, `wf-req`, and `wf-exec` are generated into the target repository under `.ai/bin/`.
+初始化完成后，目标仓库的 `.ai/bin/` 下会有 `wf-init`、`wf-req`、`wf-exec` 等短命令。
 
-## Statusbar Development
+## statusbar 本地开发
 
 ```bash
 cd workflow-statusbar
@@ -225,7 +233,7 @@ npm install
 npm run tauri dev
 ```
 
-Build checks:
+构建检查：
 
 ```bash
 cd workflow-statusbar
@@ -235,31 +243,29 @@ cd src-tauri
 cargo check
 ```
 
-Packaging:
+打包：
 
 ```bash
 cd workflow-statusbar
 npm run package:current
 ```
 
-## Workflow Rules
+## 工作流规则 | Workflow Rules
 
-The intended order is:
+推荐顺序：
 
 ```text
 bootstrap -> requirement -> human review -> execution -> verification -> memory/evidence
 ```
 
-Important boundaries:
+边界：
 
-- `workflow-bootstrap` does not implement business logic.
-- `workflow-requirement` does not write code.
-- `workflow-execution` requires human approval and an explicit start signal.
-- `workflow-statusbar` only observes and alerts. It does not decide stage gates.
+- `workflow-bootstrap` 不做业务实现。
+- `workflow-requirement` 不写代码。
+- `workflow-execution` 需要人工审核通过和显式开工指令。
+- `workflow-statusbar` 只观察和提醒，不决定阶段门。
 
-## Verification Used in This Repository
-
-Typical checks for this repository:
+## 本仓库常用验证
 
 ```bash
 cd workflow-statusbar
@@ -269,19 +275,19 @@ cd src-tauri
 cargo check
 ```
 
-For API/MCP changes, use the smoke examples in:
+涉及 API/MCP 时，参考这些 smoke 文档：
 
 - [workflow-statusbar/docs/KNOWLEDGEBASE_MCP_API.md](workflow-statusbar/docs/KNOWLEDGEBASE_MCP_API.md)
 - [workflow-statusbar/docs/KNOWLEDGEBASE_V5_REGRESSION.md](workflow-statusbar/docs/KNOWLEDGEBASE_V5_REGRESSION.md)
 - [workflow-statusbar/docs/KNOWLEDGEBASE_V6_REGRESSION.md](workflow-statusbar/docs/KNOWLEDGEBASE_V6_REGRESSION.md)
 - [workflow-statusbar/docs/KNOWLEDGEBASE_V7_REGRESSION.md](workflow-statusbar/docs/KNOWLEDGEBASE_V7_REGRESSION.md)
 
-## Current Boundaries
+## 当前边界 | Current Boundaries
 
-- The desktop experience is currently most tuned for macOS, although Tauri supports cross-platform builds.
-- The statusbar reads local AI host files; if Codex or Claude change their local storage format, adapters may need updates.
-- The local API/MCP surface is intended for localhost access, not public network exposure.
-- Some generated workflow documents live in target repositories, not in this source repository.
+- statusbar 当前桌面体验主要针对 macOS 调优，Tauri 本身支持跨平台构建。
+- statusbar 读取 Codex / Claude 的本地状态文件；如果上游工具更改本地存储格式，适配器需要更新。
+- 本地 API/MCP 面向 localhost，不建议暴露到公网。
+- 部分 workflow 产物生成在目标业务仓库中，不会出现在本源码仓库里。
 
 ## License
 
