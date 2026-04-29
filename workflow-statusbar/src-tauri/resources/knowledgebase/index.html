@@ -2005,7 +2005,9 @@
     }
 
     .starter-output-card {
-      grid-template-rows: auto minmax(118px, .34fr) minmax(320px, 1fr);
+      grid-template-columns: minmax(390px, .92fr) minmax(0, 1.08fr);
+      grid-template-rows: auto minmax(0, 1fr);
+      align-items: stretch;
     }
 
     .retro-input-card {
@@ -2098,14 +2100,38 @@
       margin-bottom: 5px;
     }
 
-    .starter-preview .starter-section:nth-child(n+4) {
-      display: none;
-    }
-
     .starter-section h4 {
       margin: 0 0 7px;
       font-size: 12px;
       color: #30435f;
+    }
+
+    .starter-input-card .assistant-actions {
+      grid-template-columns: repeat(4, minmax(86px, 116px));
+      justify-content: start;
+    }
+
+    .starter-output-card > .prompt-head:first-child {
+      grid-column: 1;
+      grid-row: 1;
+    }
+
+    .starter-output-card .starter-preview {
+      grid-column: 1;
+      grid-row: 2;
+      height: 100%;
+    }
+
+    .starter-package-head {
+      grid-column: 2;
+      grid-row: 1;
+      padding-top: 2px;
+    }
+
+    .starter-output-card #starterPackage {
+      grid-column: 2;
+      grid-row: 2;
+      height: 100%;
     }
 
     .starter-evidence {
@@ -2979,6 +3005,20 @@
     @media (max-width: 1220px) {
       .search-layout { grid-template-columns: 1fr; }
       .starter-layout { grid-template-columns: 1fr; }
+      .starter-output-card {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto minmax(240px, .8fr) auto minmax(260px, 1fr);
+      }
+      .starter-output-card > .prompt-head:first-child,
+      .starter-output-card .starter-preview,
+      .starter-package-head,
+      .starter-output-card #starterPackage {
+        grid-column: 1;
+      }
+      .starter-output-card > .prompt-head:first-child { grid-row: 1; }
+      .starter-output-card .starter-preview { grid-row: 2; }
+      .starter-package-head { grid-row: 3; }
+      .starter-output-card #starterPackage { grid-row: 4; }
       .retro-layout { grid-template-columns: 1fr; }
       .retro-output-card {
         grid-template-columns: 1fr;
@@ -3285,6 +3325,10 @@
           </div>
           <div class="starter-preview" id="starterPreview">
             <div class="hint">输入任务后点击“生成预览”。</div>
+          </div>
+          <div class="prompt-head starter-package-head">
+            <h3>Markdown 开工包</h3>
+            <p>生成后可直接复制给 AI。</p>
           </div>
           <pre class="starter-package" id="starterPackage">Markdown 开工包会显示在这里。</pre>
         </aside>
