@@ -553,6 +553,12 @@
       gap: 12px;
     }
 
+    .starter-layout {
+      grid-template-columns: minmax(360px, .86fr) minmax(0, 1.14fr);
+      gap: 12px;
+      min-height: 0;
+    }
+
     .search-layout > aside.card {
       min-height: 0;
     }
@@ -1941,6 +1947,179 @@
       line-height: 1.6;
     }
 
+    .starter-layout > .card {
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    .starter-input-card {
+      grid-template-rows: auto auto auto auto auto minmax(0, 1fr);
+    }
+
+    .starter-output-card {
+      grid-template-rows: auto minmax(0, 1fr) auto;
+    }
+
+    .starter-textarea {
+      width: 100%;
+      min-height: 132px;
+      border: 1px solid #ccd9ec;
+      border-radius: 10px;
+      padding: 9px;
+      resize: vertical;
+      font: 12px/1.55 "IBM Plex Sans", "Noto Sans SC", sans-serif;
+      color: var(--ink);
+      background: #fff;
+      outline: none;
+    }
+
+    .starter-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .starter-metric {
+      border: 1px solid #dce7f7;
+      border-radius: 10px;
+      padding: 8px;
+      background: linear-gradient(180deg, #fcfdff, #f7fbff);
+      min-width: 0;
+    }
+
+    .starter-metric b {
+      display: block;
+      font-size: 15px;
+      line-height: 1;
+      color: #223658;
+    }
+
+    .starter-metric span {
+      display: block;
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 10px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .starter-preview {
+      display: grid;
+      gap: 8px;
+      min-height: 0;
+      overflow: auto;
+      padding-right: 4px;
+      scrollbar-width: none;
+    }
+
+    .starter-preview::-webkit-scrollbar {
+      width: 0;
+      height: 0;
+      display: none;
+    }
+
+    .starter-section {
+      border: 1px solid #dce7f7;
+      border-radius: 10px;
+      background: #fff;
+      padding: 9px;
+    }
+
+    .starter-section h4 {
+      margin: 0 0 7px;
+      font-size: 12px;
+      color: #30435f;
+    }
+
+    .starter-evidence {
+      display: grid;
+      gap: 6px;
+    }
+
+    .starter-evidence-item {
+      border: 1px solid #e1e9f4;
+      border-radius: 9px;
+      padding: 8px;
+      background: #fbfdff;
+      min-width: 0;
+    }
+
+    .starter-evidence-item b {
+      display: block;
+      font-size: 11px;
+      color: #263852;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .starter-evidence-item p {
+      margin: 4px 0 0;
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.45;
+      overflow-wrap: anywhere;
+    }
+
+    .starter-history {
+      display: grid;
+      gap: 6px;
+      min-height: 0;
+      overflow: auto;
+      scrollbar-width: none;
+    }
+
+    .starter-history::-webkit-scrollbar {
+      width: 0;
+      height: 0;
+      display: none;
+    }
+
+    .starter-history-item {
+      border: 1px solid #e1e9f4;
+      border-radius: 9px;
+      background: #fff;
+      padding: 8px;
+      text-align: left;
+      cursor: pointer;
+      color: #31435f;
+      display: grid;
+      gap: 4px;
+    }
+
+    .starter-history-item b {
+      font-size: 11px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .starter-history-item span {
+      color: var(--muted);
+      font-size: 10px;
+    }
+
+    .starter-package {
+      min-height: 0;
+      border: 1px solid #d8e4f6;
+      border-radius: 10px;
+      background: #f8fbff;
+      padding: 10px;
+      overflow: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font: 11px/1.55 "IBM Plex Mono", monospace;
+      color: #263852;
+      scrollbar-width: none;
+    }
+
+    .starter-package::-webkit-scrollbar {
+      width: 0;
+      height: 0;
+      display: none;
+    }
+
     .prompt-layout {
       grid-template-columns: 270px minmax(0, 0.9fr) minmax(360px, 1.1fr);
       gap: 10px;
@@ -2223,6 +2402,7 @@
 
     @media (max-width: 1220px) {
       .search-layout { grid-template-columns: 1fr; }
+      .starter-layout { grid-template-columns: 1fr; }
       .graph-layout { grid-template-columns: 1fr; }
       .prompt-layout { grid-template-columns: 1fr; }
       .overview-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -2256,6 +2436,7 @@
       .project-actions { width: 100%; justify-content: flex-start; }
       .project-actions button { flex: 1 1 140px; }
       .summary-item { grid-template-columns: 1fr; gap: 6px; }
+      .starter-grid { grid-template-columns: 1fr; }
       .detail-hero-top { align-items: flex-start; }
       .detail-meta-grid { grid-template-columns: 1fr; gap: 6px; }
       .kv:nth-child(-n+2) { border-bottom: none; }
@@ -2375,6 +2556,7 @@
           <button class="tab" data-target="search">搜索工作台</button>
           <button class="tab active" data-target="graph">知识图谱中枢</button>
           <button class="tab" data-target="prompt">提示词工程</button>
+          <button class="tab" data-target="starter">开工助手</button>
           <button class="tab" data-target="collector">采集中心</button>
         </div>
         <span class="status"><i class="dot"></i>采集服务运行中</span>
@@ -2461,6 +2643,44 @@
             </div>
             <div class="action-tip" id="actionTip"></div>
           </div>
+        </aside>
+      </div>
+
+      <div class="workspace starter-layout" id="starter">
+        <article class="card starter-input-card">
+          <div class="prompt-head">
+            <h3>开工助手</h3>
+            <p>输入需求、REQ-ID 或 TASK-ID，生成可复制的任务上下文包。</p>
+          </div>
+          <textarea class="starter-textarea" id="starterInput" placeholder="例如：REQ-2026-04-28-05 或 实现开工助手 UI 工作区"></textarea>
+          <div class="action-row">
+            <button class="action" id="starterPreviewBtn" type="button">生成预览</button>
+            <button class="action" id="starterPackageBtn" type="button">生成开工包</button>
+            <button class="action" id="starterCopyBtn" type="button">复制开工包</button>
+            <button class="action" id="starterClearBtn" type="button">清空</button>
+          </div>
+          <div class="starter-grid">
+            <div class="starter-metric"><b id="starterInputType">-</b><span>输入类型</span></div>
+            <div class="starter-metric"><b id="starterEvidenceCount">0</b><span>证据数</span></div>
+            <div class="starter-metric"><b id="starterSessionLabel">-</b><span>会话</span></div>
+          </div>
+          <div class="hint" id="starterTip">等待输入。生成预览后可查看历史相似任务、风险、模板、建议文件和验证命令。</div>
+          <div class="prompt-head">
+            <h3>历史开工包</h3>
+            <p id="starterHistoryMeta">正在加载历史...</p>
+          </div>
+          <div class="starter-history" id="starterHistory"></div>
+        </article>
+
+        <aside class="card starter-output-card">
+          <div class="prompt-head">
+            <h3 id="starterOutputTitle">上下文预览</h3>
+            <p id="starterOutputMeta">尚未生成开工包。</p>
+          </div>
+          <div class="starter-preview" id="starterPreview">
+            <div class="hint">输入任务后点击“生成预览”。</div>
+          </div>
+          <pre class="starter-package" id="starterPackage">Markdown 开工包会显示在这里。</pre>
         </aside>
       </div>
 
@@ -2697,6 +2917,13 @@
       detail: null,
       projectContext: '全部项目',
       review: null
+    };
+
+    const starterState = {
+      sessionId: '',
+      preview: null,
+      markdown: '',
+      sessions: []
     };
 
     const graphState = {
@@ -4909,6 +5136,173 @@
       document.getElementById('promptDetailMeta').textContent = ok ? '模板已复制，可直接粘贴给 AI 使用。' : '复制失败，请检查剪贴板权限。';
     }
 
+    function starterSetTip(text, isError = false) {
+      const tip = document.getElementById('starterTip');
+      tip.textContent = text;
+      tip.style.borderColor = isError ? '#f2c4d0' : '#d8e4f6';
+      tip.style.background = isError ? '#fffafb' : '#f8fbff';
+      tip.style.color = isError ? '#9d1f39' : '#4d5f7d';
+    }
+
+    function starterAllEvidence(preview = starterState.preview) {
+      return Array.isArray(preview?.evidence) ? preview.evidence : [];
+    }
+
+    function starterSection(title, items) {
+      const list = Array.isArray(items) ? items : [];
+      const body = list.length
+        ? `<div class="starter-evidence">${list.map((item) => `
+            <div class="starter-evidence-item">
+              <b>${esc(item.title || item.source_id || '未命名证据')}</b>
+              <p>${esc(item.reason || item.excerpt || '已命中')}</p>
+              <p>${esc(item.source_table || '-')}:${esc(item.source_id || '-')} · score ${Number(item.score || 0).toFixed(1)}</p>
+            </div>
+          `).join('')}</div>`
+        : '<div class="hint">暂无命中。</div>';
+      return `<section class="starter-section"><h4>${esc(title)} · ${list.length}</h4>${body}</section>`;
+    }
+
+    function renderStarterPreview() {
+      const preview = starterState.preview;
+      const evidence = starterAllEvidence(preview);
+      document.getElementById('starterInputType').textContent = preview?.input_type || '-';
+      document.getElementById('starterEvidenceCount').textContent = String(evidence.length);
+      document.getElementById('starterSessionLabel').textContent = starterState.sessionId ? '已生成' : '-';
+      document.getElementById('starterOutputTitle').textContent = preview?.summary || '上下文预览';
+      document.getElementById('starterOutputMeta').textContent = preview
+        ? `${preview.parsed_task_id || preview.parsed_req_id || '自然语言'} · ${evidence.length} 条证据`
+        : '尚未生成开工包。';
+      if (!preview) {
+        document.getElementById('starterPreview').innerHTML = '<div class="hint">输入任务后点击“生成预览”。</div>';
+        return;
+      }
+      const sections = preview.sections || {};
+      document.getElementById('starterPreview').innerHTML = [
+        starterSection('历史相似任务', sections.similar_tasks),
+        starterSection('相关风险', sections.risks),
+        starterSection('推荐提示词模板', sections.templates),
+        starterSection('建议读取文件', sections.suggested_files),
+        starterSection('建议验证命令', sections.verify_commands)
+      ].join('');
+    }
+
+    function renderStarterHistory() {
+      const list = Array.isArray(starterState.sessions) ? starterState.sessions : [];
+      document.getElementById('starterHistoryMeta').textContent = `${list.length} 条历史，可点击回看`;
+      document.getElementById('starterHistory').innerHTML = list.length
+        ? list.map((item) => `
+          <button class="starter-history-item" type="button" data-starter-session-id="${esc(item.session_id)}">
+            <b>${esc(item.summary || item.input_text || item.session_id)}</b>
+            <span>${esc(item.parsed_task_id || item.parsed_req_id || item.input_type || 'text')} · ${Number(item.evidence_count || 0)} 证据 · ${item.has_package ? '已生成' : '未生成'}</span>
+          </button>
+        `).join('')
+        : '<div class="hint">暂无历史开工包。</div>';
+    }
+
+    async function loadStarterHistory() {
+      const res = await fetch('/api/task-starter/sessions?limit=20');
+      if (!res.ok) {
+        document.getElementById('starterHistoryMeta').textContent = '历史加载失败';
+        return;
+      }
+      const data = await res.json();
+      starterState.sessions = Array.isArray(data.sessions) ? data.sessions : [];
+      renderStarterHistory();
+    }
+
+    async function openStarterSession(sessionId) {
+      if (!sessionId) return;
+      const res = await fetch('/api/task-starter/session/' + encodeURIComponent(sessionId));
+      const data = await res.json();
+      if (!res.ok) {
+        starterSetTip(data.error || '历史开工包加载失败。', true);
+        return;
+      }
+      starterState.sessionId = data.session?.session_id || sessionId;
+      starterState.markdown = data.markdown || '';
+      starterState.preview = {
+        session_id: starterState.sessionId,
+        input_type: data.session?.input_type || '-',
+        parsed_req_id: data.session?.parsed_req_id || '',
+        parsed_task_id: data.session?.parsed_task_id || '',
+        summary: data.session?.summary || '历史开工包',
+        sections: { similar_tasks: data.evidence || [], risks: [], templates: [], suggested_files: [], verify_commands: [] },
+        evidence: data.evidence || []
+      };
+      document.getElementById('starterInput').value = data.session?.input_text || '';
+      document.getElementById('starterPackage').textContent = starterState.markdown || '该历史会话尚未生成 Markdown 开工包。';
+      renderStarterPreview();
+      starterSetTip('历史开工包已载入。');
+    }
+
+    async function runStarterPreview() {
+      const input = document.getElementById('starterInput').value.trim();
+      if (!input) {
+        starterSetTip('请输入需求、REQ-ID 或 TASK-ID。', true);
+        return null;
+      }
+      starterSetTip('正在召回历史证据...');
+      const res = await fetch('/api/task-starter/preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ input_text: input, limit: 6 })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        starterSetTip(data.error || '生成预览失败。', true);
+        return null;
+      }
+      starterState.preview = data;
+      starterState.sessionId = data.session_id || '';
+      starterState.markdown = '';
+      document.getElementById('starterPackage').textContent = 'Markdown 开工包会显示在这里。';
+      renderStarterPreview();
+      await loadStarterHistory();
+      starterSetTip('预览已生成，可继续生成 Markdown 开工包。');
+      return data;
+    }
+
+    async function runStarterPackage() {
+      if (!starterState.sessionId) {
+        const preview = await runStarterPreview();
+        if (!preview) return;
+      }
+      starterSetTip('正在生成 Markdown 开工包...');
+      const res = await fetch('/api/task-starter/package', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: starterState.sessionId })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        starterSetTip(data.error || '生成开工包失败。', true);
+        return;
+      }
+      starterState.sessionId = data.session_id || starterState.sessionId;
+      starterState.markdown = data.markdown || '';
+      document.getElementById('starterPackage').textContent = starterState.markdown || '未生成内容。';
+      await loadStarterHistory();
+      starterSetTip('Markdown 开工包已生成，可复制给 AI。');
+    }
+
+    async function copyStarterPackage() {
+      if (!starterState.markdown) {
+        await runStarterPackage();
+      }
+      const ok = await copyText(starterState.markdown || '');
+      starterSetTip(ok ? '开工包已复制。' : '复制失败，请检查剪贴板权限。', !ok);
+    }
+
+    function clearStarter() {
+      starterState.sessionId = '';
+      starterState.preview = null;
+      starterState.markdown = '';
+      document.getElementById('starterInput').value = '';
+      document.getElementById('starterPackage').textContent = 'Markdown 开工包会显示在这里。';
+      renderStarterPreview();
+      starterSetTip('等待输入。生成预览后可查看历史相似任务、风险、模板、建议文件和验证命令。');
+    }
+
     async function updatePromptStatus(status) {
       if (!promptState.selectedId) return;
       const previousId = promptState.selectedId;
@@ -5019,6 +5413,22 @@
 
       document.getElementById('promptNextBtn').addEventListener('click', () => {
         openPromptReviewQueue(promptState.selectedId || '');
+      });
+
+      document.getElementById('starterPreviewBtn').addEventListener('click', runStarterPreview);
+      document.getElementById('starterPackageBtn').addEventListener('click', runStarterPackage);
+      document.getElementById('starterCopyBtn').addEventListener('click', copyStarterPackage);
+      document.getElementById('starterClearBtn').addEventListener('click', clearStarter);
+      document.getElementById('starterInput').addEventListener('keydown', (event) => {
+        if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+          runStarterPreview();
+        }
+      });
+      document.getElementById('starterHistory').addEventListener('click', (event) => {
+        if (!(event.target instanceof Element)) return;
+        const btn = event.target.closest('button[data-starter-session-id]');
+        if (!btn) return;
+        openStarterSession(btn.getAttribute('data-starter-session-id') || '');
       });
 
       document.getElementById('resetFiltersBtn').addEventListener('click', () => {
@@ -5235,7 +5645,7 @@
         setActiveWorkspace('search');
       });
 
-      await Promise.all([loadStats(), loadProjects(), loadPromptTemplates()]);
+      await Promise.all([loadStats(), loadProjects(), loadPromptTemplates(), loadStarterHistory()]);
       await graphLoadSeedResults();
       loadFavorites();
       updateActionButtons();

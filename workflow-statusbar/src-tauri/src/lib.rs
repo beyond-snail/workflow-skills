@@ -409,6 +409,77 @@ struct KbKnowledgeUnitsResponse {
     links: Vec<KbKnowledgeUnitLink>,
 }
 
+#[derive(Clone, Serialize, Deserialize, Debug, Default)]
+struct KbTaskStarterRequest {
+    input_text: Option<String>,
+    session_id: Option<String>,
+    limit: Option<usize>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+struct KbTaskStarterEvidenceItem {
+    evidence_type: String,
+    source_table: String,
+    source_id: String,
+    title: String,
+    excerpt: String,
+    score: f64,
+    reason: String,
+    source_path: String,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug, Default)]
+struct KbTaskStarterSections {
+    similar_tasks: Vec<KbTaskStarterEvidenceItem>,
+    risks: Vec<KbTaskStarterEvidenceItem>,
+    templates: Vec<KbTaskStarterEvidenceItem>,
+    suggested_files: Vec<KbTaskStarterEvidenceItem>,
+    verify_commands: Vec<KbTaskStarterEvidenceItem>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+struct KbTaskStarterPreviewResponse {
+    session_id: String,
+    input_type: String,
+    parsed_req_id: String,
+    parsed_task_id: String,
+    summary: String,
+    sections: KbTaskStarterSections,
+    evidence: Vec<KbTaskStarterEvidenceItem>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+struct KbTaskStarterPackageResponse {
+    session_id: String,
+    markdown: String,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+struct KbTaskStarterSessionSummary {
+    session_id: String,
+    input_text: String,
+    input_type: String,
+    parsed_req_id: String,
+    parsed_task_id: String,
+    summary: String,
+    has_package: bool,
+    evidence_count: i64,
+    created_at: String,
+    updated_at: String,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+struct KbTaskStarterSessionsResponse {
+    sessions: Vec<KbTaskStarterSessionSummary>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+struct KbTaskStarterSessionDetailResponse {
+    session: KbTaskStarterSessionSummary,
+    evidence: Vec<KbTaskStarterEvidenceItem>,
+    markdown: String,
+}
+
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 enum AlertProviderMode {
@@ -3365,9 +3436,35 @@ fn ensure_knowledgebase_schema_migration(conn: &Connection) -> Result<(), String
           created_at TEXT DEFAULT CURRENT_TIMESTAMP,
           updated_at TEXT DEFAULT CURRENT_TIMESTAMP
         );
+        CREATE TABLE IF NOT EXISTS task_starter_sessions (
+          id TEXT PRIMARY KEY,
+          input_text TEXT NOT NULL,
+          input_type TEXT NOT NULL DEFAULT 'text',
+          parsed_req_id TEXT NOT NULL DEFAULT '',
+          parsed_task_id TEXT NOT NULL DEFAULT '',
+          summary TEXT NOT NULL DEFAULT '',
+          package_markdown TEXT NOT NULL DEFAULT '',
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS task_starter_evidence (
+          session_id TEXT NOT NULL,
+          evidence_type TEXT NOT NULL,
+          source_table TEXT NOT NULL,
+          source_id TEXT NOT NULL DEFAULT '',
+          title TEXT NOT NULL DEFAULT '',
+          excerpt TEXT NOT NULL DEFAULT '',
+          score REAL NOT NULL DEFAULT 0,
+          reason TEXT NOT NULL DEFAULT '',
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY(session_id, evidence_type, source_table, source_id)
+        );
         CREATE INDEX IF NOT EXISTS idx_prompt_templates_status ON prompt_templates(status, category);
         CREATE INDEX IF NOT EXISTS idx_prompt_sources_template ON prompt_template_sources(template_id);
         CREATE INDEX IF NOT EXISTS idx_knowledge_units_status ON knowledge_units(status, unit_type, category);
+        CREATE INDEX IF NOT EXISTS idx_task_starter_sessions_created ON task_starter_sessions(created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_task_starter_sessions_req_task ON task_starter_sessions(parsed_req_id, parsed_task_id);
+        CREATE INDEX IF NOT EXISTS idx_task_starter_evidence_session ON task_starter_evidence(session_id);
         "#,
     )
     .map_err(|err| err.to_string())?;
@@ -5945,6 +6042,799 @@ fn kb_prompt_template_candidate_note_internal(
     }))
 }
 
+fn kb_task_starter_extract_identifier(input: &str, prefix: &str) -> String {
+    let upper = input.to_ascii_uppercase();
+    let Some(start) = upper.find(prefix) else {
+        return String::new();
+    };
+    upper[start..]
+        .chars()
+        .take_while(|ch| ch.is_ascii_alphanumeric() || *ch == '-')
+        .collect::<String>()
+}
+
+fn kb_task_starter_parse_input(input: &str) -> (String, String, String) {
+    let task_id = kb_task_starter_extract_identifier(input, "TASK-");
+    let req_id = kb_task_starter_extract_identifier(input, "REQ-");
+    let input_type = if !task_id.is_empty() {
+        "task"
+    } else if !req_id.is_empty() {
+        "req"
+    } else {
+        "text"
+    };
+    (input_type.into(), req_id, task_id)
+}
+
+fn kb_task_starter_like_pattern(input: &str, req_id: &str, task_id: &str) -> String {
+    if !task_id.is_empty() {
+        format!("%{}%", task_id)
+    } else if !req_id.is_empty() {
+        format!("%{}%", req_id)
+    } else {
+        let compact = input.split_whitespace().take(8).collect::<Vec<_>>().join(" ");
+        format!("%{}%", compact.trim())
+    }
+}
+
+fn kb_task_starter_primary_identifier(req_id: &str, task_id: &str) -> String {
+    if !task_id.trim().is_empty() {
+        task_id.trim().to_string()
+    } else {
+        req_id.trim().to_string()
+    }
+}
+
+fn kb_task_starter_push_unique(
+    items: &mut Vec<KbTaskStarterEvidenceItem>,
+    seen: &mut HashSet<String>,
+    item: KbTaskStarterEvidenceItem,
+    limit: usize,
+) {
+    if items.len() >= limit {
+        return;
+    }
+    let key = format!("{}:{}:{}", item.evidence_type, item.source_table, item.source_id);
+    if seen.insert(key) {
+        items.push(item);
+    }
+}
+
+fn kb_task_starter_collect_item_rows(
+    conn: &Connection,
+    sql: &str,
+    params_value: &str,
+    evidence_type: &str,
+    reason: &str,
+    base_score: f64,
+    limit: usize,
+) -> Result<Vec<KbTaskStarterEvidenceItem>, String> {
+    let mut stmt = conn.prepare(sql).map_err(|err| err.to_string())?;
+    let rows = stmt
+        .query_map(params![params_value, limit as i64], |row| {
+            Ok(KbTaskStarterEvidenceItem {
+                evidence_type: evidence_type.into(),
+                source_table: "items".into(),
+                source_id: row.get::<_, String>(0)?,
+                title: row.get::<_, String>(1)?,
+                excerpt: compact_text_chars(&row.get::<_, String>(2).unwrap_or_default(), 180),
+                score: base_score,
+                reason: reason.into(),
+                source_path: row.get::<_, String>(3).unwrap_or_default(),
+            })
+        })
+        .map_err(|err| err.to_string())?;
+    let mut items = Vec::new();
+    for row in rows {
+        items.push(row.map_err(|err| err.to_string())?);
+    }
+    Ok(items)
+}
+
+fn kb_task_starter_workflow_root() -> Option<PathBuf> {
+    let current = env::current_dir().ok()?;
+    for ancestor in current.ancestors() {
+        let candidate = ancestor.join("docs/workflow");
+        if candidate.is_dir() {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+fn kb_task_starter_file_score(path: &Path) -> f64 {
+    let value = path.to_string_lossy();
+    if value.contains("任务看板") {
+        118.0
+    } else if value.contains("需求池") {
+        116.0
+    } else if value.contains("PRD") {
+        112.0
+    } else if value.contains("design") || value.contains("设计") {
+        108.0
+    } else if value.contains("testing") || value.contains("测试") {
+        104.0
+    } else {
+        100.0
+    }
+}
+
+fn kb_task_starter_collect_workflow_docs(
+    identifier: &str,
+    limit: usize,
+) -> Vec<KbTaskStarterEvidenceItem> {
+    if identifier.trim().is_empty() {
+        return Vec::new();
+    }
+    let Some(root) = kb_task_starter_workflow_root() else {
+        return Vec::new();
+    };
+    let mut stack = vec![root];
+    let mut matches = Vec::new();
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            if path.extension().and_then(|item| item.to_str()) != Some("md") {
+                continue;
+            }
+            let path_text = path.to_string_lossy().to_string();
+            let content = fs::read_to_string(&path).unwrap_or_default();
+            if !path_text.contains(identifier) && !content.contains(identifier) {
+                continue;
+            }
+            let title = path
+                .file_name()
+                .and_then(|item| item.to_str())
+                .unwrap_or("workflow-doc")
+                .to_string();
+            matches.push(KbTaskStarterEvidenceItem {
+                evidence_type: "similar_task".into(),
+                source_table: "workflow_docs".into(),
+                source_id: path_text.clone(),
+                title,
+                excerpt: compact_text_chars(&content, 220),
+                score: kb_task_starter_file_score(&path),
+                reason: format!("本地 workflow 文档精确命中 {identifier}"),
+                source_path: path_text,
+            });
+        }
+    }
+    matches.sort_by(|left, right| {
+        right
+            .score
+            .partial_cmp(&left.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    matches.truncate(limit);
+    matches
+}
+
+fn kb_task_starter_collect_exact_governance(
+    conn: &Connection,
+    req_id: &str,
+    task_id: &str,
+    limit: usize,
+) -> Result<Vec<KbTaskStarterEvidenceItem>, String> {
+    let identifier = kb_task_starter_primary_identifier(req_id, task_id);
+    if identifier.is_empty() {
+        return Ok(Vec::new());
+    }
+    let like_pattern = format!("%{}%", identifier);
+    let mut stmt = conn
+        .prepare(
+            r#"
+            SELECT item_id, title, content_text, source_path,
+                   CASE
+                     WHEN source_path LIKE '%任务看板%' THEN 120
+                     WHEN source_path LIKE '%需求池%' THEN 116
+                     WHEN source_path LIKE '%PRD%' THEN 112
+                     WHEN source_path LIKE '%design%' OR source_path LIKE '%设计%' THEN 108
+                     WHEN source_path LIKE '%testing%' OR source_path LIKE '%测试%' THEN 104
+                     ELSE 100
+                   END AS score
+            FROM items
+            WHERE title LIKE ?1 OR content_text LIKE ?1 OR source_path LIKE ?1
+            ORDER BY score DESC, updated_at DESC
+            LIMIT ?2
+            "#,
+        )
+        .map_err(|err| err.to_string())?;
+    let rows = stmt
+        .query_map(params![like_pattern, limit as i64], |row| {
+            let score = row.get::<_, i64>(4).unwrap_or(100) as f64;
+            Ok(KbTaskStarterEvidenceItem {
+                evidence_type: "similar_task".into(),
+                source_table: "items".into(),
+                source_id: row.get::<_, String>(0)?,
+                title: row.get::<_, String>(1)?,
+                excerpt: compact_text_chars(&row.get::<_, String>(2).unwrap_or_default(), 220),
+                score,
+                reason: format!("精确命中 {identifier}，优先作为治理上下文"),
+                source_path: row.get::<_, String>(3).unwrap_or_default(),
+            })
+        })
+        .map_err(|err| err.to_string())?;
+    let mut items = Vec::new();
+    for row in rows {
+        items.push(row.map_err(|err| err.to_string())?);
+    }
+    if items.len() < limit {
+        for item in kb_task_starter_collect_workflow_docs(&identifier, limit - items.len()) {
+            items.push(item);
+        }
+    }
+    Ok(items)
+}
+
+fn kb_task_starter_collect_templates(
+    conn: &Connection,
+    like_pattern: &str,
+    input: &str,
+    limit: usize,
+) -> Result<Vec<KbTaskStarterEvidenceItem>, String> {
+    let normalized_input = input.to_ascii_lowercase();
+    let wants_dev = input.contains("开发")
+        || input.contains("开工")
+        || input.contains("交接")
+        || normalized_input.contains("task")
+        || normalized_input.contains("req");
+    let wants_verify = input.contains("验证") || input.contains("测试") || input.contains("验收");
+    let wants_governance = input.contains("治理")
+        || input.contains("需求")
+        || input.contains("任务")
+        || normalized_input.contains("workflow");
+    let mut stmt = conn
+        .prepare(
+            r#"
+            SELECT id, name,
+                   COALESCE(NULLIF(task_goal, ''), NULLIF(review_note, ''), category) AS excerpt,
+                   status, COALESCE(quality_score, 60) AS quality_score,
+                   CASE
+                     WHEN ?2 = 1 AND (name LIKE '%开发%' OR name LIKE '%交接%' OR task_goal LIKE '%开发%' OR category LIKE '%开发%') THEN 18
+                     WHEN ?3 = 1 AND (name LIKE '%验证%' OR name LIKE '%测试%' OR name LIKE '%验收%' OR task_goal LIKE '%验证%' OR category LIKE '%测试%') THEN 16
+                     WHEN ?4 = 1 AND (name LIKE '%治理%' OR name LIKE '%需求%' OR name LIKE '%任务%' OR task_goal LIKE '%workflow%' OR category LIKE '%工作流%') THEN 14
+                     WHEN name LIKE ?1 OR category LIKE ?1 OR task_goal LIKE ?1 OR review_note LIKE ?1 THEN 10
+                     ELSE 0
+                   END AS relevance
+            FROM prompt_templates
+            WHERE status IN ('verified', 'reviewed', 'candidate')
+              AND (
+                name LIKE ?1 OR category LIKE ?1 OR task_goal LIKE ?1 OR review_note LIKE ?1
+                OR ?2 = 1 OR ?3 = 1 OR ?4 = 1 OR ?1 = '%%'
+              )
+            ORDER BY CASE status
+              WHEN 'verified' THEN 0
+              WHEN 'reviewed' THEN 1
+              ELSE 2
+            END, relevance DESC, quality_score DESC, updated_at DESC
+            LIMIT ?5
+            "#,
+        )
+        .map_err(|err| err.to_string())?;
+    let rows = stmt
+        .query_map(
+            params![
+                like_pattern,
+                if wants_dev { 1_i64 } else { 0_i64 },
+                if wants_verify { 1_i64 } else { 0_i64 },
+                if wants_governance { 1_i64 } else { 0_i64 },
+                limit as i64
+            ],
+            |row| {
+            let status = row.get::<_, String>(3).unwrap_or_default();
+            let quality_score = row.get::<_, i64>(4).unwrap_or(60) as f64;
+            let relevance = row.get::<_, i64>(5).unwrap_or(0) as f64;
+            Ok(KbTaskStarterEvidenceItem {
+                evidence_type: "template".into(),
+                source_table: "prompt_templates".into(),
+                source_id: row.get::<_, String>(0)?,
+                title: row.get::<_, String>(1)?,
+                excerpt: compact_text_chars(&row.get::<_, String>(2).unwrap_or_default(), 180),
+                score: 80.0 + relevance + quality_score / 5.0,
+                reason: format!("按状态、质量和任务相关性排序；当前状态为 {status}"),
+                source_path: String::new(),
+            })
+            },
+        )
+        .map_err(|err| err.to_string())?;
+    let mut items = Vec::new();
+    for row in rows {
+        items.push(row.map_err(|err| err.to_string())?);
+    }
+    Ok(items)
+}
+
+fn kb_task_starter_collect_evidence(
+    conn: &Connection,
+    input: &str,
+    req_id: &str,
+    task_id: &str,
+    limit: usize,
+) -> Result<KbTaskStarterSections, String> {
+    let limit = limit.clamp(3, 12);
+    let like_pattern = kb_task_starter_like_pattern(input, req_id, task_id);
+    let broad_pattern = if like_pattern.trim() == "%%" {
+        "%".to_string()
+    } else {
+        like_pattern.clone()
+    };
+    let mut seen = HashSet::new();
+    let mut sections = KbTaskStarterSections::default();
+
+    for item in kb_task_starter_collect_exact_governance(conn, req_id, task_id, limit)? {
+        kb_task_starter_push_unique(&mut sections.similar_tasks, &mut seen, item, limit);
+    }
+
+    for item in kb_task_starter_collect_item_rows(
+        conn,
+        r#"
+        SELECT item_id, title, content_text, source_path
+        FROM items
+        WHERE title LIKE ?1 OR content_text LIKE ?1 OR source_path LIKE ?1
+        ORDER BY updated_at DESC
+        LIMIT ?2
+        "#,
+        &broad_pattern,
+        "similar_task",
+        "命中输入关键词，可作为历史相似任务或上下文证据",
+        70.0,
+        limit,
+    )? {
+        kb_task_starter_push_unique(&mut sections.similar_tasks, &mut seen, item, limit);
+    }
+
+    for item in kb_task_starter_collect_item_rows(
+        conn,
+        r#"
+        SELECT item_id, title, content_text, source_path
+        FROM items
+        WHERE (title LIKE ?1 OR content_text LIKE ?1 OR source_path LIKE ?1)
+          AND (
+            title LIKE '%风险%' OR content_text LIKE '%风险%'
+            OR title LIKE '%问题%' OR content_text LIKE '%问题%'
+            OR title LIKE '%阻塞%' OR content_text LIKE '%阻塞%'
+            OR title LIKE '%失败%' OR content_text LIKE '%失败%'
+            OR title LIKE '%未覆盖%' OR content_text LIKE '%未覆盖%'
+          )
+        ORDER BY updated_at DESC
+        LIMIT ?2
+        "#,
+        &broad_pattern,
+        "risk",
+        "命中风险、问题、阻塞或未覆盖关键词",
+        85.0,
+        limit,
+    )? {
+        kb_task_starter_push_unique(&mut sections.risks, &mut seen, item, limit);
+    }
+
+    sections.templates = kb_task_starter_collect_templates(conn, &broad_pattern, input, limit)?;
+
+    for item in kb_task_starter_collect_item_rows(
+        conn,
+        r#"
+        SELECT item_id, title, content_text, source_path
+        FROM items
+        WHERE (title LIKE ?1 OR content_text LIKE ?1 OR source_path LIKE ?1)
+          AND (
+            source_path LIKE '%docs/workflow%'
+            OR source_path LIKE '%.md'
+            OR title LIKE '%设计%'
+            OR title LIKE '%任务拆解%'
+            OR title LIKE '%PRD%'
+          )
+        ORDER BY updated_at DESC
+        LIMIT ?2
+        "#,
+        &broad_pattern,
+        "file",
+        "建议开工前阅读的治理、设计或文档证据",
+        75.0,
+        limit,
+    )? {
+        kb_task_starter_push_unique(&mut sections.suggested_files, &mut seen, item, limit);
+    }
+
+    for item in kb_task_starter_collect_item_rows(
+        conn,
+        r#"
+        SELECT item_id, title, content_text, source_path
+        FROM items
+        WHERE (title LIKE ?1 OR content_text LIKE ?1 OR source_path LIKE ?1)
+          AND (
+            content_text LIKE '%cargo check%'
+            OR content_text LIKE '%npm run build%'
+            OR content_text LIKE '%pytest%'
+            OR content_text LIKE '%验证命令%'
+            OR content_text LIKE '%测试%'
+          )
+        ORDER BY updated_at DESC
+        LIMIT ?2
+        "#,
+        &broad_pattern,
+        "verify",
+        "包含验证命令、测试记录或回归证据",
+        80.0,
+        limit,
+    )? {
+        kb_task_starter_push_unique(&mut sections.verify_commands, &mut seen, item, limit);
+    }
+
+    Ok(sections)
+}
+
+fn kb_task_starter_flatten_sections(
+    sections: &KbTaskStarterSections,
+) -> Vec<KbTaskStarterEvidenceItem> {
+    sections
+        .similar_tasks
+        .iter()
+        .chain(sections.risks.iter())
+        .chain(sections.templates.iter())
+        .chain(sections.suggested_files.iter())
+        .chain(sections.verify_commands.iter())
+        .cloned()
+        .collect()
+}
+
+fn kb_task_starter_summary(input_type: &str, req_id: &str, task_id: &str, input: &str) -> String {
+    if input_type == "task" {
+        format!("开工助手上下文包：{task_id}")
+    } else if input_type == "req" {
+        format!("开工助手上下文包：{req_id}")
+    } else {
+        format!("开工助手上下文包：{}", compact_text_chars(input, 32))
+    }
+}
+
+fn kb_task_starter_insert_session(
+    conn: &Connection,
+    input: &str,
+    input_type: &str,
+    req_id: &str,
+    task_id: &str,
+    summary: &str,
+) -> Result<String, String> {
+    let session_id = format!(
+        "starter-{}-{}",
+        now_nanos(),
+        fnv1a64_hex(&format!("{input}:{input_type}:{req_id}:{task_id}"))
+    );
+    conn.execute(
+        r#"
+        INSERT INTO task_starter_sessions(
+          id, input_text, input_type, parsed_req_id, parsed_task_id, summary
+        )
+        VALUES(?1, ?2, ?3, ?4, ?5, ?6)
+        "#,
+        params![session_id, input, input_type, req_id, task_id, summary],
+    )
+    .map_err(|err| err.to_string())?;
+    Ok(session_id)
+}
+
+fn kb_task_starter_insert_evidence(
+    conn: &Connection,
+    session_id: &str,
+    evidence: &[KbTaskStarterEvidenceItem],
+) -> Result<(), String> {
+    for item in evidence {
+        conn.execute(
+            r#"
+            INSERT OR IGNORE INTO task_starter_evidence(
+              session_id, evidence_type, source_table, source_id, title, excerpt, score, reason
+            )
+            VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+            "#,
+            params![
+                session_id,
+                item.evidence_type,
+                item.source_table,
+                item.source_id,
+                item.title,
+                item.excerpt,
+                item.score,
+                item.reason
+            ],
+        )
+        .map_err(|err| err.to_string())?;
+    }
+    Ok(())
+}
+
+fn kb_task_starter_preview_internal(
+    input_text: &str,
+    limit: usize,
+) -> Result<KbTaskStarterPreviewResponse, String> {
+    let input = input_text.trim();
+    if input.is_empty() {
+        return Err("empty_input".into());
+    }
+    let conn = connect_knowledgebase()?;
+    let (input_type, req_id, task_id) = kb_task_starter_parse_input(input);
+    let summary = kb_task_starter_summary(&input_type, &req_id, &task_id, input);
+    let sections = kb_task_starter_collect_evidence(&conn, input, &req_id, &task_id, limit)?;
+    let evidence = kb_task_starter_flatten_sections(&sections);
+    let session_id =
+        kb_task_starter_insert_session(&conn, input, &input_type, &req_id, &task_id, &summary)?;
+    kb_task_starter_insert_evidence(&conn, &session_id, &evidence)?;
+    Ok(KbTaskStarterPreviewResponse {
+        session_id,
+        input_type,
+        parsed_req_id: req_id,
+        parsed_task_id: task_id,
+        summary,
+        sections,
+        evidence,
+    })
+}
+
+fn kb_task_starter_load_session(
+    conn: &Connection,
+    session_id: &str,
+) -> Result<(String, String, String, String, String), String> {
+    conn.query_row(
+        r#"
+        SELECT input_text, input_type, parsed_req_id, parsed_task_id, summary
+        FROM task_starter_sessions
+        WHERE id=?1
+        LIMIT 1
+        "#,
+        params![session_id],
+        |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+            ))
+        },
+    )
+    .map_err(|err| err.to_string())
+}
+
+fn kb_task_starter_load_evidence(
+    conn: &Connection,
+    session_id: &str,
+) -> Result<Vec<KbTaskStarterEvidenceItem>, String> {
+    let mut stmt = conn
+        .prepare(
+            r#"
+            SELECT evidence_type, source_table, source_id, title, excerpt, score, reason
+            FROM task_starter_evidence
+            WHERE session_id=?1
+            ORDER BY score DESC, created_at ASC
+            "#,
+        )
+        .map_err(|err| err.to_string())?;
+    let rows = stmt
+        .query_map(params![session_id], |row| {
+            Ok(KbTaskStarterEvidenceItem {
+                evidence_type: row.get::<_, String>(0)?,
+                source_table: row.get::<_, String>(1)?,
+                source_id: row.get::<_, String>(2)?,
+                title: row.get::<_, String>(3)?,
+                excerpt: row.get::<_, String>(4).unwrap_or_default(),
+                score: row.get::<_, f64>(5).unwrap_or(0.0),
+                reason: row.get::<_, String>(6).unwrap_or_default(),
+                source_path: String::new(),
+            })
+        })
+        .map_err(|err| err.to_string())?;
+    let mut evidence = Vec::new();
+    for row in rows {
+        evidence.push(row.map_err(|err| err.to_string())?);
+    }
+    Ok(evidence)
+}
+
+fn kb_task_starter_markdown_section(
+    title: &str,
+    items: &[KbTaskStarterEvidenceItem],
+) -> String {
+    if items.is_empty() {
+        return format!("## {title}\n\n- 暂无命中，建议先采集项目或换一组关键词。\n");
+    }
+    let mut out = format!("## {title}\n\n");
+    for item in items.iter().take(8) {
+        let source = if item.source_id.trim().is_empty() {
+            item.source_table.clone()
+        } else {
+            format!("{}:{}", item.source_table, item.source_id)
+        };
+        out.push_str(&format!(
+            "- {}：{}（{}，score {:.1}）\n",
+            item.title, item.reason, source, item.score
+        ));
+        if !item.excerpt.trim().is_empty() {
+            out.push_str(&format!("  摘要：{}\n", item.excerpt));
+        }
+    }
+    out
+}
+
+fn kb_task_starter_build_markdown(
+    input_text: &str,
+    input_type: &str,
+    req_id: &str,
+    task_id: &str,
+    evidence: &[KbTaskStarterEvidenceItem],
+) -> String {
+    let mut sections = KbTaskStarterSections::default();
+    for item in evidence {
+        match item.evidence_type.as_str() {
+            "similar_task" => sections.similar_tasks.push(item.clone()),
+            "risk" => sections.risks.push(item.clone()),
+            "template" => sections.templates.push(item.clone()),
+            "file" => sections.suggested_files.push(item.clone()),
+            "verify" => sections.verify_commands.push(item.clone()),
+            _ => {}
+        }
+    }
+    let target = if !task_id.trim().is_empty() {
+        task_id
+    } else if !req_id.trim().is_empty() {
+        req_id
+    } else {
+        input_text
+    };
+    let mut out = String::new();
+    out.push_str("# 任务开工上下文包\n\n");
+    out.push_str("## 任务目标\n\n");
+    out.push_str(&format!("- 输入类型：`{input_type}`\n- 开工目标：{target}\n"));
+    out.push_str("\n## 边界约束\n\n");
+    out.push_str("- 先检索历史、再分析和改动。\n- 仅修改任务明确范围，跨边界需要先确认。\n- 改动后必须完成编译、关键自测、治理材料和 memory 回写。\n");
+    out.push('\n');
+    out.push_str(&kb_task_starter_markdown_section("历史相似任务", &sections.similar_tasks));
+    out.push('\n');
+    out.push_str(&kb_task_starter_markdown_section("相关风险", &sections.risks));
+    out.push('\n');
+    out.push_str(&kb_task_starter_markdown_section("推荐提示词模板", &sections.templates));
+    out.push('\n');
+    out.push_str(&kb_task_starter_markdown_section("建议读取文件", &sections.suggested_files));
+    out.push('\n');
+    out.push_str(&kb_task_starter_markdown_section("建议验证命令", &sections.verify_commands));
+    out.push_str("\n## 证据来源\n\n");
+    for item in evidence.iter().take(24) {
+        out.push_str(&format!(
+            "- `{}` / `{}` / `{}`：{}\n",
+            item.evidence_type, item.source_table, item.source_id, item.title
+        ));
+    }
+    out.push_str("\n## 给 AI 的执行提示词\n\n");
+    out.push_str("请基于以上上下文执行任务：先说明涉及文件、SQL或接口链路、调用链与影响范围、根因或实现结论；再按边界实现、验证、沉淀，并输出未覆盖风险。\n");
+    out
+}
+
+fn kb_task_starter_package_internal(
+    session_id: Option<&str>,
+    input_text: Option<&str>,
+    limit: usize,
+) -> Result<KbTaskStarterPackageResponse, String> {
+    let conn = connect_knowledgebase()?;
+    let (session_id, input, input_type, req_id, task_id, evidence) =
+        if let Some(existing_id) = session_id.map(str::trim).filter(|item| !item.is_empty()) {
+            let (input, input_type, req_id, task_id, _summary) =
+                kb_task_starter_load_session(&conn, existing_id)?;
+            let evidence = kb_task_starter_load_evidence(&conn, existing_id)?;
+            (
+                existing_id.to_string(),
+                input,
+                input_type,
+                req_id,
+                task_id,
+                evidence,
+            )
+        } else {
+            let preview = kb_task_starter_preview_internal(input_text.unwrap_or_default(), limit)?;
+            (
+                preview.session_id,
+                input_text.unwrap_or_default().trim().to_string(),
+                preview.input_type,
+                preview.parsed_req_id,
+                preview.parsed_task_id,
+                preview.evidence,
+            )
+        };
+    let markdown =
+        kb_task_starter_build_markdown(&input, &input_type, &req_id, &task_id, &evidence);
+    conn.execute(
+        "UPDATE task_starter_sessions SET package_markdown=?2, updated_at=CURRENT_TIMESTAMP WHERE id=?1",
+        params![session_id, markdown],
+    )
+    .map_err(|err| err.to_string())?;
+    Ok(KbTaskStarterPackageResponse {
+        session_id,
+        markdown,
+    })
+}
+
+fn kb_task_starter_session_summary_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<KbTaskStarterSessionSummary> {
+    let package_markdown = row.get::<_, String>(6).unwrap_or_default();
+    Ok(KbTaskStarterSessionSummary {
+        session_id: row.get::<_, String>(0)?,
+        input_text: row.get::<_, String>(1)?,
+        input_type: row.get::<_, String>(2)?,
+        parsed_req_id: row.get::<_, String>(3).unwrap_or_default(),
+        parsed_task_id: row.get::<_, String>(4).unwrap_or_default(),
+        summary: row.get::<_, String>(5).unwrap_or_default(),
+        has_package: !package_markdown.trim().is_empty(),
+        evidence_count: row.get::<_, i64>(7).unwrap_or(0),
+        created_at: row.get::<_, String>(8).unwrap_or_default(),
+        updated_at: row.get::<_, String>(9).unwrap_or_default(),
+    })
+}
+
+fn kb_task_starter_sessions_internal(limit: usize) -> Result<KbTaskStarterSessionsResponse, String> {
+    let conn = connect_knowledgebase()?;
+    let limit = limit.clamp(5, 50);
+    let mut stmt = conn
+        .prepare(
+            r#"
+            SELECT s.id, s.input_text, s.input_type, s.parsed_req_id, s.parsed_task_id,
+                   s.summary, s.package_markdown, COUNT(e.source_id) AS evidence_count,
+                   COALESCE(s.created_at, ''), COALESCE(s.updated_at, '')
+            FROM task_starter_sessions s
+            LEFT JOIN task_starter_evidence e ON e.session_id = s.id
+            GROUP BY s.id
+            ORDER BY s.updated_at DESC, s.created_at DESC
+            LIMIT ?1
+            "#,
+        )
+        .map_err(|err| err.to_string())?;
+    let rows = stmt
+        .query_map(params![limit as i64], kb_task_starter_session_summary_from_row)
+        .map_err(|err| err.to_string())?;
+    let mut sessions = Vec::new();
+    for row in rows {
+        sessions.push(row.map_err(|err| err.to_string())?);
+    }
+    Ok(KbTaskStarterSessionsResponse { sessions })
+}
+
+fn kb_task_starter_session_detail_internal(
+    session_id: &str,
+) -> Result<KbTaskStarterSessionDetailResponse, String> {
+    let conn = connect_knowledgebase()?;
+    let session = conn
+        .query_row(
+            r#"
+            SELECT s.id, s.input_text, s.input_type, s.parsed_req_id, s.parsed_task_id,
+                   s.summary, s.package_markdown, COUNT(e.source_id) AS evidence_count,
+                   COALESCE(s.created_at, ''), COALESCE(s.updated_at, '')
+            FROM task_starter_sessions s
+            LEFT JOIN task_starter_evidence e ON e.session_id = s.id
+            WHERE s.id=?1
+            GROUP BY s.id
+            LIMIT 1
+            "#,
+            params![session_id],
+            kb_task_starter_session_summary_from_row,
+        )
+        .map_err(|err| err.to_string())?;
+    let evidence = kb_task_starter_load_evidence(&conn, session_id)?;
+    let markdown = conn
+        .query_row(
+            "SELECT package_markdown FROM task_starter_sessions WHERE id=?1 LIMIT 1",
+            params![session_id],
+            |row| row.get::<_, String>(0),
+        )
+        .unwrap_or_default();
+    Ok(KbTaskStarterSessionDetailResponse {
+        session,
+        evidence,
+        markdown,
+    })
+}
+
 fn kb_knowledge_units_internal() -> Result<KbKnowledgeUnitsResponse, String> {
     let conn = connect_knowledgebase()?;
     let mut stmt = conn
@@ -6307,7 +7197,16 @@ fn query_param(url_query: &str, key: &str) -> Option<String> {
     None
 }
 
-fn handle_knowledgebase_http_request(request: Request) {
+fn read_task_starter_request(request: &mut Request) -> KbTaskStarterRequest {
+    let mut body = String::new();
+    if request.as_reader().read_to_string(&mut body).is_ok() {
+        serde_json::from_str::<KbTaskStarterRequest>(&body).unwrap_or_default()
+    } else {
+        KbTaskStarterRequest::default()
+    }
+}
+
+fn handle_knowledgebase_http_request(mut request: Request) {
     if request.method() != &Method::Get && request.method() != &Method::Post {
         http_respond_json(
             request,
@@ -6448,6 +7347,100 @@ fn handle_knowledgebase_http_request(request: Request) {
                 serde_json::json!({ "error": err }).to_string(),
             ),
         },
+        "/api/task-starter/preview" => {
+            let mut payload = if request.method() == &Method::Post {
+                read_task_starter_request(&mut request)
+            } else {
+                KbTaskStarterRequest::default()
+            };
+            if payload.input_text.as_deref().unwrap_or_default().trim().is_empty() {
+                payload.input_text = query_param(query, "input_text").or_else(|| query_param(query, "q"));
+            }
+            let limit = payload
+                .limit
+                .or_else(|| query_param(query, "limit").and_then(|value| value.parse::<usize>().ok()))
+                .unwrap_or(8);
+            match kb_task_starter_preview_internal(
+                payload.input_text.as_deref().unwrap_or_default(),
+                limit,
+            ) {
+                Ok(data) => http_respond_json(
+                    request,
+                    200,
+                    serde_json::to_string(&data).unwrap_or_else(|_| "{}".to_string()),
+                ),
+                Err(err) => http_respond_json(
+                    request,
+                    if err == "empty_input" { 400 } else { 500 },
+                    serde_json::json!({ "error": err }).to_string(),
+                ),
+            }
+        }
+        "/api/task-starter/package" => {
+            let mut payload = if request.method() == &Method::Post {
+                read_task_starter_request(&mut request)
+            } else {
+                KbTaskStarterRequest::default()
+            };
+            if payload.session_id.as_deref().unwrap_or_default().trim().is_empty() {
+                payload.session_id = query_param(query, "session_id");
+            }
+            if payload.input_text.as_deref().unwrap_or_default().trim().is_empty() {
+                payload.input_text = query_param(query, "input_text").or_else(|| query_param(query, "q"));
+            }
+            let limit = payload
+                .limit
+                .or_else(|| query_param(query, "limit").and_then(|value| value.parse::<usize>().ok()))
+                .unwrap_or(8);
+            match kb_task_starter_package_internal(
+                payload.session_id.as_deref(),
+                payload.input_text.as_deref(),
+                limit,
+            ) {
+                Ok(data) => http_respond_json(
+                    request,
+                    200,
+                    serde_json::to_string(&data).unwrap_or_else(|_| "{}".to_string()),
+                ),
+                Err(err) => http_respond_json(
+                    request,
+                    if err == "empty_input" { 400 } else { 500 },
+                    serde_json::json!({ "error": err }).to_string(),
+                ),
+            }
+        }
+        "/api/task-starter/sessions" => {
+            let limit = query_param(query, "limit")
+                .and_then(|value| value.parse::<usize>().ok())
+                .unwrap_or(20);
+            match kb_task_starter_sessions_internal(limit) {
+                Ok(data) => http_respond_json(
+                    request,
+                    200,
+                    serde_json::to_string(&data).unwrap_or_else(|_| "{}".to_string()),
+                ),
+                Err(err) => http_respond_json(
+                    request,
+                    500,
+                    serde_json::json!({ "error": err }).to_string(),
+                ),
+            }
+        }
+        _ if path.starts_with("/api/task-starter/session/") => {
+            let session_id = url_decode(path.trim_start_matches("/api/task-starter/session/"));
+            match kb_task_starter_session_detail_internal(&session_id) {
+                Ok(data) => http_respond_json(
+                    request,
+                    200,
+                    serde_json::to_string(&data).unwrap_or_else(|_| "{}".to_string()),
+                ),
+                Err(err) => http_respond_json(
+                    request,
+                    500,
+                    serde_json::json!({ "error": err }).to_string(),
+                ),
+            }
+        }
         _ if path.starts_with("/api/prompt-template/") && path.ends_with("/quality") => {
             let id = url_decode(
                 path.trim_start_matches("/api/prompt-template/")
