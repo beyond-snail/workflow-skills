@@ -11,7 +11,7 @@ use std::{
     process::{Command, Stdio},
     sync::{Arc, Mutex, OnceLock},
     thread,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 #[cfg(target_os = "macos")]
 use tauri::ActivationPolicy;
@@ -3636,6 +3636,29 @@ fn ensure_knowledgebase_schema_migration(conn: &Connection) -> Result<(), String
           created_at TEXT DEFAULT CURRENT_TIMESTAMP,
           updated_at TEXT DEFAULT CURRENT_TIMESTAMP
         );
+        CREATE TABLE IF NOT EXISTS api_clients (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          client_type TEXT NOT NULL DEFAULT 'api',
+          last_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS api_call_logs (
+          id TEXT PRIMARY KEY,
+          client_id TEXT NOT NULL DEFAULT '',
+          client_name TEXT NOT NULL DEFAULT '',
+          tool_name TEXT NOT NULL DEFAULT '',
+          method TEXT NOT NULL DEFAULT '',
+          path TEXT NOT NULL DEFAULT '',
+          params_summary TEXT NOT NULL DEFAULT '',
+          duration_ms INTEGER NOT NULL DEFAULT 0,
+          status_code INTEGER NOT NULL DEFAULT 0,
+          error_message TEXT NOT NULL DEFAULT '',
+          remote_addr TEXT NOT NULL DEFAULT '',
+          user_agent TEXT NOT NULL DEFAULT '',
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
         CREATE INDEX IF NOT EXISTS idx_prompt_templates_status ON prompt_templates(status, category);
         CREATE INDEX IF NOT EXISTS idx_prompt_sources_template ON prompt_template_sources(template_id);
         CREATE INDEX IF NOT EXISTS idx_knowledge_units_status ON knowledge_units(status, unit_type, category);
@@ -3647,6 +3670,8 @@ fn ensure_knowledgebase_schema_migration(conn: &Connection) -> Result<(), String
         CREATE INDEX IF NOT EXISTS idx_retro_sessions_starter ON retrospective_sessions(related_starter_session_id);
         CREATE INDEX IF NOT EXISTS idx_retro_suggestions_session ON retrospective_suggestions(session_id, status);
         CREATE INDEX IF NOT EXISTS idx_retro_suggestions_type ON retrospective_suggestions(suggestion_type, status);
+        CREATE INDEX IF NOT EXISTS idx_api_call_logs_created ON api_call_logs(created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_api_call_logs_client_tool ON api_call_logs(client_id, tool_name, created_at DESC);
         "#,
     )
     .map_err(|err| err.to_string())?;
@@ -8110,6 +8135,208 @@ fn query_param(url_query: &str, key: &str) -> Option<String> {
     None
 }
 
+#[derive(Clone)]
+struct KbApiCallContext {
+    client_id: String,
+    client_name: String,
+    tool_name: String,
+    method: String,
+    path: String,
+    params_summary: String,
+    remote_addr: String,
+    user_agent: String,
+    started_at: Instant,
+}
+
+#[derive(Serialize)]
+struct KbApiCallLog {
+    id: String,
+    client_id: String,
+    client_name: String,
+    tool_name: String,
+    method: String,
+    path: String,
+    params_summary: String,
+    duration_ms: i64,
+    status_code: i64,
+    error_message: String,
+    remote_addr: String,
+    user_agent: String,
+    created_at: String,
+}
+
+#[derive(Serialize)]
+struct KbApiCallLogsResponse {
+    readonly: bool,
+    logs: Vec<KbApiCallLog>,
+}
+
+fn truncate_for_log(value: &str, max_chars: usize) -> String {
+    let mut output = String::new();
+    for ch in value.chars().take(max_chars) {
+        output.push(ch);
+    }
+    output
+}
+
+fn request_header_value(request: &Request, name: &str) -> Option<String> {
+    request
+        .headers()
+        .iter()
+        .find(|header| header.field.to_string().eq_ignore_ascii_case(name))
+        .map(|header| header.value.as_str().trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn api_tool_name_for_path(path: &str) -> String {
+    if path == "/api/v1/search" {
+        "search_memory".into()
+    } else if path == "/api/v1/templates" {
+        "get_prompt_template".into()
+    } else if path == "/api/v1/task-context" {
+        "build_task_context".into()
+    } else if path.starts_with("/api/v1/evidence/") {
+        "get_evidence_trace".into()
+    } else if path == "/api/v1/health" {
+        "list_asset_health".into()
+    } else if path == "/api/v1/call-logs" {
+        "list_api_call_logs".into()
+    } else {
+        "unknown".into()
+    }
+}
+
+fn summarize_query_params(query: &str) -> String {
+    if query.trim().is_empty() {
+        return String::new();
+    }
+    let mut parts = Vec::new();
+    for pair in query.split('&').take(6) {
+        let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+        parts.push(format!("{}={}", key, truncate_for_log(&url_decode(value), 80)));
+    }
+    truncate_for_log(&parts.join("&"), 240)
+}
+
+fn kb_api_call_context(request: &Request, path: &str, query: &str) -> KbApiCallContext {
+    let client_name = request_header_value(request, "x-kb-client")
+        .unwrap_or_else(|| "direct-api".to_string());
+    let client_id = request_header_value(request, "x-kb-client-id")
+        .unwrap_or_else(|| fnv1a64_hex(&client_name));
+    let tool_name = request_header_value(request, "x-kb-tool")
+        .unwrap_or_else(|| api_tool_name_for_path(path));
+    let params_summary = request_header_value(request, "x-kb-params")
+        .unwrap_or_else(|| summarize_query_params(query));
+    KbApiCallContext {
+        client_id: truncate_for_log(&client_id, 80),
+        client_name: truncate_for_log(&client_name, 120),
+        tool_name: truncate_for_log(&tool_name, 120),
+        method: request.method().as_str().to_string(),
+        path: truncate_for_log(path, 200),
+        params_summary: truncate_for_log(&params_summary, 300),
+        remote_addr: request
+            .remote_addr()
+            .map(|addr| addr.to_string())
+            .unwrap_or_default(),
+        user_agent: request_header_value(request, "user-agent").unwrap_or_default(),
+        started_at: Instant::now(),
+    }
+}
+
+fn kb_record_api_call_log(
+    context: &KbApiCallContext,
+    status_code: u16,
+    error_message: Option<&str>,
+) -> Result<(), String> {
+    let conn = connect_knowledgebase()?;
+    conn.execute(
+        "INSERT OR IGNORE INTO api_clients(id, name, client_type, last_seen_at, updated_at)
+         VALUES(?1, ?2, ?3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+        params![context.client_id, context.client_name, "api"],
+    )
+    .map_err(|err| err.to_string())?;
+    conn.execute(
+        "UPDATE api_clients SET name=?2, last_seen_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP WHERE id=?1",
+        params![context.client_id, context.client_name],
+    )
+    .map_err(|err| err.to_string())?;
+    let duration_ms = context.started_at.elapsed().as_millis().min(i64::MAX as u128) as i64;
+    conn.execute(
+        "INSERT INTO api_call_logs(
+          id, client_id, client_name, tool_name, method, path, params_summary,
+          duration_ms, status_code, error_message, remote_addr, user_agent
+        ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+        params![
+            format!("api-log-{}", now_nanos()),
+            context.client_id,
+            context.client_name,
+            context.tool_name,
+            context.method,
+            context.path,
+            context.params_summary,
+            duration_ms,
+            status_code as i64,
+            error_message.unwrap_or_default(),
+            context.remote_addr,
+            context.user_agent,
+        ],
+    )
+    .map_err(|err| err.to_string())?;
+    Ok(())
+}
+
+fn http_respond_v1_json(
+    request: Request,
+    context: Option<&KbApiCallContext>,
+    status_code: u16,
+    body: String,
+    error_message: Option<&str>,
+) {
+    if let Some(context) = context {
+        let _ = kb_record_api_call_log(context, status_code, error_message);
+    }
+    http_respond_json(request, status_code, body);
+}
+
+fn kb_api_call_logs_internal(limit: usize) -> Result<KbApiCallLogsResponse, String> {
+    let conn = connect_knowledgebase()?;
+    let limit = limit.clamp(1, 200) as i64;
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, client_id, client_name, tool_name, method, path, params_summary,
+                    duration_ms, status_code, error_message, remote_addr, user_agent, created_at
+             FROM api_call_logs
+             ORDER BY created_at DESC
+             LIMIT ?1",
+        )
+        .map_err(|err| err.to_string())?;
+    let logs = stmt
+        .query_map(params![limit], |row| {
+            Ok(KbApiCallLog {
+                id: row.get(0)?,
+                client_id: row.get(1)?,
+                client_name: row.get(2)?,
+                tool_name: row.get(3)?,
+                method: row.get(4)?,
+                path: row.get(5)?,
+                params_summary: row.get(6)?,
+                duration_ms: row.get(7)?,
+                status_code: row.get(8)?,
+                error_message: row.get(9)?,
+                remote_addr: row.get(10)?,
+                user_agent: row.get(11)?,
+                created_at: row.get(12)?,
+            })
+        })
+        .map_err(|err| err.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|err| err.to_string())?;
+    Ok(KbApiCallLogsResponse {
+        readonly: true,
+        logs,
+    })
+}
+
 fn read_task_starter_request(request: &mut Request) -> KbTaskStarterRequest {
     let mut body = String::new();
     if request.as_reader().read_to_string(&mut body).is_ok() {
@@ -8143,6 +8370,11 @@ fn handle_knowledgebase_http_request(mut request: Request) {
         .split_once('?')
         .map(|(left, right)| (left, right))
         .unwrap_or((raw_url.as_str(), ""));
+    let api_call_context = if path.starts_with("/api/v1/") {
+        Some(kb_api_call_context(&request, path, query))
+    } else {
+        None
+    };
 
     match path {
         "/" | "/index.html" => {
@@ -8272,30 +8504,38 @@ fn handle_knowledgebase_http_request(mut request: Request) {
         "/api/v1/search" => {
             let query_text = query_param(query, "q").unwrap_or_default();
             match kb_search_internal(&query_text) {
-                Ok(data) => http_respond_json(
+                Ok(data) => http_respond_v1_json(
                     request,
+                    api_call_context.as_ref(),
                     200,
                     serde_json::to_string(&serde_json::json!({ "readonly": true, "data": data })).unwrap_or_else(|_| "{}".to_string()),
+                    None,
                 ),
-                Err(err) => http_respond_json(
+                Err(err) => http_respond_v1_json(
                     request,
+                    api_call_context.as_ref(),
                     500,
                     serde_json::json!({ "error": err }).to_string(),
+                    Some(&err),
                 ),
             }
         }
         "/api/v1/templates" => {
             let status = query_param(query, "status");
             match kb_prompt_templates_internal(status.as_deref()) {
-                Ok(data) => http_respond_json(
+                Ok(data) => http_respond_v1_json(
                     request,
+                    api_call_context.as_ref(),
                     200,
                     serde_json::to_string(&serde_json::json!({ "readonly": true, "data": data })).unwrap_or_else(|_| "{}".to_string()),
+                    None,
                 ),
-                Err(err) => http_respond_json(
+                Err(err) => http_respond_v1_json(
                     request,
+                    api_call_context.as_ref(),
                     500,
                     serde_json::json!({ "error": err }).to_string(),
+                    Some(&err),
                 ),
             }
         }
@@ -8316,30 +8556,59 @@ fn handle_knowledgebase_http_request(mut request: Request) {
                 payload.input_text.as_deref().unwrap_or_default(),
                 limit,
             ) {
-                Ok(data) => http_respond_json(
+                Ok(data) => http_respond_v1_json(
                     request,
+                    api_call_context.as_ref(),
                     200,
                     serde_json::to_string(&serde_json::json!({ "readonly": true, "data": data })).unwrap_or_else(|_| "{}".to_string()),
+                    None,
                 ),
-                Err(err) => http_respond_json(
+                Err(err) => http_respond_v1_json(
                     request,
+                    api_call_context.as_ref(),
                     if err == "empty_input" { 400 } else { 500 },
                     serde_json::json!({ "error": err }).to_string(),
+                    Some(&err),
                 ),
             }
         }
         _ if path.starts_with("/api/v1/evidence/") => {
             let item_id = url_decode(path.trim_start_matches("/api/v1/evidence/"));
             match (kb_item_detail_internal(&item_id), kb_trace_internal(&item_id)) {
-                (Ok(item), Ok(trace)) => http_respond_json(
+                (Ok(item), Ok(trace)) => http_respond_v1_json(
                     request,
+                    api_call_context.as_ref(),
                     200,
                     serde_json::to_string(&serde_json::json!({ "readonly": true, "item": item.item, "trace": trace })).unwrap_or_else(|_| "{}".to_string()),
+                    None,
                 ),
-                (Err(err), _) | (_, Err(err)) => http_respond_json(
+                (Err(err), _) | (_, Err(err)) => http_respond_v1_json(
                     request,
+                    api_call_context.as_ref(),
                     500,
                     serde_json::json!({ "error": err }).to_string(),
+                    Some(&err),
+                ),
+            }
+        }
+        "/api/v1/call-logs" => {
+            let limit = query_param(query, "limit")
+                .and_then(|value| value.parse::<usize>().ok())
+                .unwrap_or(50);
+            match kb_api_call_logs_internal(limit) {
+                Ok(data) => http_respond_v1_json(
+                    request,
+                    api_call_context.as_ref(),
+                    200,
+                    serde_json::to_string(&data).unwrap_or_else(|_| "{}".to_string()),
+                    None,
+                ),
+                Err(err) => http_respond_v1_json(
+                    request,
+                    api_call_context.as_ref(),
+                    500,
+                    serde_json::json!({ "error": err }).to_string(),
+                    Some(&err),
                 ),
             }
         }
@@ -8348,8 +8617,9 @@ fn handle_knowledgebase_http_request(mut request: Request) {
             kb_health_projects_internal(),
             kb_health_actions_internal(),
         ) {
-            (Ok(assets), Ok(projects), Ok(actions)) => http_respond_json(
+            (Ok(assets), Ok(projects), Ok(actions)) => http_respond_v1_json(
                 request,
+                api_call_context.as_ref(),
                 200,
                 serde_json::to_string(&serde_json::json!({
                     "readonly": true,
@@ -8359,11 +8629,14 @@ fn handle_knowledgebase_http_request(mut request: Request) {
                     "actions": actions.actions
                 }))
                 .unwrap_or_else(|_| "{}".to_string()),
+                None,
             ),
-            (Err(err), _, _) | (_, Err(err), _) | (_, _, Err(err)) => http_respond_json(
+            (Err(err), _, _) | (_, Err(err), _) | (_, _, Err(err)) => http_respond_v1_json(
                 request,
+                api_call_context.as_ref(),
                 500,
                 serde_json::json!({ "error": err }).to_string(),
+                Some(&err),
             ),
         },
         "/api/health/assets" => match kb_health_assets_internal() {

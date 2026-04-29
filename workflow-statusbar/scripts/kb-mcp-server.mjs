@@ -110,11 +110,25 @@ function optionalLimit(args) {
   return 8;
 }
 
-async function apiJson(path, options = {}) {
+function summarizeArgs(args) {
+  const entries = Object.entries(args || {})
+    .slice(0, 8)
+    .map(([key, value]) => {
+      const text = typeof value === "string" ? value : JSON.stringify(value);
+      return `${key}=${String(text || "").slice(0, 80)}`;
+    });
+  return entries.join("&").slice(0, 300);
+}
+
+async function apiJson(path, options = {}, callMeta = {}) {
   const response = await fetch(`${apiBaseUrl}${path}`, {
     ...options,
     headers: {
       "content-type": "application/json",
+      "x-kb-client": "workflow-knowledgebase-mcp",
+      "x-kb-client-id": "workflow-knowledgebase-mcp",
+      "x-kb-tool": callMeta.toolName || "unknown",
+      "x-kb-params": callMeta.paramsSummary || "",
       ...(options.headers || {})
     }
   });
@@ -165,13 +179,22 @@ function rankTemplatesByScene(data, scene) {
 async function callTool(name, args) {
   if (name === "search_memory") {
     const query = encodeURIComponent(requireString(args, "query"));
-    return apiJson(`/api/v1/search?q=${query}`);
+    return apiJson(`/api/v1/search?q=${query}`, {}, {
+      toolName: name,
+      paramsSummary: summarizeArgs(args)
+    });
   }
   if (name === "get_prompt_template") {
     const status = optionalString(args, "status");
     const scene = optionalString(args, "scene");
     const query = status ? `?status=${encodeURIComponent(status)}` : "";
-    return rankTemplatesByScene(await apiJson(`/api/v1/templates${query}`), scene);
+    return rankTemplatesByScene(
+      await apiJson(`/api/v1/templates${query}`, {}, {
+        toolName: name,
+        paramsSummary: summarizeArgs(args)
+      }),
+      scene
+    );
   }
   if (name === "build_task_context") {
     return apiJson("/api/v1/task-context", {
@@ -180,14 +203,23 @@ async function callTool(name, args) {
         input_text: requireString(args, "input"),
         limit: optionalLimit(args)
       })
+    }, {
+      toolName: name,
+      paramsSummary: summarizeArgs(args)
     });
   }
   if (name === "get_evidence_trace") {
     const id = encodeURIComponent(requireString(args, "id"));
-    return apiJson(`/api/v1/evidence/${id}`);
+    return apiJson(`/api/v1/evidence/${id}`, {}, {
+      toolName: name,
+      paramsSummary: summarizeArgs(args)
+    });
   }
   if (name === "list_asset_health") {
-    return apiJson("/api/v1/health");
+    return apiJson("/api/v1/health", {}, {
+      toolName: name,
+      paramsSummary: summarizeArgs(args)
+    });
   }
   throw new Error(`unknown_tool:${name}`);
 }
