@@ -498,6 +498,7 @@ struct KbRetroSections {
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 struct KbRetroSuggestionItem {
+    suggestion_id: String,
     suggestion_type: String,
     target_kind: String,
     target_id: String,
@@ -524,6 +525,11 @@ struct KbRetroPreviewResponse {
 struct KbRetroPackageResponse {
     session_id: String,
     markdown: String,
+    suggestions: Vec<KbRetroSuggestionItem>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+struct KbRetroSuggestionsResponse {
     suggestions: Vec<KbRetroSuggestionItem>,
 }
 
@@ -7272,6 +7278,7 @@ fn kb_retro_build_suggestions(sections: &KbRetroSections, req_id: &str, task_id:
     let target_id = if !task_id.trim().is_empty() { task_id } else { req_id };
     let mut suggestions = Vec::new();
     suggestions.push(KbRetroSuggestionItem {
+        suggestion_id: String::new(),
         suggestion_type: "task_memory".into(),
         target_kind: "memory".into(),
         target_id: target_id.into(),
@@ -7280,8 +7287,29 @@ fn kb_retro_build_suggestions(sections: &KbRetroSections, req_id: &str, task_id:
         payload_json: serde_json::json!({ "req_id": req_id, "task_id": task_id }).to_string(),
         status: "pending".into(),
     });
+    suggestions.push(KbRetroSuggestionItem {
+        suggestion_id: String::new(),
+        suggestion_type: "project_knowledge".into(),
+        target_kind: "knowledge_unit".into(),
+        target_id: target_id.into(),
+        title: "沉淀项目知识结论".into(),
+        rationale: "将复盘结论转为后续搜索和开工助手可召回的项目知识。".into(),
+        payload_json: serde_json::json!({ "req_id": req_id, "task_id": task_id, "source": "retro" }).to_string(),
+        status: "pending".into(),
+    });
+    suggestions.push(KbRetroSuggestionItem {
+        suggestion_id: String::new(),
+        suggestion_type: "prompt_template_candidate".into(),
+        target_kind: "prompt_template".into(),
+        target_id: target_id.into(),
+        title: "评估是否沉淀为提示词模板".into(),
+        rationale: "若本轮复盘形成了稳定做法，可转为候选模板，后续人工精修。".into(),
+        payload_json: serde_json::json!({ "req_id": req_id, "task_id": task_id, "source": "retro" }).to_string(),
+        status: "pending".into(),
+    });
     if let Some(item) = sections.verification.first() {
         suggestions.push(KbRetroSuggestionItem {
+            suggestion_id: String::new(),
             suggestion_type: "verify_command".into(),
             target_kind: item.source_table.clone(),
             target_id: item.source_id.clone(),
@@ -7293,6 +7321,7 @@ fn kb_retro_build_suggestions(sections: &KbRetroSections, req_id: &str, task_id:
     }
     if let Some(item) = sections.risks.first() {
         suggestions.push(KbRetroSuggestionItem {
+            suggestion_id: String::new(),
             suggestion_type: "risk_rule".into(),
             target_kind: item.source_table.clone(),
             target_id: item.source_id.clone(),
@@ -7371,9 +7400,10 @@ fn kb_retro_insert_session(
     Ok(session_id)
 }
 
-fn kb_retro_insert_suggestions(conn: &Connection, session_id: &str, suggestions: &[KbRetroSuggestionItem]) -> Result<(), String> {
+fn kb_retro_insert_suggestions(conn: &Connection, session_id: &str, suggestions: &mut [KbRetroSuggestionItem]) -> Result<(), String> {
     for item in suggestions {
         let id = format!("retro-sug-{}-{}", now_nanos(), fnv1a64_hex(&format!("{session_id}:{}:{}", item.suggestion_type, item.title)));
+        item.suggestion_id = id.clone();
         conn.execute(
             r#"
             INSERT INTO retrospective_suggestions(
@@ -7403,10 +7433,10 @@ fn kb_retro_preview_internal(input_text: &str, starter_session_id: Option<&str>,
     let summary = kb_retro_summary(&input_type, &req_id, &task_id, input);
     let starter_sections = kb_task_starter_collect_evidence(&conn, input, &req_id, &task_id, limit)?;
     let sections = kb_retro_build_sections(&starter_sections);
-    let suggestions = kb_retro_build_suggestions(&sections, &req_id, &task_id);
+    let mut suggestions = kb_retro_build_suggestions(&sections, &req_id, &task_id);
     let draft_markdown = kb_retro_build_markdown(input, &input_type, &req_id, &task_id, &sections, &suggestions);
     let session_id = kb_retro_insert_session(&conn, input, &input_type, &req_id, &task_id, &related_starter_session_id, &summary, &draft_markdown)?;
-    kb_retro_insert_suggestions(&conn, &session_id, &suggestions)?;
+    kb_retro_insert_suggestions(&conn, &session_id, &mut suggestions)?;
     Ok(KbRetroPreviewResponse {
         session_id,
         input_type,
@@ -7424,7 +7454,7 @@ fn kb_retro_load_suggestions(conn: &Connection, session_id: &str) -> Result<Vec<
     let mut stmt = conn
         .prepare(
             r#"
-            SELECT suggestion_type, target_kind, target_id, title, rationale, payload_json, status
+            SELECT id, suggestion_type, target_kind, target_id, title, rationale, payload_json, status
             FROM retrospective_suggestions
             WHERE session_id=?1
             ORDER BY created_at ASC
@@ -7434,13 +7464,14 @@ fn kb_retro_load_suggestions(conn: &Connection, session_id: &str) -> Result<Vec<
     let rows = stmt
         .query_map(params![session_id], |row| {
             Ok(KbRetroSuggestionItem {
-                suggestion_type: row.get::<_, String>(0)?,
-                target_kind: row.get::<_, String>(1).unwrap_or_default(),
-                target_id: row.get::<_, String>(2).unwrap_or_default(),
-                title: row.get::<_, String>(3).unwrap_or_default(),
-                rationale: row.get::<_, String>(4).unwrap_or_default(),
-                payload_json: row.get::<_, String>(5).unwrap_or_default(),
-                status: row.get::<_, String>(6).unwrap_or_default(),
+                suggestion_id: row.get::<_, String>(0)?,
+                suggestion_type: row.get::<_, String>(1)?,
+                target_kind: row.get::<_, String>(2).unwrap_or_default(),
+                target_id: row.get::<_, String>(3).unwrap_or_default(),
+                title: row.get::<_, String>(4).unwrap_or_default(),
+                rationale: row.get::<_, String>(5).unwrap_or_default(),
+                payload_json: row.get::<_, String>(6).unwrap_or_default(),
+                status: row.get::<_, String>(7).unwrap_or_default(),
             })
         })
         .map_err(|err| err.to_string())?;
@@ -7470,6 +7501,42 @@ fn kb_retro_package_internal(session_id: Option<&str>, input_text: Option<&str>,
         markdown: preview.draft_markdown,
         suggestions: preview.suggestions,
     })
+}
+
+fn kb_retro_suggestions_internal(session_id: &str) -> Result<KbRetroSuggestionsResponse, String> {
+    let session_id = session_id.trim();
+    if session_id.is_empty() {
+        return Err("missing_session_id".into());
+    }
+    let conn = connect_knowledgebase()?;
+    let suggestions = kb_retro_load_suggestions(&conn, session_id)?;
+    Ok(KbRetroSuggestionsResponse { suggestions })
+}
+
+fn kb_retro_approve_suggestion_internal(suggestion_id: &str) -> Result<serde_json::Value, String> {
+    let suggestion_id = suggestion_id.trim();
+    if suggestion_id.is_empty() {
+        return Err("missing_suggestion_id".into());
+    }
+    let conn = connect_knowledgebase()?;
+    let changed = conn
+        .execute(
+            r#"
+            UPDATE retrospective_suggestions
+            SET status='approved', approved_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP
+            WHERE id=?1
+            "#,
+            params![suggestion_id],
+        )
+        .map_err(|err| err.to_string())?;
+    if changed == 0 {
+        return Err("suggestion_not_found".into());
+    }
+    Ok(serde_json::json!({
+        "ok": true,
+        "suggestion_id": suggestion_id,
+        "status": "approved"
+    }))
 }
 
 fn kb_task_starter_session_summary_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<KbTaskStarterSessionSummary> {
@@ -8206,6 +8273,43 @@ fn handle_knowledgebase_http_request(mut request: Request) {
                 Err(err) => http_respond_json(
                     request,
                     if err == "empty_input" { 400 } else { 500 },
+                    serde_json::json!({ "error": err }).to_string(),
+                ),
+            }
+        }
+        "/api/retro/suggestions" => {
+            let session_id = query_param(query, "session_id").unwrap_or_default();
+            match kb_retro_suggestions_internal(&session_id) {
+                Ok(data) => http_respond_json(
+                    request,
+                    200,
+                    serde_json::to_string(&data).unwrap_or_else(|_| "{}".to_string()),
+                ),
+                Err(err) => http_respond_json(
+                    request,
+                    if err == "missing_session_id" { 400 } else { 500 },
+                    serde_json::json!({ "error": err }).to_string(),
+                ),
+            }
+        }
+        _ if path.starts_with("/api/retro/suggestion/") && path.ends_with("/approve") => {
+            if request.method() != &Method::Post {
+                http_respond_json(
+                    request,
+                    405,
+                    serde_json::json!({ "error": "method_not_allowed" }).to_string(),
+                );
+                return;
+            }
+            let suggestion_id = url_decode(
+                path.trim_start_matches("/api/retro/suggestion/")
+                    .trim_end_matches("/approve"),
+            );
+            match kb_retro_approve_suggestion_internal(&suggestion_id) {
+                Ok(data) => http_respond_json(request, 200, data.to_string()),
+                Err(err) => http_respond_json(
+                    request,
+                    if err == "suggestion_not_found" || err == "missing_suggestion_id" { 404 } else { 500 },
                     serde_json::json!({ "error": err }).to_string(),
                 ),
             }
