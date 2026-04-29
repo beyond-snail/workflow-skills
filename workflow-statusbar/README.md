@@ -35,6 +35,14 @@ export WORKFLOW_STATUSBAR_KB_ENDPOINT=http://127.0.0.1:8787
 npm run tauri dev
 ```
 
+## 知识库 API / MCP
+
+本地知识库同时提供只读 V1 API 和 stdio MCP server，方便 Codex、Claude、ChatGPT 类客户端读取历史任务、模板、证据链和健康度建议。
+
+- API/MCP 接入说明：[docs/KNOWLEDGEBASE_MCP_API.md](docs/KNOWLEDGEBASE_MCP_API.md)
+- 本地 Web/API 默认地址：`http://127.0.0.1:8788`
+- MCP 启动命令：`npm run kb:mcp`
+
 ## 开发
 
 ```bash
