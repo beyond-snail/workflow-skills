@@ -2014,7 +2014,7 @@
     }
 
     .retro-output-card {
-      grid-template-rows: auto minmax(280px, 1fr) auto minmax(92px, .28fr);
+      grid-template-rows: auto minmax(190px, .56fr) auto minmax(220px, .9fr);
     }
 
     .starter-textarea {
@@ -2198,10 +2198,17 @@
 
     .retro-suggestions {
       display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
       gap: 8px;
+      align-content: start;
       min-height: 0;
       overflow: auto;
       scrollbar-width: none;
+    }
+
+    .retro-suggestion-head {
+      margin-top: 0;
+      padding-top: 2px;
     }
 
     .assistant-help {
@@ -2260,9 +2267,10 @@
       border: 1px solid #dbe7f5;
       border-radius: 11px;
       background: #fff;
-      padding: 9px;
+      padding: 8px;
       display: grid;
-      gap: 6px;
+      gap: 5px;
+      align-content: start;
     }
 
     .retro-suggestion b {
@@ -2274,7 +2282,12 @@
     .retro-suggestion span {
       color: var(--muted);
       font-size: 10px;
-      line-height: 1.45;
+      line-height: 1.38;
+    }
+
+    .retro-suggestion .prompt-review-action {
+      min-height: 30px;
+      padding: 5px 8px;
     }
 
     .retro-suggestion.approved {
@@ -3326,7 +3339,7 @@
             <p id="retroOutputMeta">尚未生成复盘。</p>
           </div>
           <pre class="starter-package" id="retroDraft">Markdown 复盘草稿会显示在这里。</pre>
-          <div class="prompt-head" style="margin-top:10px;">
+          <div class="prompt-head retro-suggestion-head">
             <h3>沉淀建议</h3>
             <p id="retroSuggestionMeta">建议会在复盘生成后出现。</p>
           </div>
