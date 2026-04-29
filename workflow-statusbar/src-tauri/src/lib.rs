@@ -7059,6 +7059,30 @@ fn kb_task_starter_preview_internal(
     })
 }
 
+fn kb_task_context_readonly_internal(
+    input_text: &str,
+    limit: usize,
+) -> Result<KbTaskStarterPreviewResponse, String> {
+    let input = input_text.trim();
+    if input.is_empty() {
+        return Err("empty_input".into());
+    }
+    let conn = connect_knowledgebase()?;
+    let (input_type, req_id, task_id) = kb_task_starter_parse_input(input);
+    let summary = kb_task_starter_summary(&input_type, &req_id, &task_id, input);
+    let sections = kb_task_starter_collect_evidence(&conn, input, &req_id, &task_id, limit)?;
+    let evidence = kb_task_starter_flatten_sections(&sections);
+    Ok(KbTaskStarterPreviewResponse {
+        session_id: String::new(),
+        input_type,
+        parsed_req_id: req_id,
+        parsed_task_id: task_id,
+        summary,
+        sections,
+        evidence,
+    })
+}
+
 fn kb_task_starter_load_session(
     conn: &Connection,
     session_id: &str,
@@ -8240,6 +8264,103 @@ fn handle_knowledgebase_http_request(mut request: Request) {
                 serde_json::to_string(&data).unwrap_or_else(|_| "{}".to_string()),
             ),
             Err(err) => http_respond_json(
+                request,
+                500,
+                serde_json::json!({ "error": err }).to_string(),
+            ),
+        },
+        "/api/v1/search" => {
+            let query_text = query_param(query, "q").unwrap_or_default();
+            match kb_search_internal(&query_text) {
+                Ok(data) => http_respond_json(
+                    request,
+                    200,
+                    serde_json::to_string(&serde_json::json!({ "readonly": true, "data": data })).unwrap_or_else(|_| "{}".to_string()),
+                ),
+                Err(err) => http_respond_json(
+                    request,
+                    500,
+                    serde_json::json!({ "error": err }).to_string(),
+                ),
+            }
+        }
+        "/api/v1/templates" => {
+            let status = query_param(query, "status");
+            match kb_prompt_templates_internal(status.as_deref()) {
+                Ok(data) => http_respond_json(
+                    request,
+                    200,
+                    serde_json::to_string(&serde_json::json!({ "readonly": true, "data": data })).unwrap_or_else(|_| "{}".to_string()),
+                ),
+                Err(err) => http_respond_json(
+                    request,
+                    500,
+                    serde_json::json!({ "error": err }).to_string(),
+                ),
+            }
+        }
+        "/api/v1/task-context" => {
+            let mut payload = if request.method() == &Method::Post {
+                read_task_starter_request(&mut request)
+            } else {
+                KbTaskStarterRequest::default()
+            };
+            if payload.input_text.as_deref().unwrap_or_default().trim().is_empty() {
+                payload.input_text = query_param(query, "input_text").or_else(|| query_param(query, "q"));
+            }
+            let limit = payload
+                .limit
+                .or_else(|| query_param(query, "limit").and_then(|value| value.parse::<usize>().ok()))
+                .unwrap_or(8);
+            match kb_task_context_readonly_internal(
+                payload.input_text.as_deref().unwrap_or_default(),
+                limit,
+            ) {
+                Ok(data) => http_respond_json(
+                    request,
+                    200,
+                    serde_json::to_string(&serde_json::json!({ "readonly": true, "data": data })).unwrap_or_else(|_| "{}".to_string()),
+                ),
+                Err(err) => http_respond_json(
+                    request,
+                    if err == "empty_input" { 400 } else { 500 },
+                    serde_json::json!({ "error": err }).to_string(),
+                ),
+            }
+        }
+        _ if path.starts_with("/api/v1/evidence/") => {
+            let item_id = url_decode(path.trim_start_matches("/api/v1/evidence/"));
+            match (kb_item_detail_internal(&item_id), kb_trace_internal(&item_id)) {
+                (Ok(item), Ok(trace)) => http_respond_json(
+                    request,
+                    200,
+                    serde_json::to_string(&serde_json::json!({ "readonly": true, "item": item.item, "trace": trace })).unwrap_or_else(|_| "{}".to_string()),
+                ),
+                (Err(err), _) | (_, Err(err)) => http_respond_json(
+                    request,
+                    500,
+                    serde_json::json!({ "error": err }).to_string(),
+                ),
+            }
+        }
+        "/api/v1/health" => match (
+            kb_health_assets_internal(),
+            kb_health_projects_internal(),
+            kb_health_actions_internal(),
+        ) {
+            (Ok(assets), Ok(projects), Ok(actions)) => http_respond_json(
+                request,
+                200,
+                serde_json::to_string(&serde_json::json!({
+                    "readonly": true,
+                    "summary": kb_health_summary(&assets.assets, &projects.projects),
+                    "assets": assets.assets,
+                    "projects": projects.projects,
+                    "actions": actions.actions
+                }))
+                .unwrap_or_else(|_| "{}".to_string()),
+            ),
+            (Err(err), _, _) | (_, Err(err), _) | (_, _, Err(err)) => http_respond_json(
                 request,
                 500,
                 serde_json::json!({ "error": err }).to_string(),
