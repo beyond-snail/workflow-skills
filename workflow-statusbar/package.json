@@ -8,6 +8,7 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
+    "kb:mcp": "node scripts/kb-mcp-server.mjs",
     "package:current": "tauri build",
     "package:mac": "tauri build --bundles app,dmg",
     "package:mac:local": "bash ./scripts/package-local-mac.sh",
