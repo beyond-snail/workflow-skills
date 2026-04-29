@@ -2001,7 +2001,7 @@
     }
 
     .starter-input-card {
-      grid-template-rows: auto auto auto auto auto minmax(112px, 1fr);
+      grid-template-rows: auto minmax(92px, .24fr) auto auto minmax(0, 1fr);
     }
 
     .starter-output-card {
@@ -2212,6 +2212,42 @@
       color: #48607c;
       font-size: 11px;
       line-height: 1.5;
+    }
+
+    .starter-work-meta {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      gap: 8px;
+      align-items: center;
+      min-width: 0;
+    }
+
+    .starter-work-meta .assistant-help {
+      padding: 5px 8px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .starter-history-panel {
+      min-height: 0;
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      gap: 7px;
+      border-top: 1px solid var(--line);
+      padding-top: 9px;
+    }
+
+    .starter-history-head h3 {
+      margin: 0;
+      font-size: 14px;
+    }
+
+    .starter-history-head p {
+      margin: 4px 0 0;
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.4;
     }
 
     .retro-suggestions::-webkit-scrollbar {
@@ -2947,6 +2983,8 @@
       .project-actions button { flex: 1 1 140px; }
       .summary-item { grid-template-columns: 1fr; gap: 6px; }
       .assistant-status { grid-template-columns: 1fr 1fr; }
+      .starter-work-meta { grid-template-columns: 1fr; }
+      .starter-work-meta .assistant-help { white-space: normal; }
       .portfolio-strip { grid-template-columns: 1fr; }
       .portfolio-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .detail-hero-top { align-items: flex-start; }
@@ -3175,17 +3213,21 @@
             <button class="action" id="starterCopyBtn" type="button">复制开工包</button>
             <button class="action" id="starterClearBtn" type="button">清空</button>
           </div>
-          <div class="assistant-status">
-            <div class="starter-metric"><b id="starterInputType">-</b><span>输入类型</span></div>
-            <div class="starter-metric"><b id="starterEvidenceCount">0</b><span>证据数</span></div>
-            <div class="starter-metric"><b id="starterSessionLabel">-</b><span>会话</span></div>
+          <div class="starter-work-meta">
+            <div class="assistant-status">
+              <div class="starter-metric"><b id="starterInputType">-</b><span>输入类型</span></div>
+              <div class="starter-metric"><b id="starterEvidenceCount">0</b><span>证据数</span></div>
+              <div class="starter-metric"><b id="starterSessionLabel">-</b><span>会话</span></div>
+            </div>
+            <div class="assistant-help" id="starterTip">先写一句自然语言目标就够了；编号只是可选快捷方式。</div>
           </div>
-          <div class="assistant-help" id="starterTip">先写一句自然语言目标就够了；编号只是可选快捷方式。</div>
-          <div class="prompt-head">
-            <h3>历史开工包</h3>
-            <p id="starterHistoryMeta">正在加载历史...</p>
+          <div class="starter-history-panel">
+            <div class="starter-history-head">
+              <h3>历史开工包</h3>
+              <p id="starterHistoryMeta">正在加载历史...</p>
+            </div>
+            <div class="starter-history" id="starterHistory"></div>
           </div>
-          <div class="starter-history" id="starterHistory"></div>
         </article>
 
         <aside class="card starter-output-card">
