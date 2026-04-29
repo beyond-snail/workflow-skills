@@ -17,7 +17,7 @@ use std::{
 use tauri::ActivationPolicy;
 use tauri::{
     menu::{Menu, MenuItem},
-    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    tray::{MouseButton, TrayIconBuilder, TrayIconEvent},
     Emitter, Manager, PhysicalPosition, Position, Rect, Size, WebviewWindow,
 };
 use tauri_plugin_notification::NotificationExt;
@@ -29,6 +29,7 @@ const AUTO_RESUME_COOLDOWN_SECONDS: i64 = 90;
 const OTHER_HOST_SUMMARY_FRESH_WINDOW_SECONDS: i64 = 2 * 60 * 60;
 const POLL_INTERVAL_SECONDS: u64 = 8;
 const TRAY_HIDE_DELAY_MS: u64 = 260;
+const MAIN_WINDOW_SHOW_GRACE_MS: u64 = 900;
 const ALERT_HTTP_TIMEOUT_CONNECT_MS: u64 = 2_000;
 const ALERT_HTTP_TIMEOUT_READ_MS: u64 = 4_000;
 const ALERT_HTTP_TIMEOUT_WRITE_MS: u64 = 4_000;
@@ -708,11 +709,14 @@ struct KbProjectHealthDetailResponse {
 #[allow(dead_code)]
 struct KbProjectActionItem {
     project_id: String,
+    action_type: String,
     title: String,
     priority: String,
     reason: String,
     suggested_action: String,
     route_hint: String,
+    starter_input: String,
+    status: String,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -1200,6 +1204,11 @@ fn knowledgebase_push_state() -> &'static Mutex<KnowledgebasePushStateRaw> {
 fn knowledgebase_web_server_state() -> &'static OnceLock<Result<(), String>> {
     static STATE: OnceLock<Result<(), String>> = OnceLock::new();
     &STATE
+}
+
+fn main_window_last_shown_at() -> &'static Mutex<Option<Instant>> {
+    static STATE: OnceLock<Mutex<Option<Instant>>> = OnceLock::new();
+    STATE.get_or_init(|| Mutex::new(None))
 }
 
 fn path_matches(project_path: &str, candidate_path: &str) -> bool {
@@ -3777,6 +3786,20 @@ fn ensure_knowledgebase_schema_migration(conn: &Connection) -> Result<(), String
           actions_json TEXT NOT NULL DEFAULT '[]',
           generated_at TEXT DEFAULT CURRENT_TIMESTAMP
         );
+        CREATE TABLE IF NOT EXISTS project_action_items (
+          id TEXT PRIMARY KEY,
+          project_id TEXT NOT NULL,
+          action_type TEXT NOT NULL,
+          title TEXT NOT NULL,
+          priority TEXT NOT NULL DEFAULT 'P1',
+          reason TEXT NOT NULL DEFAULT '',
+          suggested_action TEXT NOT NULL DEFAULT '',
+          route_hint TEXT NOT NULL DEFAULT 'health',
+          starter_input TEXT NOT NULL DEFAULT '',
+          status TEXT NOT NULL DEFAULT 'open',
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
         CREATE INDEX IF NOT EXISTS idx_prompt_templates_status ON prompt_templates(status, category);
         CREATE INDEX IF NOT EXISTS idx_prompt_sources_template ON prompt_template_sources(template_id);
         CREATE INDEX IF NOT EXISTS idx_knowledge_units_status ON knowledge_units(status, unit_type, category);
@@ -3791,6 +3814,7 @@ fn ensure_knowledgebase_schema_migration(conn: &Connection) -> Result<(), String
         CREATE INDEX IF NOT EXISTS idx_api_call_logs_created ON api_call_logs(created_at DESC);
         CREATE INDEX IF NOT EXISTS idx_api_call_logs_client_tool ON api_call_logs(client_id, tool_name, created_at DESC);
         CREATE INDEX IF NOT EXISTS idx_project_health_snapshots_score ON project_health_snapshots(health_score, risk_count);
+        CREATE INDEX IF NOT EXISTS idx_project_action_items_project ON project_action_items(project_id, status, priority);
         "#,
     )
     .map_err(|err| err.to_string())?;
@@ -3833,13 +3857,25 @@ fn compact_text_chars(value: &str, limit: usize) -> String {
 
 fn infer_prompt_category(text: &str) -> &'static str {
     let lower = text.to_ascii_lowercase();
-    if text.contains("UI") || text.contains("界面") || text.contains("原型") || text.contains("视觉") {
+    if text.contains("UI")
+        || text.contains("界面")
+        || text.contains("原型")
+        || text.contains("视觉")
+    {
         "UI 设计"
     } else if text.contains("测试") || text.contains("验收") || text.contains("验证") {
         "测试验收"
-    } else if text.contains("workflow") || text.contains("需求池") || text.contains("任务看板") || text.contains("治理") {
+    } else if text.contains("workflow")
+        || text.contains("需求池")
+        || text.contains("任务看板")
+        || text.contains("治理")
+    {
         "工作流治理"
-    } else if text.contains("修复") || text.contains("根因") || text.contains("问题定位") || lower.contains("bug") {
+    } else if text.contains("修复")
+        || text.contains("根因")
+        || text.contains("问题定位")
+        || lower.contains("bug")
+    {
         "问题修复"
     } else if text.contains("审查") || text.contains("review") || text.contains("风险") {
         "代码审查"
@@ -4835,8 +4871,15 @@ fn conversation_text_noise_score(text: &str) -> i32 {
     if trimmed.is_empty() {
         return 100;
     }
-    let ascii_len = trimmed.chars().filter(|ch| ch.is_ascii_alphanumeric()).count();
-    let non_space_len = trimmed.chars().filter(|ch| !ch.is_whitespace()).count().max(1);
+    let ascii_len = trimmed
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric())
+        .count();
+    let non_space_len = trimmed
+        .chars()
+        .filter(|ch| !ch.is_whitespace())
+        .count()
+        .max(1);
     let punctuation_len = trimmed
         .chars()
         .filter(|ch| "{}[]<>|\\;".contains(*ch))
@@ -5033,7 +5076,11 @@ fn extract_messages_from_jsonl(raw: &str) -> Option<String> {
         }
         if matches!(
             body_type,
-            "function_call" | "function_call_output" | "exec_command" | "token_count" | "task_started"
+            "function_call"
+                | "function_call_output"
+                | "exec_command"
+                | "token_count"
+                | "task_started"
         ) {
             continue;
         }
@@ -5063,8 +5110,18 @@ fn extract_messages_from_jsonl(raw: &str) -> Option<String> {
                     .and_then(|item| item.as_str())
                     .map(str::to_string)
             })
-            .or_else(|| payload_body.get("text").and_then(|item| item.as_str()).map(str::to_string))
-            .or_else(|| payload.get("text").and_then(|item| item.as_str()).map(str::to_string))
+            .or_else(|| {
+                payload_body
+                    .get("text")
+                    .and_then(|item| item.as_str())
+                    .map(str::to_string)
+            })
+            .or_else(|| {
+                payload
+                    .get("text")
+                    .and_then(|item| item.as_str())
+                    .map(str::to_string)
+            })
             .unwrap_or_default();
 
         if role == "unknown" && payload_type == "event_msg" {
@@ -5085,7 +5142,12 @@ fn extract_messages_from_jsonl(raw: &str) -> Option<String> {
                     .get("content")
                     .map(collect_text_from_content_value)
                     .filter(|item| !item.trim().is_empty())
-                    .or_else(|| message.get("text").and_then(|item| item.as_str()).map(str::to_string))
+                    .or_else(|| {
+                        message
+                            .get("text")
+                            .and_then(|item| item.as_str())
+                            .map(str::to_string)
+                    })
                     .unwrap_or_default();
             }
         }
@@ -5137,7 +5199,11 @@ fn file_modified_unix(path: &Path) -> i64 {
 
 fn format_sqlite_time_from_unix(ts: i64) -> String {
     chrono::DateTime::from_timestamp(ts, 0)
-        .map(|dt| dt.with_timezone(&Utc).format("%Y-%m-%d %H:%M:%S").to_string())
+        .map(|dt| {
+            dt.with_timezone(&Utc)
+                .format("%Y-%m-%d %H:%M:%S")
+                .to_string()
+        })
         .unwrap_or_default()
 }
 
@@ -5519,8 +5585,10 @@ fn kb_detect_project_capabilities(project_root: &Path) -> (bool, bool, bool, boo
     }
     let has_memory_dir = any_dir_exists(project_root, &[".ai/memory"]);
     let has_workflow_docs = any_dir_exists(project_root, &["docs/workflow"]);
-    let has_inbox_dir =
-        any_dir_exists(project_root, &["knowledge-store/inbox", ".ai/runtime/inbox"]);
+    let has_inbox_dir = any_dir_exists(
+        project_root,
+        &["knowledge-store/inbox", ".ai/runtime/inbox"],
+    );
     let has_conversation_dir = any_dir_exists(
         project_root,
         &[
@@ -5694,13 +5762,8 @@ fn kb_list_projects_internal() -> Result<Vec<KbProjectStatus>, String> {
     for row in rows {
         let mut item = row.map_err(|err| err.to_string())?;
         let root = PathBuf::from(&item.root_path);
-        let (
-            path_exists,
-            has_memory_dir,
-            has_workflow_docs,
-            has_inbox_dir,
-            has_conversation_dir,
-        ) = kb_detect_project_capabilities(&root);
+        let (path_exists, has_memory_dir, has_workflow_docs, has_inbox_dir, has_conversation_dir) =
+            kb_detect_project_capabilities(&root);
         let (sync_status, sync_reason, next_action) = kb_project_sync_diagnosis(
             item.item_count,
             item.document_count,
@@ -5983,7 +6046,9 @@ fn kb_item_detail_internal(item_id: &str) -> Result<KbItemDetailResponse, String
     Ok(KbItemDetailResponse { item })
 }
 
-fn kb_prompt_templates_internal(status: Option<&str>) -> Result<KbPromptTemplateListResponse, String> {
+fn kb_prompt_templates_internal(
+    status: Option<&str>,
+) -> Result<KbPromptTemplateListResponse, String> {
     let conn = connect_knowledgebase()?;
     let mut templates = Vec::new();
     let status_filter = status.map(str::trim).filter(|item| !item.is_empty());
@@ -6387,10 +6452,16 @@ fn kb_health_suggested_action(asset_type: &str, score: i64, reasons: &[String]) 
     if reasons.iter().any(|item| item.contains("来源证据")) {
         return "补充来源证据或重新采集关联文档".into();
     }
-    if reasons.iter().any(|item| item.contains("示例") || item.contains("输出格式")) {
+    if reasons
+        .iter()
+        .any(|item| item.contains("示例") || item.contains("输出格式"))
+    {
         return "补齐变量、示例输入和输出格式".into();
     }
-    if reasons.iter().any(|item| item.contains("候选") || item.contains("噪音")) {
+    if reasons
+        .iter()
+        .any(|item| item.contains("候选") || item.contains("噪音"))
+    {
         return "人工审核候选，明确进入精修、以后再看或标记噪音".into();
     }
     if asset_type == "project" {
@@ -6407,7 +6478,9 @@ fn kb_health_summary(assets: &[KbHealthAsset], projects: &[KbHealthProject]) -> 
         attention_assets: assets.iter().filter(|item| item.score < 80).count() as i64,
         noise_candidates: assets
             .iter()
-            .filter(|item| item.status == "noise" || item.reasons.iter().any(|reason| reason.contains("噪音")))
+            .filter(|item| {
+                item.status == "noise" || item.reasons.iter().any(|reason| reason.contains("噪音"))
+            })
             .count() as i64,
         total_projects: projects.len() as i64,
         healthy_projects: projects.iter().filter(|item| item.score >= 80).count() as i64,
@@ -6532,7 +6605,11 @@ fn kb_health_assets_internal() -> Result<KbHealthAssetsResponse, String> {
     for row in rows {
         assets.push(row.map_err(|err| err.to_string())?);
     }
-    assets.sort_by(|left, right| left.score.cmp(&right.score).then_with(|| right.updated_at.cmp(&left.updated_at)));
+    assets.sort_by(|left, right| {
+        left.score
+            .cmp(&right.score)
+            .then_with(|| right.updated_at.cmp(&left.updated_at))
+    });
     let summary = kb_health_summary(&assets, &[]);
     Ok(KbHealthAssetsResponse { summary, assets })
 }
@@ -6604,7 +6681,11 @@ fn kb_health_projects_internal() -> Result<KbHealthProjectsResponse, String> {
             }
         })
         .collect::<Vec<_>>();
-    projects.sort_by(|left, right| left.score.cmp(&right.score).then_with(|| right.last_item_at.cmp(&left.last_item_at)));
+    projects.sort_by(|left, right| {
+        left.score
+            .cmp(&right.score)
+            .then_with(|| right.last_item_at.cmp(&left.last_item_at))
+    });
     let summary = kb_health_summary(&[], &projects);
     Ok(KbHealthProjectsResponse { summary, projects })
 }
@@ -6678,26 +6759,29 @@ fn kb_percent(hit_count: i64, total: i64) -> i64 {
     }
 }
 
-fn kb_project_snapshot_actions(risks: &[String]) -> Vec<String> {
-    risks
+fn kb_project_snapshot_actions(snapshot_name: &str, risks: &[String]) -> Vec<String> {
+    let mut actions = Vec::new();
+    if risks
         .iter()
-        .take(4)
-        .map(|risk| {
-            if risk.contains("路径") {
-                "检查项目路径并重新采集".to_string()
-            } else if risk.contains("测试") {
-                "补充测试记录或验收材料".to_string()
-            } else if risk.contains("复盘") {
-                "使用复盘助手生成项目复盘".to_string()
-            } else if risk.contains("模板") {
-                "从项目证据中沉淀提示词模板".to_string()
-            } else if risk.contains("会话") {
-                "补采集 AI 会话或对话记录".to_string()
-            } else {
-                "补齐项目知识证据".to_string()
-            }
-        })
-        .collect()
+        .any(|risk| risk.contains("路径") || risk.contains("文档") || risk.contains("会话"))
+    {
+        actions.push("补采集项目文档、memory 和 AI 会话".to_string());
+    }
+    if risks.iter().any(|risk| risk.contains("测试")) {
+        actions.push("补充测试记录或验收材料".to_string());
+    }
+    if risks.iter().any(|risk| risk.contains("复盘")) {
+        actions.push("使用复盘助手生成项目复盘".to_string());
+    }
+    if risks.iter().any(|risk| risk.contains("模板")) {
+        actions.push("从项目证据中沉淀提示词模板".to_string());
+    }
+    if risks.len() >= 4 {
+        actions.push("清理低价值候选和噪音片段".to_string());
+    }
+    actions.push(format!("为 {snapshot_name} 生成下一轮开工包"));
+    actions.truncate(6);
+    actions
 }
 
 fn kb_build_project_health_snapshot(
@@ -6749,8 +6833,10 @@ fn kb_build_project_health_snapshot(
     } else {
         0
     };
-    let health_score = ((base_score + collection_coverage + evidence_completeness + template_score) / 4).clamp(0, 100);
-    let suggested_actions = kb_project_snapshot_actions(&risks);
+    let health_score =
+        ((base_score + collection_coverage + evidence_completeness + template_score) / 4)
+            .clamp(0, 100);
+    let suggested_actions = kb_project_snapshot_actions(&project.name, &risks);
     KbProjectHealthSnapshot {
         project_id: project.project_id,
         name: project.name,
@@ -6886,8 +6972,14 @@ fn kb_projects_overview_summary(
     let total_score: i64 = snapshots.iter().map(|item| item.health_score).sum();
     KbProjectsOverviewSummary {
         total_projects,
-        healthy_projects: snapshots.iter().filter(|item| item.health_score >= 80).count() as i64,
-        attention_projects: snapshots.iter().filter(|item| item.health_score < 80).count() as i64,
+        healthy_projects: snapshots
+            .iter()
+            .filter(|item| item.health_score >= 80)
+            .count() as i64,
+        attention_projects: snapshots
+            .iter()
+            .filter(|item| item.health_score < 80)
+            .count() as i64,
         total_risks: snapshots.iter().map(|item| item.risk_count).sum(),
         total_actions: snapshots.iter().map(|item| item.action_count).sum(),
         average_score: if total_projects == 0 {
@@ -6949,45 +7041,111 @@ fn kb_project_health_detail_internal(
     })
 }
 
-fn kb_project_action_route_hint(action: &str) -> String {
-    if action.contains("复盘") {
-        "retro".into()
-    } else if action.contains("测试") {
-        "search".into()
+fn kb_project_action_type_and_route(action: &str) -> (String, String) {
+    if action.contains("采集") || action.contains("会话") || action.contains("文档") {
+        ("collect".into(), "collect".into())
+    } else if action.contains("测试") || action.contains("验收") {
+        ("verify".into(), "search".into())
+    } else if action.contains("复盘") {
+        ("retro".into(), "retro".into())
+    } else if action.contains("噪音") || action.contains("候选") {
+        ("cleanup".into(), "prompt".into())
+    } else if action.contains("开工包") {
+        ("starter".into(), "starter".into())
     } else if action.contains("模板") {
-        "prompt".into()
-    } else if action.contains("采集") {
-        "collect".into()
+        ("template".into(), "prompt".into())
     } else {
-        "health".into()
+        ("health".into(), "health".into())
     }
 }
 
-fn kb_project_actions_internal(project_id: &str) -> Result<KbProjectActionsResponse, String> {
-    let snapshot = kb_project_snapshot_by_id(project_id)?;
-    let actions = snapshot
+fn kb_project_action_items_for_snapshot(
+    snapshot: &KbProjectHealthSnapshot,
+) -> Vec<KbProjectActionItem> {
+    snapshot
         .suggested_actions
         .iter()
         .enumerate()
-        .map(|(index, action)| KbProjectActionItem {
-            project_id: snapshot.project_id.clone(),
-            title: action.clone(),
-            priority: if snapshot.health_score < 50 || index == 0 {
-                "P0".into()
-            } else {
-                "P1".into()
-            },
-            reason: snapshot.risks.get(index).cloned().unwrap_or_else(|| {
+        .map(|(index, action)| {
+            let (action_type, route_hint) = kb_project_action_type_and_route(action);
+            let reason = snapshot.risks.get(index).cloned().unwrap_or_else(|| {
                 snapshot
                     .risks
                     .first()
                     .cloned()
                     .unwrap_or_else(|| "项目知识健康度需要维护".into())
-            }),
-            suggested_action: action.clone(),
-            route_hint: kb_project_action_route_hint(action),
+            });
+            KbProjectActionItem {
+                project_id: snapshot.project_id.clone(),
+                action_type,
+                title: action.clone(),
+                priority: if snapshot.health_score < 50 || index == 0 {
+                    "P0".into()
+                } else {
+                    "P1".into()
+                },
+                reason,
+                suggested_action: action.clone(),
+                route_hint,
+                starter_input: format!(
+                    "基于项目 {} 生成开工包。风险：{}",
+                    snapshot.name,
+                    snapshot.risks.first().cloned().unwrap_or_default()
+                ),
+                status: "open".into(),
+            }
         })
-        .collect::<Vec<_>>();
+        .collect()
+}
+
+fn kb_upsert_project_action_items(
+    conn: &Connection,
+    actions: &[KbProjectActionItem],
+) -> Result<(), String> {
+    for action in actions {
+        let id = format!(
+            "project-action-{}-{}",
+            action.project_id,
+            fnv1a64_hex(&format!("{}:{}", action.action_type, action.title))
+        );
+        conn.execute(
+            r#"
+            INSERT INTO project_action_items(
+              id, project_id, action_type, title, priority, reason,
+              suggested_action, route_hint, starter_input, status, updated_at
+            ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, CURRENT_TIMESTAMP)
+            ON CONFLICT(id) DO UPDATE SET
+              priority=excluded.priority,
+              reason=excluded.reason,
+              suggested_action=excluded.suggested_action,
+              route_hint=excluded.route_hint,
+              starter_input=excluded.starter_input,
+              status=excluded.status,
+              updated_at=CURRENT_TIMESTAMP
+            "#,
+            params![
+                id,
+                action.project_id,
+                action.action_type,
+                action.title,
+                action.priority,
+                action.reason,
+                action.suggested_action,
+                action.route_hint,
+                action.starter_input,
+                action.status,
+            ],
+        )
+        .map_err(|err| err.to_string())?;
+    }
+    Ok(())
+}
+
+fn kb_project_actions_internal(project_id: &str) -> Result<KbProjectActionsResponse, String> {
+    let snapshot = kb_project_snapshot_by_id(project_id)?;
+    let conn = connect_knowledgebase()?;
+    let actions = kb_project_action_items_for_snapshot(&snapshot);
+    kb_upsert_project_action_items(&conn, &actions)?;
     Ok(KbProjectActionsResponse {
         project_id: snapshot.project_id,
         name: snapshot.name,
@@ -7024,14 +7182,22 @@ fn kb_health_actions_internal() -> Result<KbHealthActionsResponse, String> {
             target_id: asset.asset_id.clone(),
             title: asset.title.clone(),
             score: asset.score,
-            priority: if asset.score < 50 { "P0".into() } else { "P1".into() },
+            priority: if asset.score < 50 {
+                "P0".into()
+            } else {
+                "P1".into()
+            },
             reason: asset.reasons.first().cloned().unwrap_or_default(),
             suggested_action: asset.suggested_action.clone(),
             primary_route: "prompt".into(),
             evidence_item_id,
             search_query: asset.title.clone(),
             graph_query: asset.category.clone(),
-            starter_input: format!("整理健康度模板：{}。问题：{}", asset.title, asset.reasons.first().cloned().unwrap_or_default()),
+            starter_input: format!(
+                "整理健康度模板：{}。问题：{}",
+                asset.title,
+                asset.reasons.first().cloned().unwrap_or_default()
+            ),
         });
     }
     for project in projects.iter().filter(|item| item.score < 80).take(5) {
@@ -7040,14 +7206,22 @@ fn kb_health_actions_internal() -> Result<KbHealthActionsResponse, String> {
             target_id: project.project_id.clone(),
             title: project.name.clone(),
             score: project.score,
-            priority: if project.score < 50 { "P0".into() } else { "P1".into() },
+            priority: if project.score < 50 {
+                "P0".into()
+            } else {
+                "P1".into()
+            },
             reason: project.reasons.first().cloned().unwrap_or_default(),
             suggested_action: project.suggested_action.clone(),
             primary_route: "project".into(),
             evidence_item_id: String::new(),
             search_query: project.name.clone(),
             graph_query: project.name.clone(),
-            starter_input: format!("整理项目知识健康度：{}。问题：{}", project.name, project.reasons.first().cloned().unwrap_or_default()),
+            starter_input: format!(
+                "整理项目知识健康度：{}。问题：{}",
+                project.name,
+                project.reasons.first().cloned().unwrap_or_default()
+            ),
         });
     }
     actions.sort_by(|left, right| left.score.cmp(&right.score));
@@ -7085,7 +7259,11 @@ fn kb_task_starter_like_pattern(input: &str, req_id: &str, task_id: &str) -> Str
     } else if !req_id.is_empty() {
         format!("%{}%", req_id)
     } else {
-        let compact = input.split_whitespace().take(8).collect::<Vec<_>>().join(" ");
+        let compact = input
+            .split_whitespace()
+            .take(8)
+            .collect::<Vec<_>>()
+            .join(" ");
         format!("%{}%", compact.trim())
     }
 }
@@ -7107,7 +7285,10 @@ fn kb_task_starter_push_unique(
     if items.len() >= limit {
         return;
     }
-    let key = format!("{}:{}:{}", item.evidence_type, item.source_table, item.source_id);
+    let key = format!(
+        "{}:{}:{}",
+        item.evidence_type, item.source_table, item.source_id
+    );
     if seen.insert(key) {
         items.push(item);
     }
@@ -7341,19 +7522,19 @@ fn kb_task_starter_collect_templates(
                 limit as i64
             ],
             |row| {
-            let status = row.get::<_, String>(3).unwrap_or_default();
-            let quality_score = row.get::<_, i64>(4).unwrap_or(60) as f64;
-            let relevance = row.get::<_, i64>(5).unwrap_or(0) as f64;
-            Ok(KbTaskStarterEvidenceItem {
-                evidence_type: "template".into(),
-                source_table: "prompt_templates".into(),
-                source_id: row.get::<_, String>(0)?,
-                title: row.get::<_, String>(1)?,
-                excerpt: compact_text_chars(&row.get::<_, String>(2).unwrap_or_default(), 180),
-                score: 80.0 + relevance + quality_score / 5.0,
-                reason: format!("按状态、质量和任务相关性排序；当前状态为 {status}"),
-                source_path: String::new(),
-            })
+                let status = row.get::<_, String>(3).unwrap_or_default();
+                let quality_score = row.get::<_, i64>(4).unwrap_or(60) as f64;
+                let relevance = row.get::<_, i64>(5).unwrap_or(0) as f64;
+                Ok(KbTaskStarterEvidenceItem {
+                    evidence_type: "template".into(),
+                    source_table: "prompt_templates".into(),
+                    source_id: row.get::<_, String>(0)?,
+                    title: row.get::<_, String>(1)?,
+                    excerpt: compact_text_chars(&row.get::<_, String>(2).unwrap_or_default(), 180),
+                    score: 80.0 + relevance + quality_score / 5.0,
+                    reason: format!("按状态、质量和任务相关性排序；当前状态为 {status}"),
+                    source_path: String::new(),
+                })
             },
         )
         .map_err(|err| err.to_string())?;
@@ -7673,10 +7854,7 @@ fn kb_task_starter_load_evidence(
     Ok(evidence)
 }
 
-fn kb_task_starter_markdown_section(
-    title: &str,
-    items: &[KbTaskStarterEvidenceItem],
-) -> String {
+fn kb_task_starter_markdown_section(title: &str, items: &[KbTaskStarterEvidenceItem]) -> String {
     if items.is_empty() {
         return format!("## {title}\n\n- 暂无命中，建议先采集项目或换一组关键词。\n");
     }
@@ -7726,19 +7904,36 @@ fn kb_task_starter_build_markdown(
     let mut out = String::new();
     out.push_str("# 任务开工上下文包\n\n");
     out.push_str("## 任务目标\n\n");
-    out.push_str(&format!("- 输入类型：`{input_type}`\n- 开工目标：{target}\n"));
+    out.push_str(&format!(
+        "- 输入类型：`{input_type}`\n- 开工目标：{target}\n"
+    ));
     out.push_str("\n## 边界约束\n\n");
     out.push_str("- 先检索历史、再分析和改动。\n- 仅修改任务明确范围，跨边界需要先确认。\n- 改动后必须完成编译、关键自测、治理材料和 memory 回写。\n");
     out.push('\n');
-    out.push_str(&kb_task_starter_markdown_section("历史相似任务", &sections.similar_tasks));
+    out.push_str(&kb_task_starter_markdown_section(
+        "历史相似任务",
+        &sections.similar_tasks,
+    ));
     out.push('\n');
-    out.push_str(&kb_task_starter_markdown_section("相关风险", &sections.risks));
+    out.push_str(&kb_task_starter_markdown_section(
+        "相关风险",
+        &sections.risks,
+    ));
     out.push('\n');
-    out.push_str(&kb_task_starter_markdown_section("推荐提示词模板", &sections.templates));
+    out.push_str(&kb_task_starter_markdown_section(
+        "推荐提示词模板",
+        &sections.templates,
+    ));
     out.push('\n');
-    out.push_str(&kb_task_starter_markdown_section("建议读取文件", &sections.suggested_files));
+    out.push_str(&kb_task_starter_markdown_section(
+        "建议读取文件",
+        &sections.suggested_files,
+    ));
     out.push('\n');
-    out.push_str(&kb_task_starter_markdown_section("建议验证命令", &sections.verify_commands));
+    out.push_str(&kb_task_starter_markdown_section(
+        "建议验证命令",
+        &sections.verify_commands,
+    ));
     out.push_str("\n## 证据来源\n\n");
     for item in evidence.iter().take(24) {
         out.push_str(&format!(
@@ -7840,8 +8035,16 @@ fn kb_retro_build_sections(sections: &KbTaskStarterSections) -> KbRetroSections 
     }
 }
 
-fn kb_retro_build_suggestions(sections: &KbRetroSections, req_id: &str, task_id: &str) -> Vec<KbRetroSuggestionItem> {
-    let target_id = if !task_id.trim().is_empty() { task_id } else { req_id };
+fn kb_retro_build_suggestions(
+    sections: &KbRetroSections,
+    req_id: &str,
+    task_id: &str,
+) -> Vec<KbRetroSuggestionItem> {
+    let target_id = if !task_id.trim().is_empty() {
+        task_id
+    } else {
+        req_id
+    };
     let mut suggestions = Vec::new();
     suggestions.push(KbRetroSuggestionItem {
         suggestion_id: String::new(),
@@ -7860,7 +8063,9 @@ fn kb_retro_build_suggestions(sections: &KbRetroSections, req_id: &str, task_id:
         target_id: target_id.into(),
         title: "沉淀项目知识结论".into(),
         rationale: "将复盘结论转为后续搜索和开工助手可召回的项目知识。".into(),
-        payload_json: serde_json::json!({ "req_id": req_id, "task_id": task_id, "source": "retro" }).to_string(),
+        payload_json:
+            serde_json::json!({ "req_id": req_id, "task_id": task_id, "source": "retro" })
+                .to_string(),
         status: "pending".into(),
     });
     suggestions.push(KbRetroSuggestionItem {
@@ -7870,7 +8075,9 @@ fn kb_retro_build_suggestions(sections: &KbRetroSections, req_id: &str, task_id:
         target_id: target_id.into(),
         title: "评估是否沉淀为提示词模板".into(),
         rationale: "若本轮复盘形成了稳定做法，可转为候选模板，后续人工精修。".into(),
-        payload_json: serde_json::json!({ "req_id": req_id, "task_id": task_id, "source": "retro" }).to_string(),
+        payload_json:
+            serde_json::json!({ "req_id": req_id, "task_id": task_id, "source": "retro" })
+                .to_string(),
         status: "pending".into(),
     });
     if let Some(item) = sections.verification.first() {
@@ -7881,7 +8088,8 @@ fn kb_retro_build_suggestions(sections: &KbRetroSections, req_id: &str, task_id:
             target_id: item.source_id.clone(),
             title: "沉淀验证命令".into(),
             rationale: item.reason.clone(),
-            payload_json: serde_json::json!({ "title": item.title, "excerpt": item.excerpt }).to_string(),
+            payload_json: serde_json::json!({ "title": item.title, "excerpt": item.excerpt })
+                .to_string(),
             status: "pending".into(),
         });
     }
@@ -7893,7 +8101,8 @@ fn kb_retro_build_suggestions(sections: &KbRetroSections, req_id: &str, task_id:
             target_id: item.source_id.clone(),
             title: "沉淀风险规则".into(),
             rationale: item.reason.clone(),
-            payload_json: serde_json::json!({ "title": item.title, "excerpt": item.excerpt }).to_string(),
+            payload_json: serde_json::json!({ "title": item.title, "excerpt": item.excerpt })
+                .to_string(),
             status: "pending".into(),
         });
     }
@@ -7927,10 +8136,13 @@ fn kb_retro_evaluate_starter(
             score: 0,
             summary: "未找到关联开工包，无法评估开工召回质量。".into(),
             missing_info: vec!["缺少可关联的开工包会话".into()],
-            optimization_items: vec!["下次从开工助手进入任务，或在复盘时显式传入 starter_session_id。".into()],
+            optimization_items: vec![
+                "下次从开工助手进入任务，或在复盘时显式传入 starter_session_id。".into(),
+            ],
         };
     }
-    let starter_evidence = kb_task_starter_load_evidence(conn, starter_session_id).unwrap_or_default();
+    let starter_evidence =
+        kb_task_starter_load_evidence(conn, starter_session_id).unwrap_or_default();
     let retro_ids = sections
         .changes
         .iter()
@@ -7939,15 +8151,25 @@ fn kb_retro_evaluate_starter(
         .chain(sections.context.iter())
         .filter_map(|item| {
             let id = item.source_id.trim();
-            if id.is_empty() { None } else { Some(id.to_string()) }
+            if id.is_empty() {
+                None
+            } else {
+                Some(id.to_string())
+            }
         })
         .collect::<HashSet<_>>();
     let overlap = starter_evidence
         .iter()
-        .filter(|item| !item.source_id.trim().is_empty() && retro_ids.contains(item.source_id.trim()))
+        .filter(|item| {
+            !item.source_id.trim().is_empty() && retro_ids.contains(item.source_id.trim())
+        })
         .count() as i64;
-    let has_starter_verify = starter_evidence.iter().any(|item| item.evidence_type == "verify");
-    let has_starter_risk = starter_evidence.iter().any(|item| item.evidence_type == "risk");
+    let has_starter_verify = starter_evidence
+        .iter()
+        .any(|item| item.evidence_type == "verify");
+    let has_starter_risk = starter_evidence
+        .iter()
+        .any(|item| item.evidence_type == "risk");
     let mut score = 45 + overlap * 12;
     if has_starter_verify {
         score += 15;
@@ -7959,7 +8181,8 @@ fn kb_retro_evaluate_starter(
     let mut optimization_items = Vec::new();
     if !has_starter_verify && !sections.verification.is_empty() {
         missing_info.push("开工包未提前召回验证命令或测试记录".into());
-        optimization_items.push("增强开工助手对 testing 文档、验证命令和 smoke 记录的召回权重。".into());
+        optimization_items
+            .push("增强开工助手对 testing 文档、验证命令和 smoke 记录的召回权重。".into());
     }
     if !has_starter_risk && !sections.risks.is_empty() {
         missing_info.push("开工包未提前召回风险或遗留问题".into());
@@ -7980,7 +8203,9 @@ fn kb_retro_evaluate_starter(
         linked: true,
         starter_session_id: starter_session_id.into(),
         score,
-        summary: format!("关联开工包 {starter_session_id}；证据重合 {overlap} 条，召回质量评分 {score}/100。"),
+        summary: format!(
+            "关联开工包 {starter_session_id}；证据重合 {overlap} 条，召回质量评分 {score}/100。"
+        ),
         missing_info,
         optimization_items,
     }
@@ -7995,21 +8220,41 @@ fn kb_retro_build_markdown(
     suggestions: &[KbRetroSuggestionItem],
     starter_evaluation: &KbRetroStarterEvaluation,
 ) -> String {
-    let target = if !task_id.trim().is_empty() { task_id } else if !req_id.trim().is_empty() { req_id } else { input_text };
+    let target = if !task_id.trim().is_empty() {
+        task_id
+    } else if !req_id.trim().is_empty() {
+        req_id
+    } else {
+        input_text
+    };
     let mut out = String::new();
     out.push_str("# 任务复盘草稿\n\n");
-    out.push_str(&format!("- 输入类型：`{input_type}`\n- 复盘对象：{target}\n"));
+    out.push_str(&format!(
+        "- 输入类型：`{input_type}`\n- 复盘对象：{target}\n"
+    ));
     out.push_str("\n## 本轮结论\n\n- 请根据最终提交、验证结果和遗留风险补齐一句话结论。\n\n");
-    out.push_str(&kb_retro_markdown_section("关键改动与上下文", &sections.changes));
+    out.push_str(&kb_retro_markdown_section(
+        "关键改动与上下文",
+        &sections.changes,
+    ));
     out.push('\n');
-    out.push_str(&kb_retro_markdown_section("验证证据", &sections.verification));
+    out.push_str(&kb_retro_markdown_section(
+        "验证证据",
+        &sections.verification,
+    ));
     out.push('\n');
-    out.push_str(&kb_retro_markdown_section("风险与遗留问题", &sections.risks));
+    out.push_str(&kb_retro_markdown_section(
+        "风险与遗留问题",
+        &sections.risks,
+    ));
     out.push('\n');
     out.push_str(&kb_retro_markdown_section("关联上下文", &sections.context));
     out.push_str("\n## 沉淀建议\n\n");
     for item in suggestions {
-        out.push_str(&format!("- `{}`：{}。{}\n", item.suggestion_type, item.title, item.rationale));
+        out.push_str(&format!(
+            "- `{}`：{}。{}\n",
+            item.suggestion_type, item.title, item.rationale
+        ));
     }
     out.push_str("\n## 开工包关联评估\n\n");
     out.push_str(&format!("- {}\n", starter_evaluation.summary));
@@ -8034,7 +8279,11 @@ fn kb_retro_insert_session(
     summary: &str,
     draft_markdown: &str,
 ) -> Result<String, String> {
-    let session_id = format!("retro-{}-{}", now_nanos(), fnv1a64_hex(&format!("{input}:{req_id}:{task_id}")));
+    let session_id = format!(
+        "retro-{}-{}",
+        now_nanos(),
+        fnv1a64_hex(&format!("{input}:{req_id}:{task_id}"))
+    );
     conn.execute(
         r#"
         INSERT INTO retrospective_sessions(
@@ -8043,15 +8292,35 @@ fn kb_retro_insert_session(
         )
         VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
         "#,
-        params![session_id, input, input_type, req_id, task_id, starter_session_id, summary, draft_markdown],
+        params![
+            session_id,
+            input,
+            input_type,
+            req_id,
+            task_id,
+            starter_session_id,
+            summary,
+            draft_markdown
+        ],
     )
     .map_err(|err| err.to_string())?;
     Ok(session_id)
 }
 
-fn kb_retro_insert_suggestions(conn: &Connection, session_id: &str, suggestions: &mut [KbRetroSuggestionItem]) -> Result<(), String> {
+fn kb_retro_insert_suggestions(
+    conn: &Connection,
+    session_id: &str,
+    suggestions: &mut [KbRetroSuggestionItem],
+) -> Result<(), String> {
     for item in suggestions {
-        let id = format!("retro-sug-{}-{}", now_nanos(), fnv1a64_hex(&format!("{session_id}:{}:{}", item.suggestion_type, item.title)));
+        let id = format!(
+            "retro-sug-{}-{}",
+            now_nanos(),
+            fnv1a64_hex(&format!(
+                "{session_id}:{}:{}",
+                item.suggestion_type, item.title
+            ))
+        );
         item.suggestion_id = id.clone();
         conn.execute(
             r#"
@@ -8067,7 +8336,11 @@ fn kb_retro_insert_suggestions(conn: &Connection, session_id: &str, suggestions:
     Ok(())
 }
 
-fn kb_retro_preview_internal(input_text: &str, starter_session_id: Option<&str>, limit: usize) -> Result<KbRetroPreviewResponse, String> {
+fn kb_retro_preview_internal(
+    input_text: &str,
+    starter_session_id: Option<&str>,
+    limit: usize,
+) -> Result<KbRetroPreviewResponse, String> {
     let input = input_text.trim();
     if input.is_empty() {
         return Err("empty_input".into());
@@ -8080,10 +8353,12 @@ fn kb_retro_preview_internal(input_text: &str, starter_session_id: Option<&str>,
         .map(str::to_string)
         .unwrap_or_else(|| kb_retro_latest_starter_session(&conn, &req_id, &task_id));
     let summary = kb_retro_summary(&input_type, &req_id, &task_id, input);
-    let starter_sections = kb_task_starter_collect_evidence(&conn, input, &req_id, &task_id, limit)?;
+    let starter_sections =
+        kb_task_starter_collect_evidence(&conn, input, &req_id, &task_id, limit)?;
     let sections = kb_retro_build_sections(&starter_sections);
     let mut suggestions = kb_retro_build_suggestions(&sections, &req_id, &task_id);
-    let starter_evaluation = kb_retro_evaluate_starter(&conn, &related_starter_session_id, &sections);
+    let starter_evaluation =
+        kb_retro_evaluate_starter(&conn, &related_starter_session_id, &sections);
     let draft_markdown = kb_retro_build_markdown(
         input,
         &input_type,
@@ -8093,7 +8368,16 @@ fn kb_retro_preview_internal(input_text: &str, starter_session_id: Option<&str>,
         &suggestions,
         &starter_evaluation,
     );
-    let session_id = kb_retro_insert_session(&conn, input, &input_type, &req_id, &task_id, &related_starter_session_id, &summary, &draft_markdown)?;
+    let session_id = kb_retro_insert_session(
+        &conn,
+        input,
+        &input_type,
+        &req_id,
+        &task_id,
+        &related_starter_session_id,
+        &summary,
+        &draft_markdown,
+    )?;
     kb_retro_insert_suggestions(&conn, &session_id, &mut suggestions)?;
     Ok(KbRetroPreviewResponse {
         session_id,
@@ -8109,7 +8393,10 @@ fn kb_retro_preview_internal(input_text: &str, starter_session_id: Option<&str>,
     })
 }
 
-fn kb_retro_load_suggestions(conn: &Connection, session_id: &str) -> Result<Vec<KbRetroSuggestionItem>, String> {
+fn kb_retro_load_suggestions(
+    conn: &Connection,
+    session_id: &str,
+) -> Result<Vec<KbRetroSuggestionItem>, String> {
     let mut stmt = conn
         .prepare(
             r#"
@@ -8141,7 +8428,12 @@ fn kb_retro_load_suggestions(conn: &Connection, session_id: &str) -> Result<Vec<
     Ok(suggestions)
 }
 
-fn kb_retro_package_internal(session_id: Option<&str>, input_text: Option<&str>, starter_session_id: Option<&str>, limit: usize) -> Result<KbRetroPackageResponse, String> {
+fn kb_retro_package_internal(
+    session_id: Option<&str>,
+    input_text: Option<&str>,
+    starter_session_id: Option<&str>,
+    limit: usize,
+) -> Result<KbRetroPackageResponse, String> {
     let conn = connect_knowledgebase()?;
     if let Some(existing_id) = session_id.map(str::trim).filter(|item| !item.is_empty()) {
         let (markdown, starter_session_id) = conn
@@ -8152,10 +8444,17 @@ fn kb_retro_package_internal(session_id: Option<&str>, input_text: Option<&str>,
             )
             .map_err(|err| err.to_string())?;
         let suggestions = kb_retro_load_suggestions(&conn, existing_id)?;
-        let starter_evaluation = kb_retro_evaluate_starter(&conn, &starter_session_id, &KbRetroSections::default());
-        return Ok(KbRetroPackageResponse { session_id: existing_id.into(), markdown, suggestions, starter_evaluation });
+        let starter_evaluation =
+            kb_retro_evaluate_starter(&conn, &starter_session_id, &KbRetroSections::default());
+        return Ok(KbRetroPackageResponse {
+            session_id: existing_id.into(),
+            markdown,
+            suggestions,
+            starter_evaluation,
+        });
     }
-    let preview = kb_retro_preview_internal(input_text.unwrap_or_default(), starter_session_id, limit)?;
+    let preview =
+        kb_retro_preview_internal(input_text.unwrap_or_default(), starter_session_id, limit)?;
     Ok(KbRetroPackageResponse {
         session_id: preview.session_id,
         markdown: preview.draft_markdown,
@@ -8200,7 +8499,9 @@ fn kb_retro_approve_suggestion_internal(suggestion_id: &str) -> Result<serde_jso
     }))
 }
 
-fn kb_task_starter_session_summary_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<KbTaskStarterSessionSummary> {
+fn kb_task_starter_session_summary_from_row(
+    row: &rusqlite::Row<'_>,
+) -> rusqlite::Result<KbTaskStarterSessionSummary> {
     let package_markdown = row.get::<_, String>(6).unwrap_or_default();
     Ok(KbTaskStarterSessionSummary {
         session_id: row.get::<_, String>(0)?,
@@ -8216,7 +8517,9 @@ fn kb_task_starter_session_summary_from_row(row: &rusqlite::Row<'_>) -> rusqlite
     })
 }
 
-fn kb_task_starter_sessions_internal(limit: usize) -> Result<KbTaskStarterSessionsResponse, String> {
+fn kb_task_starter_sessions_internal(
+    limit: usize,
+) -> Result<KbTaskStarterSessionsResponse, String> {
     let conn = connect_knowledgebase()?;
     let limit = limit.clamp(5, 50);
     let mut stmt = conn
@@ -8234,7 +8537,10 @@ fn kb_task_starter_sessions_internal(limit: usize) -> Result<KbTaskStarterSessio
         )
         .map_err(|err| err.to_string())?;
     let rows = stmt
-        .query_map(params![limit as i64], kb_task_starter_session_summary_from_row)
+        .query_map(
+            params![limit as i64],
+            kb_task_starter_session_summary_from_row,
+        )
         .map_err(|err| err.to_string())?;
     let mut sessions = Vec::new();
     for row in rows {
@@ -8331,9 +8637,15 @@ fn kb_knowledge_units_internal() -> Result<KbKnowledgeUnitsResponse, String> {
                     to_id: unit.id.clone(),
                     relation_type: relation_type.into(),
                     summary: if unit.template_id.trim().is_empty() {
-                        format!("{} 与提示词工程同属 {} 主题，可继续补充模板或证据。", unit.title, unit.category)
+                        format!(
+                            "{} 与提示词工程同属 {} 主题，可继续补充模板或证据。",
+                            unit.title, unit.category
+                        )
                     } else {
-                        format!("{} 已绑定模板，可从图谱跳到提示词工程查看和复制。", unit.title)
+                        format!(
+                            "{} 已绑定模板，可从图谱跳到提示词工程查看和复制。",
+                            unit.title
+                        )
                     },
                     evidence_ref: if unit.source_item_id.trim().is_empty() {
                         "knowledge_units".into()
@@ -8387,8 +8699,10 @@ fn kb_compact_conversations_internal() -> Result<serde_json::Value, String> {
         })
         .map_err(|err| err.to_string())?;
 
-    let mut groups: HashMap<(String, String, String), Vec<(String, String, String, String, String)>> =
-        HashMap::new();
+    let mut groups: HashMap<
+        (String, String, String),
+        Vec<(String, String, String, String, String)>,
+    > = HashMap::new();
     for row in rows {
         let (item_id, project_id, title, content, source_path, source_tool, session_id, updated_at) =
             row.map_err(|err| err.to_string())?;
@@ -8718,18 +9032,22 @@ fn summarize_query_params(query: &str) -> String {
     let mut parts = Vec::new();
     for pair in query.split('&').take(6) {
         let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
-        parts.push(format!("{}={}", key, truncate_for_log(&url_decode(value), 80)));
+        parts.push(format!(
+            "{}={}",
+            key,
+            truncate_for_log(&url_decode(value), 80)
+        ));
     }
     truncate_for_log(&parts.join("&"), 240)
 }
 
 fn kb_api_call_context(request: &Request, path: &str, query: &str) -> KbApiCallContext {
-    let client_name = request_header_value(request, "x-kb-client")
-        .unwrap_or_else(|| "direct-api".to_string());
+    let client_name =
+        request_header_value(request, "x-kb-client").unwrap_or_else(|| "direct-api".to_string());
     let client_id = request_header_value(request, "x-kb-client-id")
         .unwrap_or_else(|| fnv1a64_hex(&client_name));
-    let tool_name = request_header_value(request, "x-kb-tool")
-        .unwrap_or_else(|| api_tool_name_for_path(path));
+    let tool_name =
+        request_header_value(request, "x-kb-tool").unwrap_or_else(|| api_tool_name_for_path(path));
     let params_summary = request_header_value(request, "x-kb-params")
         .unwrap_or_else(|| summarize_query_params(query));
     KbApiCallContext {
@@ -8765,7 +9083,11 @@ fn kb_record_api_call_log(
         params![context.client_id, context.client_name],
     )
     .map_err(|err| err.to_string())?;
-    let duration_ms = context.started_at.elapsed().as_millis().min(i64::MAX as u128) as i64;
+    let duration_ms = context
+        .started_at
+        .elapsed()
+        .as_millis()
+        .min(i64::MAX as u128) as i64;
     conn.execute(
         "INSERT INTO api_call_logs(
           id, client_id, client_name, tool_name, method, path, params_summary,
@@ -9083,7 +9405,8 @@ fn handle_knowledgebase_http_request(mut request: Request) {
                     request,
                     api_call_context.as_ref(),
                     200,
-                    serde_json::to_string(&serde_json::json!({ "readonly": true, "data": data })).unwrap_or_else(|_| "{}".to_string()),
+                    serde_json::to_string(&serde_json::json!({ "readonly": true, "data": data }))
+                        .unwrap_or_else(|_| "{}".to_string()),
                     None,
                 ),
                 Err(err) => http_respond_v1_json(
@@ -9112,7 +9435,8 @@ fn handle_knowledgebase_http_request(mut request: Request) {
                     request,
                     api_call_context.as_ref(),
                     200,
-                    serde_json::to_string(&serde_json::json!({ "readonly": true, "data": data })).unwrap_or_else(|_| "{}".to_string()),
+                    serde_json::to_string(&serde_json::json!({ "readonly": true, "data": data }))
+                        .unwrap_or_else(|_| "{}".to_string()),
                     None,
                 ),
                 Err(err) => http_respond_v1_json(
@@ -9130,12 +9454,21 @@ fn handle_knowledgebase_http_request(mut request: Request) {
             } else {
                 KbTaskStarterRequest::default()
             };
-            if payload.input_text.as_deref().unwrap_or_default().trim().is_empty() {
-                payload.input_text = query_param(query, "input_text").or_else(|| query_param(query, "q"));
+            if payload
+                .input_text
+                .as_deref()
+                .unwrap_or_default()
+                .trim()
+                .is_empty()
+            {
+                payload.input_text =
+                    query_param(query, "input_text").or_else(|| query_param(query, "q"));
             }
             let limit = payload
                 .limit
-                .or_else(|| query_param(query, "limit").and_then(|value| value.parse::<usize>().ok()))
+                .or_else(|| {
+                    query_param(query, "limit").and_then(|value| value.parse::<usize>().ok())
+                })
                 .unwrap_or(8);
             match kb_task_context_readonly_internal(
                 payload.input_text.as_deref().unwrap_or_default(),
@@ -9145,7 +9478,8 @@ fn handle_knowledgebase_http_request(mut request: Request) {
                     request,
                     api_call_context.as_ref(),
                     200,
-                    serde_json::to_string(&serde_json::json!({ "readonly": true, "data": data })).unwrap_or_else(|_| "{}".to_string()),
+                    serde_json::to_string(&serde_json::json!({ "readonly": true, "data": data }))
+                        .unwrap_or_else(|_| "{}".to_string()),
                     None,
                 ),
                 Err(err) => http_respond_v1_json(
@@ -9169,12 +9503,18 @@ fn handle_knowledgebase_http_request(mut request: Request) {
                 return;
             }
             let item_id = url_decode(path.trim_start_matches("/api/v1/evidence/"));
-            match (kb_item_detail_internal(&item_id), kb_trace_internal(&item_id)) {
+            match (
+                kb_item_detail_internal(&item_id),
+                kb_trace_internal(&item_id),
+            ) {
                 (Ok(item), Ok(trace)) => http_respond_v1_json(
                     request,
                     api_call_context.as_ref(),
                     200,
-                    serde_json::to_string(&serde_json::json!({ "readonly": true, "item": item.item, "trace": trace })).unwrap_or_else(|_| "{}".to_string()),
+                    serde_json::to_string(
+                        &serde_json::json!({ "readonly": true, "item": item.item, "trace": trace }),
+                    )
+                    .unwrap_or_else(|_| "{}".to_string()),
                     None,
                 ),
                 (Err(err), _) | (_, Err(err)) => http_respond_v1_json(
@@ -9270,7 +9610,8 @@ fn handle_knowledgebase_http_request(mut request: Request) {
                 request,
                 api_call_context.as_ref(),
                 status_code,
-                serde_json::json!({ "error": error_code, "message": message, "readonly": true }).to_string(),
+                serde_json::json!({ "error": error_code, "message": message, "readonly": true })
+                    .to_string(),
                 Some(error_code),
             );
         }
@@ -9349,15 +9690,30 @@ fn handle_knowledgebase_http_request(mut request: Request) {
             } else {
                 KbRetroRequest::default()
             };
-            if payload.input_text.as_deref().unwrap_or_default().trim().is_empty() {
-                payload.input_text = query_param(query, "input_text").or_else(|| query_param(query, "q"));
+            if payload
+                .input_text
+                .as_deref()
+                .unwrap_or_default()
+                .trim()
+                .is_empty()
+            {
+                payload.input_text =
+                    query_param(query, "input_text").or_else(|| query_param(query, "q"));
             }
-            if payload.starter_session_id.as_deref().unwrap_or_default().trim().is_empty() {
+            if payload
+                .starter_session_id
+                .as_deref()
+                .unwrap_or_default()
+                .trim()
+                .is_empty()
+            {
                 payload.starter_session_id = query_param(query, "starter_session_id");
             }
             let limit = payload
                 .limit
-                .or_else(|| query_param(query, "limit").and_then(|value| value.parse::<usize>().ok()))
+                .or_else(|| {
+                    query_param(query, "limit").and_then(|value| value.parse::<usize>().ok())
+                })
                 .unwrap_or(8);
             match kb_retro_preview_internal(
                 payload.input_text.as_deref().unwrap_or_default(),
@@ -9382,18 +9738,39 @@ fn handle_knowledgebase_http_request(mut request: Request) {
             } else {
                 KbRetroRequest::default()
             };
-            if payload.session_id.as_deref().unwrap_or_default().trim().is_empty() {
+            if payload
+                .session_id
+                .as_deref()
+                .unwrap_or_default()
+                .trim()
+                .is_empty()
+            {
                 payload.session_id = query_param(query, "session_id");
             }
-            if payload.input_text.as_deref().unwrap_or_default().trim().is_empty() {
-                payload.input_text = query_param(query, "input_text").or_else(|| query_param(query, "q"));
+            if payload
+                .input_text
+                .as_deref()
+                .unwrap_or_default()
+                .trim()
+                .is_empty()
+            {
+                payload.input_text =
+                    query_param(query, "input_text").or_else(|| query_param(query, "q"));
             }
-            if payload.starter_session_id.as_deref().unwrap_or_default().trim().is_empty() {
+            if payload
+                .starter_session_id
+                .as_deref()
+                .unwrap_or_default()
+                .trim()
+                .is_empty()
+            {
                 payload.starter_session_id = query_param(query, "starter_session_id");
             }
             let limit = payload
                 .limit
-                .or_else(|| query_param(query, "limit").and_then(|value| value.parse::<usize>().ok()))
+                .or_else(|| {
+                    query_param(query, "limit").and_then(|value| value.parse::<usize>().ok())
+                })
                 .unwrap_or(8);
             match kb_retro_package_internal(
                 payload.session_id.as_deref(),
@@ -9423,7 +9800,11 @@ fn handle_knowledgebase_http_request(mut request: Request) {
                 ),
                 Err(err) => http_respond_json(
                     request,
-                    if err == "missing_session_id" { 400 } else { 500 },
+                    if err == "missing_session_id" {
+                        400
+                    } else {
+                        500
+                    },
                     serde_json::json!({ "error": err }).to_string(),
                 ),
             }
@@ -9445,7 +9826,11 @@ fn handle_knowledgebase_http_request(mut request: Request) {
                 Ok(data) => http_respond_json(request, 200, data.to_string()),
                 Err(err) => http_respond_json(
                     request,
-                    if err == "suggestion_not_found" || err == "missing_suggestion_id" { 404 } else { 500 },
+                    if err == "suggestion_not_found" || err == "missing_suggestion_id" {
+                        404
+                    } else {
+                        500
+                    },
                     serde_json::json!({ "error": err }).to_string(),
                 ),
             }
@@ -9456,12 +9841,21 @@ fn handle_knowledgebase_http_request(mut request: Request) {
             } else {
                 KbTaskStarterRequest::default()
             };
-            if payload.input_text.as_deref().unwrap_or_default().trim().is_empty() {
-                payload.input_text = query_param(query, "input_text").or_else(|| query_param(query, "q"));
+            if payload
+                .input_text
+                .as_deref()
+                .unwrap_or_default()
+                .trim()
+                .is_empty()
+            {
+                payload.input_text =
+                    query_param(query, "input_text").or_else(|| query_param(query, "q"));
             }
             let limit = payload
                 .limit
-                .or_else(|| query_param(query, "limit").and_then(|value| value.parse::<usize>().ok()))
+                .or_else(|| {
+                    query_param(query, "limit").and_then(|value| value.parse::<usize>().ok())
+                })
                 .unwrap_or(8);
             match kb_task_starter_preview_internal(
                 payload.input_text.as_deref().unwrap_or_default(),
@@ -9485,15 +9879,30 @@ fn handle_knowledgebase_http_request(mut request: Request) {
             } else {
                 KbTaskStarterRequest::default()
             };
-            if payload.session_id.as_deref().unwrap_or_default().trim().is_empty() {
+            if payload
+                .session_id
+                .as_deref()
+                .unwrap_or_default()
+                .trim()
+                .is_empty()
+            {
                 payload.session_id = query_param(query, "session_id");
             }
-            if payload.input_text.as_deref().unwrap_or_default().trim().is_empty() {
-                payload.input_text = query_param(query, "input_text").or_else(|| query_param(query, "q"));
+            if payload
+                .input_text
+                .as_deref()
+                .unwrap_or_default()
+                .trim()
+                .is_empty()
+            {
+                payload.input_text =
+                    query_param(query, "input_text").or_else(|| query_param(query, "q"));
             }
             let limit = payload
                 .limit
-                .or_else(|| query_param(query, "limit").and_then(|value| value.parse::<usize>().ok()))
+                .or_else(|| {
+                    query_param(query, "limit").and_then(|value| value.parse::<usize>().ok())
+                })
                 .unwrap_or(8);
             match kb_task_starter_package_internal(
                 payload.session_id.as_deref(),
@@ -10830,12 +11239,30 @@ fn window_contains_cursor<R: tauri::Runtime>(
     cursor.x >= x && cursor.x <= x + width && cursor.y >= y && cursor.y <= y + height
 }
 
+fn mark_main_window_shown() {
+    if let Ok(mut guard) = main_window_last_shown_at().lock() {
+        *guard = Some(Instant::now());
+    }
+}
+
+fn is_main_window_show_grace_active() -> bool {
+    main_window_last_shown_at()
+        .lock()
+        .ok()
+        .and_then(|guard| *guard)
+        .map(|shown_at| shown_at.elapsed() < Duration::from_millis(MAIN_WINDOW_SHOW_GRACE_MS))
+        .unwrap_or(false)
+}
+
 fn hide_main_window_with_delay<R: tauri::Runtime>(
     app: tauri::AppHandle<R>,
     tray_rect: Option<Rect>,
 ) {
     thread::spawn(move || {
         thread::sleep(Duration::from_millis(TRAY_HIDE_DELAY_MS));
+        if tray_rect.is_none() && is_main_window_show_grace_active() {
+            return;
+        }
         let Some(window) = app.get_webview_window("main") else {
             return;
         };
@@ -10977,6 +11404,7 @@ fn show_main_window<R: tauri::Runtime>(
         position_top_center(&window)?;
     }
 
+    mark_main_window_shown();
     window.show().map_err(|err| err.to_string())?;
     window.unminimize().map_err(|err| err.to_string())?;
     window.set_focus().map_err(|err| err.to_string())?;
@@ -11136,13 +11564,6 @@ pub fn run() {
                 }
             });
 
-            let app_handle = app.handle().clone();
-            main_window.on_window_event(move |event| {
-                if let tauri::WindowEvent::Focused(false) = event {
-                    hide_main_window_with_delay(app_handle.clone(), None);
-                }
-            });
-
             let icon = app.default_window_icon().cloned();
             let tray_handle = app.handle().clone();
             let tray_menu = build_tray_menu(app.handle())
@@ -11175,7 +11596,6 @@ pub fn run() {
                     }
                     TrayIconEvent::Click {
                         button: MouseButton::Left,
-                        button_state: MouseButtonState::Up,
                         rect,
                         ..
                     } => {
