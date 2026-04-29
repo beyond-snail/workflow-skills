@@ -7699,6 +7699,75 @@ fn handle_knowledgebase_http_request(mut request: Request) {
                 serde_json::json!({ "error": err }).to_string(),
             ),
         },
+        "/api/health/assets" => match kb_health_assets_internal() {
+            Ok(data) => http_respond_json(
+                request,
+                200,
+                serde_json::to_string(&data).unwrap_or_else(|_| "{}".to_string()),
+            ),
+            Err(err) => http_respond_json(
+                request,
+                500,
+                serde_json::json!({ "error": err }).to_string(),
+            ),
+        },
+        "/api/health/projects" => match kb_health_projects_internal() {
+            Ok(data) => http_respond_json(
+                request,
+                200,
+                serde_json::to_string(&data).unwrap_or_else(|_| "{}".to_string()),
+            ),
+            Err(err) => http_respond_json(
+                request,
+                500,
+                serde_json::json!({ "error": err }).to_string(),
+            ),
+        },
+        "/api/health/actions" => match kb_health_actions_internal() {
+            Ok(data) => http_respond_json(
+                request,
+                200,
+                serde_json::to_string(&data).unwrap_or_else(|_| "{}".to_string()),
+            ),
+            Err(err) => http_respond_json(
+                request,
+                500,
+                serde_json::json!({ "error": err }).to_string(),
+            ),
+        },
+        "/api/health/refresh" => {
+            if request.method() != &Method::Post {
+                http_respond_json(
+                    request,
+                    405,
+                    serde_json::json!({ "error": "method_not_allowed" }).to_string(),
+                );
+                return;
+            }
+            match (
+                kb_health_assets_internal(),
+                kb_health_projects_internal(),
+                kb_health_actions_internal(),
+            ) {
+                (Ok(assets), Ok(projects), Ok(actions)) => http_respond_json(
+                    request,
+                    200,
+                    serde_json::to_string(&serde_json::json!({
+                        "summary": kb_health_summary(&assets.assets, &projects.projects),
+                        "assets": assets.assets,
+                        "projects": projects.projects,
+                        "actions": actions.actions,
+                        "refreshed": true
+                    }))
+                    .unwrap_or_else(|_| "{}".to_string()),
+                ),
+                (Err(err), _, _) | (_, Err(err), _) | (_, _, Err(err)) => http_respond_json(
+                    request,
+                    500,
+                    serde_json::json!({ "error": err }).to_string(),
+                ),
+            }
+        }
         "/api/task-starter/preview" => {
             let mut payload = if request.method() == &Method::Post {
                 read_task_starter_request(&mut request)
