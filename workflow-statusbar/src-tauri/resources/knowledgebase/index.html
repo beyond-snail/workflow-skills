@@ -3053,6 +3053,7 @@
             <div class="starter-metric"><b id="retroInputType">-</b><span>输入类型</span></div>
             <div class="starter-metric"><b id="retroSuggestionCount">0</b><span>建议数</span></div>
             <div class="starter-metric"><b id="retroSessionLabel">-</b><span>会话</span></div>
+            <div class="starter-metric"><b id="retroStarterScore">-</b><span>开工关联</span></div>
           </div>
           <div class="hint" id="retroTip">等待输入。生成后可编辑草稿、确认建议，再复制到任务记忆。</div>
         </article>
@@ -5774,9 +5775,12 @@
       const preview = retroState.preview;
       document.getElementById('retroInputType').textContent = preview?.input_type || '-';
       document.getElementById('retroSessionLabel').textContent = retroState.sessionId ? '已生成' : '-';
+      document.getElementById('retroStarterScore').textContent = preview?.starter_evaluation?.linked
+        ? `${Number(preview.starter_evaluation.score || 0)}`
+        : '-';
       document.getElementById('retroOutputTitle').textContent = preview?.summary || '复盘草稿';
       document.getElementById('retroOutputMeta').textContent = preview
-        ? `${preview.parsed_task_id || preview.parsed_req_id || '自然语言'} · ${retroState.suggestions.length} 条建议`
+        ? `${preview.parsed_task_id || preview.parsed_req_id || '自然语言'} · ${retroState.suggestions.length} 条建议 · ${preview.starter_evaluation?.summary || '未关联开工包'}`
         : '尚未生成复盘。';
       document.getElementById('retroDraft').textContent = retroState.markdown || preview?.draft_markdown || 'Markdown 复盘草稿会显示在这里。';
       renderRetroSuggestions();
@@ -5827,6 +5831,9 @@
       retroState.sessionId = data.session_id || retroState.sessionId;
       retroState.markdown = data.markdown || '';
       retroState.suggestions = Array.isArray(data.suggestions) ? data.suggestions : retroState.suggestions;
+      if (retroState.preview && data.starter_evaluation) {
+        retroState.preview.starter_evaluation = data.starter_evaluation;
+      }
       renderRetroPreview();
       retroSetTip('复盘包已取回。');
     }

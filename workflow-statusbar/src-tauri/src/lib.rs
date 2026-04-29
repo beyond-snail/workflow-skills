@@ -509,6 +509,16 @@ struct KbRetroSuggestionItem {
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
+struct KbRetroStarterEvaluation {
+    linked: bool,
+    starter_session_id: String,
+    score: i64,
+    summary: String,
+    missing_info: Vec<String>,
+    optimization_items: Vec<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
 struct KbRetroPreviewResponse {
     session_id: String,
     input_type: String,
@@ -519,6 +529,7 @@ struct KbRetroPreviewResponse {
     draft_markdown: String,
     sections: KbRetroSections,
     suggestions: Vec<KbRetroSuggestionItem>,
+    starter_evaluation: KbRetroStarterEvaluation,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -526,6 +537,7 @@ struct KbRetroPackageResponse {
     session_id: String,
     markdown: String,
     suggestions: Vec<KbRetroSuggestionItem>,
+    starter_evaluation: KbRetroStarterEvaluation,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -7348,6 +7360,78 @@ fn kb_retro_markdown_section(title: &str, items: &[KbTaskStarterEvidenceItem]) -
     out
 }
 
+fn kb_retro_evaluate_starter(
+    conn: &Connection,
+    starter_session_id: &str,
+    sections: &KbRetroSections,
+) -> KbRetroStarterEvaluation {
+    let starter_session_id = starter_session_id.trim();
+    if starter_session_id.is_empty() {
+        return KbRetroStarterEvaluation {
+            linked: false,
+            starter_session_id: String::new(),
+            score: 0,
+            summary: "未找到关联开工包，无法评估开工召回质量。".into(),
+            missing_info: vec!["缺少可关联的开工包会话".into()],
+            optimization_items: vec!["下次从开工助手进入任务，或在复盘时显式传入 starter_session_id。".into()],
+        };
+    }
+    let starter_evidence = kb_task_starter_load_evidence(conn, starter_session_id).unwrap_or_default();
+    let retro_ids = sections
+        .changes
+        .iter()
+        .chain(sections.verification.iter())
+        .chain(sections.risks.iter())
+        .chain(sections.context.iter())
+        .filter_map(|item| {
+            let id = item.source_id.trim();
+            if id.is_empty() { None } else { Some(id.to_string()) }
+        })
+        .collect::<HashSet<_>>();
+    let overlap = starter_evidence
+        .iter()
+        .filter(|item| !item.source_id.trim().is_empty() && retro_ids.contains(item.source_id.trim()))
+        .count() as i64;
+    let has_starter_verify = starter_evidence.iter().any(|item| item.evidence_type == "verify");
+    let has_starter_risk = starter_evidence.iter().any(|item| item.evidence_type == "risk");
+    let mut score = 45 + overlap * 12;
+    if has_starter_verify {
+        score += 15;
+    }
+    if has_starter_risk {
+        score += 10;
+    }
+    let mut missing_info = Vec::new();
+    let mut optimization_items = Vec::new();
+    if !has_starter_verify && !sections.verification.is_empty() {
+        missing_info.push("开工包未提前召回验证命令或测试记录".into());
+        optimization_items.push("增强开工助手对 testing 文档、验证命令和 smoke 记录的召回权重。".into());
+    }
+    if !has_starter_risk && !sections.risks.is_empty() {
+        missing_info.push("开工包未提前召回风险或遗留问题".into());
+        optimization_items.push("将复盘中的风险规则沉淀为后续开工助手的风险证据。".into());
+    }
+    if overlap == 0 && !retro_ids.is_empty() {
+        missing_info.push("复盘证据与开工包证据重合度较低".into());
+        optimization_items.push("将本轮关键证据补入任务记忆，提升下次 REQ/TASK 精准召回。".into());
+    }
+    if missing_info.is_empty() {
+        missing_info.push("未发现明显遗漏，开工包与复盘证据存在有效衔接。".into());
+    }
+    if optimization_items.is_empty() {
+        optimization_items.push("保持当前开工包召回策略，复盘后补充最新验证结论。".into());
+    }
+    let score = score.clamp(0, 100);
+    KbRetroStarterEvaluation {
+        linked: true,
+        starter_session_id: starter_session_id.into(),
+        score,
+        summary: format!("关联开工包 {starter_session_id}；证据重合 {overlap} 条，召回质量评分 {score}/100。"),
+        missing_info,
+        optimization_items,
+    }
+}
+
 fn kb_retro_build_markdown(
     input_text: &str,
     input_type: &str,
@@ -7355,6 +7439,7 @@ fn kb_retro_build_markdown(
     task_id: &str,
     sections: &KbRetroSections,
     suggestions: &[KbRetroSuggestionItem],
+    starter_evaluation: &KbRetroStarterEvaluation,
 ) -> String {
     let target = if !task_id.trim().is_empty() { task_id } else if !req_id.trim().is_empty() { req_id } else { input_text };
     let mut out = String::new();
@@ -7371,6 +7456,16 @@ fn kb_retro_build_markdown(
     out.push_str("\n## 沉淀建议\n\n");
     for item in suggestions {
         out.push_str(&format!("- `{}`：{}。{}\n", item.suggestion_type, item.title, item.rationale));
+    }
+    out.push_str("\n## 开工包关联评估\n\n");
+    out.push_str(&format!("- {}\n", starter_evaluation.summary));
+    out.push_str("- 遗漏信息：\n");
+    for item in &starter_evaluation.missing_info {
+        out.push_str(&format!("  - {item}\n"));
+    }
+    out.push_str("- 优化建议：\n");
+    for item in &starter_evaluation.optimization_items {
+        out.push_str(&format!("  - {item}\n"));
     }
     out
 }
@@ -7434,7 +7529,16 @@ fn kb_retro_preview_internal(input_text: &str, starter_session_id: Option<&str>,
     let starter_sections = kb_task_starter_collect_evidence(&conn, input, &req_id, &task_id, limit)?;
     let sections = kb_retro_build_sections(&starter_sections);
     let mut suggestions = kb_retro_build_suggestions(&sections, &req_id, &task_id);
-    let draft_markdown = kb_retro_build_markdown(input, &input_type, &req_id, &task_id, &sections, &suggestions);
+    let starter_evaluation = kb_retro_evaluate_starter(&conn, &related_starter_session_id, &sections);
+    let draft_markdown = kb_retro_build_markdown(
+        input,
+        &input_type,
+        &req_id,
+        &task_id,
+        &sections,
+        &suggestions,
+        &starter_evaluation,
+    );
     let session_id = kb_retro_insert_session(&conn, input, &input_type, &req_id, &task_id, &related_starter_session_id, &summary, &draft_markdown)?;
     kb_retro_insert_suggestions(&conn, &session_id, &mut suggestions)?;
     Ok(KbRetroPreviewResponse {
@@ -7447,6 +7551,7 @@ fn kb_retro_preview_internal(input_text: &str, starter_session_id: Option<&str>,
         draft_markdown,
         sections,
         suggestions,
+        starter_evaluation,
     })
 }
 
@@ -7485,21 +7590,23 @@ fn kb_retro_load_suggestions(conn: &Connection, session_id: &str) -> Result<Vec<
 fn kb_retro_package_internal(session_id: Option<&str>, input_text: Option<&str>, starter_session_id: Option<&str>, limit: usize) -> Result<KbRetroPackageResponse, String> {
     let conn = connect_knowledgebase()?;
     if let Some(existing_id) = session_id.map(str::trim).filter(|item| !item.is_empty()) {
-        let markdown = conn
+        let (markdown, starter_session_id) = conn
             .query_row(
-                "SELECT draft_markdown FROM retrospective_sessions WHERE id=?1 LIMIT 1",
+                "SELECT draft_markdown, related_starter_session_id FROM retrospective_sessions WHERE id=?1 LIMIT 1",
                 params![existing_id],
-                |row| row.get::<_, String>(0),
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1).unwrap_or_default())),
             )
             .map_err(|err| err.to_string())?;
         let suggestions = kb_retro_load_suggestions(&conn, existing_id)?;
-        return Ok(KbRetroPackageResponse { session_id: existing_id.into(), markdown, suggestions });
+        let starter_evaluation = kb_retro_evaluate_starter(&conn, &starter_session_id, &KbRetroSections::default());
+        return Ok(KbRetroPackageResponse { session_id: existing_id.into(), markdown, suggestions, starter_evaluation });
     }
     let preview = kb_retro_preview_internal(input_text.unwrap_or_default(), starter_session_id, limit)?;
     Ok(KbRetroPackageResponse {
         session_id: preview.session_id,
         markdown: preview.draft_markdown,
         suggestions: preview.suggestions,
+        starter_evaluation: preview.starter_evaluation,
     })
 }
 
