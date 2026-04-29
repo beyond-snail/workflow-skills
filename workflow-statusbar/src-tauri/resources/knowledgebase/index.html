@@ -559,6 +559,12 @@
       min-height: 0;
     }
 
+    .retro-layout {
+      grid-template-columns: minmax(360px, .82fr) minmax(0, 1.18fr);
+      gap: 12px;
+      min-height: 0;
+    }
+
     .health-layout {
       grid-template-columns: 260px minmax(0, 1fr) minmax(320px, .72fr);
       gap: 10px;
@@ -1958,6 +1964,13 @@
       overflow: hidden;
     }
 
+    .retro-layout > .card {
+      min-height: 0;
+      overflow: hidden;
+      display: grid;
+      grid-template-rows: auto auto minmax(0, 1fr);
+    }
+
     .starter-input-card {
       grid-template-rows: auto auto auto auto auto minmax(0, 1fr);
     }
@@ -2124,6 +2137,47 @@
       width: 0;
       height: 0;
       display: none;
+    }
+
+    .retro-suggestions {
+      display: grid;
+      gap: 8px;
+      min-height: 0;
+      overflow: auto;
+      padding-top: 10px;
+      scrollbar-width: none;
+    }
+
+    .retro-suggestions::-webkit-scrollbar {
+      width: 0;
+      height: 0;
+      display: none;
+    }
+
+    .retro-suggestion {
+      border: 1px solid #dbe7f5;
+      border-radius: 11px;
+      background: #fff;
+      padding: 9px;
+      display: grid;
+      gap: 6px;
+    }
+
+    .retro-suggestion b {
+      color: #263852;
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    .retro-suggestion span {
+      color: var(--muted);
+      font-size: 10px;
+      line-height: 1.45;
+    }
+
+    .retro-suggestion.approved {
+      border-color: #b8e5d1;
+      background: #f3fbf7;
     }
 
     .health-filter-card,
@@ -2641,6 +2695,7 @@
     @media (max-width: 1220px) {
       .search-layout { grid-template-columns: 1fr; }
       .starter-layout { grid-template-columns: 1fr; }
+      .retro-layout { grid-template-columns: 1fr; }
       .health-layout { grid-template-columns: 1fr; }
       .graph-layout { grid-template-columns: 1fr; }
       .prompt-layout { grid-template-columns: 1fr; }
@@ -2797,6 +2852,7 @@
           <button class="tab" data-target="prompt">提示词工程</button>
           <button class="tab" data-target="health">健康度</button>
           <button class="tab" data-target="starter">开工助手</button>
+          <button class="tab" data-target="retro">复盘助手</button>
           <button class="tab" data-target="collector">采集中心</button>
         </div>
         <span class="status"><i class="dot"></i>采集服务运行中</span>
@@ -2977,6 +3033,41 @@
           <div class="health-scroll">
             <div class="health-actions" id="healthActions"></div>
           </div>
+        </aside>
+      </div>
+
+      <div class="workspace retro-layout" id="retro">
+        <article class="card">
+          <div class="prompt-head">
+            <h3>复盘助手</h3>
+            <p>输入已完成的 TASK/REQ 或执行摘要，生成复盘草稿和沉淀建议。</p>
+          </div>
+          <textarea class="starter-textarea" id="retroInput" placeholder="例如：TASK-2026-04-28-26 或 本轮完成了复盘建议队列"></textarea>
+          <div class="action-row">
+            <button class="action" id="retroPreviewBtn" type="button">生成复盘</button>
+            <button class="action" id="retroPackageBtn" type="button">取回复盘包</button>
+            <button class="action" id="retroCopyBtn" type="button">复制复盘</button>
+            <button class="action" id="retroClearBtn" type="button">清空</button>
+          </div>
+          <div class="starter-grid">
+            <div class="starter-metric"><b id="retroInputType">-</b><span>输入类型</span></div>
+            <div class="starter-metric"><b id="retroSuggestionCount">0</b><span>建议数</span></div>
+            <div class="starter-metric"><b id="retroSessionLabel">-</b><span>会话</span></div>
+          </div>
+          <div class="hint" id="retroTip">等待输入。生成后可编辑草稿、确认建议，再复制到任务记忆。</div>
+        </article>
+
+        <aside class="card">
+          <div class="prompt-head">
+            <h3 id="retroOutputTitle">复盘草稿</h3>
+            <p id="retroOutputMeta">尚未生成复盘。</p>
+          </div>
+          <pre class="starter-package" id="retroDraft">Markdown 复盘草稿会显示在这里。</pre>
+          <div class="prompt-head" style="margin-top:10px;">
+            <h3>沉淀建议</h3>
+            <p id="retroSuggestionMeta">建议会在复盘生成后出现。</p>
+          </div>
+          <div class="retro-suggestions" id="retroSuggestions"></div>
         </aside>
       </div>
 
@@ -3222,6 +3313,13 @@
       preview: null,
       markdown: '',
       sessions: []
+    };
+
+    const retroState = {
+      sessionId: '',
+      preview: null,
+      markdown: '',
+      suggestions: []
     };
 
     const healthState = {
@@ -5643,6 +5741,129 @@
       document.getElementById('promptDetailMeta').textContent = ok ? '模板已复制，可直接粘贴给 AI 使用。' : '复制失败，请检查剪贴板权限。';
     }
 
+    function retroSetTip(text, isError = false) {
+      const tip = document.getElementById('retroTip');
+      tip.textContent = text;
+      tip.style.borderColor = isError ? '#f2c4d0' : '#d8e4f6';
+      tip.style.background = isError ? '#fffafb' : '#f8fbff';
+      tip.style.color = isError ? '#9d1f39' : '#4d5f7d';
+    }
+
+    function renderRetroSuggestions() {
+      const target = document.getElementById('retroSuggestions');
+      const suggestions = Array.isArray(retroState.suggestions) ? retroState.suggestions : [];
+      document.getElementById('retroSuggestionCount').textContent = String(suggestions.length);
+      document.getElementById('retroSuggestionMeta').textContent = suggestions.length
+        ? `${suggestions.length} 条建议，可逐条确认`
+        : '建议会在复盘生成后出现。';
+      if (!suggestions.length) {
+        target.innerHTML = '<div class="hint">暂无沉淀建议。</div>';
+        return;
+      }
+      target.innerHTML = suggestions.map((item) => `
+        <article class="retro-suggestion ${item.status === 'approved' ? 'approved' : ''}">
+          <b>${esc(item.title || item.suggestion_type || '沉淀建议')}</b>
+          <span>${esc(item.suggestion_type || '-')} · ${esc(item.status || 'pending')}</span>
+          <span>${esc(item.rationale || '等待人工确认。')}</span>
+          <button class="prompt-review-action" type="button" data-retro-approve-id="${esc(item.suggestion_id || '')}" ${item.status === 'approved' ? 'disabled' : ''}>${item.status === 'approved' ? '已确认' : '确认沉淀'}</button>
+        </article>
+      `).join('');
+    }
+
+    function renderRetroPreview() {
+      const preview = retroState.preview;
+      document.getElementById('retroInputType').textContent = preview?.input_type || '-';
+      document.getElementById('retroSessionLabel').textContent = retroState.sessionId ? '已生成' : '-';
+      document.getElementById('retroOutputTitle').textContent = preview?.summary || '复盘草稿';
+      document.getElementById('retroOutputMeta').textContent = preview
+        ? `${preview.parsed_task_id || preview.parsed_req_id || '自然语言'} · ${retroState.suggestions.length} 条建议`
+        : '尚未生成复盘。';
+      document.getElementById('retroDraft').textContent = retroState.markdown || preview?.draft_markdown || 'Markdown 复盘草稿会显示在这里。';
+      renderRetroSuggestions();
+    }
+
+    async function runRetroPreview() {
+      const input = document.getElementById('retroInput').value.trim();
+      if (!input) {
+        retroSetTip('请输入 TASK/REQ 或执行摘要。', true);
+        return null;
+      }
+      retroSetTip('正在生成复盘草稿...');
+      const res = await fetch('/api/retro/preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ input_text: input, limit: 6 })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        retroSetTip(data.error || '复盘生成失败。', true);
+        return null;
+      }
+      retroState.preview = data;
+      retroState.sessionId = data.session_id || '';
+      retroState.markdown = data.draft_markdown || '';
+      retroState.suggestions = Array.isArray(data.suggestions) ? data.suggestions : [];
+      renderRetroPreview();
+      retroSetTip('复盘草稿已生成，可确认建议或复制 Markdown。');
+      return data;
+    }
+
+    async function runRetroPackage() {
+      if (!retroState.sessionId) {
+        const preview = await runRetroPreview();
+        if (!preview) return;
+      }
+      retroSetTip('正在取回复盘包...');
+      const res = await fetch('/api/retro/package', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: retroState.sessionId })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        retroSetTip(data.error || '复盘包获取失败。', true);
+        return;
+      }
+      retroState.sessionId = data.session_id || retroState.sessionId;
+      retroState.markdown = data.markdown || '';
+      retroState.suggestions = Array.isArray(data.suggestions) ? data.suggestions : retroState.suggestions;
+      renderRetroPreview();
+      retroSetTip('复盘包已取回。');
+    }
+
+    async function approveRetroSuggestion(suggestionId) {
+      if (!suggestionId) return;
+      const res = await fetch('/api/retro/suggestion/' + encodeURIComponent(suggestionId) + '/approve', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) {
+        retroSetTip(data.error || '建议确认失败。', true);
+        return;
+      }
+      retroState.suggestions = retroState.suggestions.map((item) => (
+        item.suggestion_id === suggestionId ? { ...item, status: 'approved' } : item
+      ));
+      renderRetroSuggestions();
+      retroSetTip('建议已确认，后续可进入人工写入。');
+    }
+
+    async function copyRetroMarkdown() {
+      if (!retroState.markdown) {
+        await runRetroPackage();
+      }
+      const ok = await copyText(retroState.markdown || '');
+      retroSetTip(ok ? '复盘 Markdown 已复制。' : '复制失败，请检查剪贴板权限。', !ok);
+    }
+
+    function clearRetro() {
+      retroState.sessionId = '';
+      retroState.preview = null;
+      retroState.markdown = '';
+      retroState.suggestions = [];
+      document.getElementById('retroInput').value = '';
+      renderRetroPreview();
+      retroSetTip('等待输入。生成后可编辑草稿、确认建议，再复制到任务记忆。');
+    }
+
     function starterSetTip(text, isError = false) {
       const tip = document.getElementById('starterTip');
       tip.textContent = text;
@@ -5936,6 +6157,22 @@
         const btn = event.target.closest('button[data-starter-session-id]');
         if (!btn) return;
         openStarterSession(btn.getAttribute('data-starter-session-id') || '');
+      });
+
+      document.getElementById('retroPreviewBtn').addEventListener('click', runRetroPreview);
+      document.getElementById('retroPackageBtn').addEventListener('click', runRetroPackage);
+      document.getElementById('retroCopyBtn').addEventListener('click', copyRetroMarkdown);
+      document.getElementById('retroClearBtn').addEventListener('click', clearRetro);
+      document.getElementById('retroInput').addEventListener('keydown', (event) => {
+        if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+          runRetroPreview();
+        }
+      });
+      document.getElementById('retroSuggestions').addEventListener('click', (event) => {
+        if (!(event.target instanceof Element)) return;
+        const btn = event.target.closest('button[data-retro-approve-id]');
+        if (!btn) return;
+        approveRetroSuggestion(btn.getAttribute('data-retro-approve-id') || '');
       });
 
       document.getElementById('healthFilters').addEventListener('click', (event) => {
