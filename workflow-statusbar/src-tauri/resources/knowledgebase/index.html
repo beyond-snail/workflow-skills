@@ -382,6 +382,149 @@
       padding: 1px 6px;
     }
 
+    .flow-rail {
+      min-height: 0;
+      overflow: hidden;
+      display: grid;
+      grid-template-rows: auto auto auto minmax(0, 1fr);
+      gap: 9px;
+      background:
+        linear-gradient(180deg, #fbfdfb, #f6fbff);
+    }
+
+    .flow-rail .prompt-head p {
+      line-height: 1.5;
+    }
+
+    .flow-step-list {
+      display: grid;
+      gap: 7px;
+    }
+
+    .flow-step {
+      width: 100%;
+      min-height: 54px;
+      border: 1px solid #d7e4f4;
+      border-radius: 11px;
+      background: #fff;
+      color: #31435f;
+      padding: 8px;
+      display: grid;
+      grid-template-columns: 28px minmax(0, 1fr);
+      gap: 8px;
+      text-align: left;
+      cursor: pointer;
+      align-items: center;
+    }
+
+    .flow-step-number {
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      border: 1px solid #cfe0f2;
+      background: #f8fbff;
+      color: #245073;
+      font: 700 11px/1 "IBM Plex Mono", monospace;
+    }
+
+    .flow-step b {
+      display: block;
+      color: #1f314b;
+      font-size: 12px;
+      line-height: 1.25;
+    }
+
+    .flow-step span:not(.flow-step-number) {
+      display: block;
+      margin-top: 3px;
+      color: var(--muted);
+      font-size: 10px;
+      line-height: 1.35;
+    }
+
+    .flow-step.active {
+      border-color: #8acfc7;
+      background: #eef9f6;
+    }
+
+    .flow-step.active .flow-step-number {
+      border-color: #1aa88f;
+      background: #0ea8a3;
+      color: #fff;
+    }
+
+    .flow-context {
+      border: 1px solid #d9e8f1;
+      border-radius: 11px;
+      background: #f8fcfd;
+      padding: 9px;
+      display: grid;
+      gap: 7px;
+      min-width: 0;
+    }
+
+    .flow-context-label {
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 700;
+    }
+
+    .flow-context strong {
+      color: #20344f;
+      font-size: 12px;
+      line-height: 1.35;
+      overflow-wrap: anywhere;
+    }
+
+    .flow-context p {
+      margin: 0;
+      color: #526783;
+      font-size: 11px;
+      line-height: 1.5;
+    }
+
+    .flow-next-actions {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 6px;
+    }
+
+    .flow-next-actions button {
+      min-height: 34px;
+      border: 1px solid #cfe0f2;
+      border-radius: 9px;
+      background: #fff;
+      color: #28415f;
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .flow-next-actions button.primary {
+      border-color: transparent;
+      background: linear-gradient(120deg, #0ea8a3, #2d6dff);
+      color: #fff;
+    }
+
+    .flow-note {
+      min-height: 0;
+      overflow: auto;
+      border-top: 1px solid var(--line);
+      padding-top: 8px;
+      color: #526783;
+      font-size: 11px;
+      line-height: 1.55;
+      scrollbar-width: none;
+    }
+
+    .flow-note::-webkit-scrollbar {
+      width: 0;
+      height: 0;
+      display: none;
+    }
+
     .menu button {
       border: 1px solid transparent;
       border-radius: 9px;
@@ -562,19 +705,19 @@
     }
 
     .starter-layout {
-      grid-template-columns: minmax(360px, .68fr) minmax(0, 1.32fr);
+      grid-template-columns: 258px minmax(340px, .62fr) minmax(0, 1.38fr);
       gap: 12px;
       min-height: 0;
     }
 
     .retro-layout {
-      grid-template-columns: minmax(360px, .62fr) minmax(0, 1.38fr);
+      grid-template-columns: 258px minmax(340px, .56fr) minmax(0, 1.44fr);
       gap: 12px;
       min-height: 0;
     }
 
     .health-layout {
-      grid-template-columns: 260px minmax(0, 1fr) minmax(320px, .72fr);
+      grid-template-columns: 258px minmax(250px, .52fr) minmax(0, 1fr) minmax(300px, .68fr);
       gap: 10px;
       min-height: 0;
     }
@@ -3196,9 +3339,9 @@
           <button class="tab active" data-target="graph">知识图谱中枢</button>
           <button class="tab" data-target="prompt">提示词工程</button>
           <button class="tab" data-target="health">健康度</button>
-          <button class="tab" data-target="projects">多项目看板</button>
           <button class="tab" data-target="starter">开工助手</button>
           <button class="tab" data-target="retro">复盘助手</button>
+          <button class="tab" data-target="projects">多项目看板</button>
           <button class="tab" data-target="collector">采集中心</button>
         </div>
         <span class="status"><i class="dot"></i>采集服务运行中</span>
@@ -3289,6 +3432,37 @@
       </div>
 
       <div class="workspace starter-layout" id="starter">
+        <aside class="card flow-rail" data-flow-rail="starter">
+          <div class="prompt-head">
+            <h3>任务闭环</h3>
+            <p>先定位问题，再生成开工上下文，做完后沉淀经验。</p>
+          </div>
+          <div class="flow-step-list">
+            <button class="flow-step" type="button" data-flow-target="health">
+              <span class="flow-step-number">1</span>
+              <span><b>健康诊断</b><span>找出低质量资产和项目缺口</span></span>
+            </button>
+            <button class="flow-step active" type="button" data-flow-target="starter">
+              <span class="flow-step-number">2</span>
+              <span><b>开工准备</b><span>召回证据，生成可复制开工包</span></span>
+            </button>
+            <button class="flow-step" type="button" data-flow-target="retro">
+              <span class="flow-step-number">3</span>
+              <span><b>完成复盘</b><span>整理结果，确认沉淀建议</span></span>
+            </button>
+          </div>
+          <div class="flow-context">
+            <span class="flow-context-label">当前页用途</span>
+            <strong id="flowStarterTitle">开工助手：把任务变成上下文包</strong>
+            <p id="flowStarterText">输入自然语言目标或编号，系统会找历史相似任务、风险、模板、建议文件和验证命令。</p>
+          </div>
+          <div class="flow-next-actions">
+            <button class="primary" type="button" data-flow-action="starter-preview">生成预览</button>
+            <button type="button" data-flow-target="health">回到健康度</button>
+            <button type="button" data-flow-target="retro">去复盘</button>
+          </div>
+          <div class="flow-note">开工助手适合在“准备让 AI 做事”之前使用。它不是聊天框，而是把知识库里已有证据压成一份交接材料。</div>
+        </aside>
         <article class="card starter-input-card">
           <div class="prompt-head">
             <h3>开工助手</h3>
@@ -3335,6 +3509,37 @@
       </div>
 
       <div class="workspace health-layout" id="health">
+        <aside class="card flow-rail" data-flow-rail="health">
+          <div class="prompt-head">
+            <h3>任务闭环</h3>
+            <p>先定位问题，再生成开工上下文，做完后沉淀经验。</p>
+          </div>
+          <div class="flow-step-list">
+            <button class="flow-step active" type="button" data-flow-target="health">
+              <span class="flow-step-number">1</span>
+              <span><b>健康诊断</b><span>找出低质量资产和项目缺口</span></span>
+            </button>
+            <button class="flow-step" type="button" data-flow-target="starter">
+              <span class="flow-step-number">2</span>
+              <span><b>开工准备</b><span>召回证据，生成可复制开工包</span></span>
+            </button>
+            <button class="flow-step" type="button" data-flow-target="retro">
+              <span class="flow-step-number">3</span>
+              <span><b>完成复盘</b><span>整理结果，确认沉淀建议</span></span>
+            </button>
+          </div>
+          <div class="flow-context">
+            <span class="flow-context-label">当前页用途</span>
+            <strong id="flowHealthTitle">健康度：决定先处理什么</strong>
+            <p id="flowHealthText">这里把模板质量、项目覆盖和证据缺口排成优先级，适合先找最值得整理的对象。</p>
+          </div>
+          <div class="flow-next-actions">
+            <button class="primary" type="button" data-flow-action="health-refresh">刷新健康度</button>
+            <button type="button" data-flow-target="starter">拿去开工</button>
+            <button type="button" data-flow-target="projects">看项目看板</button>
+          </div>
+          <div class="flow-note">推荐从右侧行动建议开始：主目标负责定位资产，原始证据负责追溯来源，开工包会把问题带到开工助手。</div>
+        </aside>
         <aside class="card health-filter-card">
           <div class="prompt-head">
             <h3>资产健康度</h3>
@@ -3391,6 +3596,37 @@
       </div>
 
       <div class="workspace retro-layout" id="retro">
+        <aside class="card flow-rail" data-flow-rail="retro">
+          <div class="prompt-head">
+            <h3>任务闭环</h3>
+            <p>先定位问题，再生成开工上下文，做完后沉淀经验。</p>
+          </div>
+          <div class="flow-step-list">
+            <button class="flow-step" type="button" data-flow-target="health">
+              <span class="flow-step-number">1</span>
+              <span><b>健康诊断</b><span>找出低质量资产和项目缺口</span></span>
+            </button>
+            <button class="flow-step" type="button" data-flow-target="starter">
+              <span class="flow-step-number">2</span>
+              <span><b>开工准备</b><span>召回证据，生成可复制开工包</span></span>
+            </button>
+            <button class="flow-step active" type="button" data-flow-target="retro">
+              <span class="flow-step-number">3</span>
+              <span><b>完成复盘</b><span>整理结果，确认沉淀建议</span></span>
+            </button>
+          </div>
+          <div class="flow-context">
+            <span class="flow-context-label">当前页用途</span>
+            <strong id="flowRetroTitle">复盘助手：把做完的事变成资产</strong>
+            <p id="flowRetroText">输入本轮结果、验证和风险，系统会生成复盘草稿，并列出可确认的沉淀建议。</p>
+          </div>
+          <div class="flow-next-actions">
+            <button class="primary" type="button" data-flow-action="retro-preview">生成复盘</button>
+            <button type="button" data-flow-target="starter">回到开工包</button>
+            <button type="button" data-flow-target="health">回看健康度</button>
+          </div>
+          <div class="flow-note">复盘助手适合在“任务已经做完”之后使用。确认沉淀建议后，后续健康度和开工召回会更有依据。</div>
+        </aside>
         <article class="card retro-input-card">
           <div class="prompt-head">
             <h3>复盘助手</h3>
@@ -3692,6 +3928,7 @@
       const sidebarWorkspaces = new Set(['search', 'graph']);
       appShell?.classList.toggle('graph-mode', target === 'graph');
       appShell?.classList.toggle('workspace-wide', !sidebarWorkspaces.has(target));
+      updateFlowRail(target);
       if (target === 'graph') {
         graphState.lastFrameTime = 0;
         requestAnimationFrame(() => {
@@ -3709,6 +3946,43 @@
 
     function currentWorkspaceId() {
       return document.querySelector('.workspace.active')?.id || 'search';
+    }
+
+    function updateFlowRail(target) {
+      document.querySelectorAll('.flow-rail').forEach((rail) => {
+        rail.querySelectorAll('[data-flow-target]').forEach((btn) => {
+          btn.classList.toggle('active', btn.getAttribute('data-flow-target') === target);
+        });
+      });
+      if (target === 'health') {
+        const text = healthState.focusNote
+          || '这里把模板质量、项目覆盖和证据缺口排成优先级，适合先找最值得整理的对象。';
+        const node = document.getElementById('flowHealthText');
+        if (node) node.textContent = text;
+      } else if (target === 'starter') {
+        const node = document.getElementById('flowStarterText');
+        if (node) {
+          node.textContent = starterState.sourceNote
+            || '输入自然语言目标或编号，系统会找历史相似任务、风险、模板、建议文件和验证命令。';
+        }
+      } else if (target === 'retro') {
+        const node = document.getElementById('flowRetroText');
+        if (node) {
+          node.textContent = retroState.sourceNote
+            || '输入本轮结果、验证和风险，系统会生成复盘草稿，并列出可确认的沉淀建议。';
+        }
+      }
+    }
+
+    async function handleFlowAction(action) {
+      if (action === 'health-refresh') {
+        await loadHealthDashboard(true);
+      } else if (action === 'starter-preview') {
+        await runStarterPreview();
+      } else if (action === 'retro-preview') {
+        await runRetroPreview();
+      }
+      updateFlowRail(currentWorkspaceId());
     }
 
     const state = {
@@ -3736,14 +4010,16 @@
       sessionId: '',
       preview: null,
       markdown: '',
-      sessions: []
+      sessions: [],
+      sourceNote: ''
     };
 
     const retroState = {
       sessionId: '',
       preview: null,
       markdown: '',
-      suggestions: []
+      suggestions: [],
+      sourceNote: ''
     };
 
     const healthState = {
@@ -3755,7 +4031,8 @@
       warnings: [],
       lastError: '',
       activeView: 'all',
-      sort: 'score'
+      sort: 'score',
+      focusNote: ''
     };
 
     const projectsState = {
@@ -4077,7 +4354,9 @@
       }
       setHealthView('project');
       renderHealthDashboard();
-      document.getElementById('healthFocusNote').textContent = `当前定位项目：${projectName || projectId || '项目'}。可从项目覆盖列表继续查看低分原因。`;
+      healthState.focusNote = `当前定位项目：${projectName || projectId || '项目'}。可从项目覆盖列表继续查看低分原因。`;
+      document.getElementById('healthFocusNote').textContent = healthState.focusNote;
+      updateFlowRail('health');
     }
 
     async function handleProjectAction(route, projectId, projectName, starterInput, actionTitle, actionType) {
@@ -4093,12 +4372,14 @@
         return;
       }
       if (route === 'starter') {
+        starterState.sourceNote = `来自项目行动：${actionTitle || projectName || projectId || '下一步'}。已把项目风险带入开工助手。`;
         setActiveWorkspace('starter');
         document.getElementById('starterInput').value = starterInput || `基于项目 ${projectName || projectId} 生成下一轮开工包。`;
         await runStarterPreview();
         return;
       }
       if (route === 'retro') {
+        retroState.sourceNote = `来自项目行动：${actionTitle || projectName || projectId || '项目复盘'}。适合补充完成结果、验证和遗留风险。`;
         document.getElementById('retroInput').value = starterInput || `复盘项目：${projectName || projectId}`;
         setActiveWorkspace('retro');
         return;
@@ -4167,6 +4448,7 @@
     }
 
     async function openHealthStarter(input) {
+      starterState.sourceNote = '来自健康度行动建议：系统已把低分资产或项目缺口带入开工助手。';
       setActiveWorkspace('starter');
       document.getElementById('starterInput').value = input || '整理知识资产健康度';
       await runStarterPreview();
@@ -6417,8 +6699,10 @@
       retroState.sessionId = data.session_id || '';
       retroState.markdown = data.draft_markdown || '';
       retroState.suggestions = Array.isArray(data.suggestions) ? data.suggestions : [];
+      retroState.sourceNote = `已生成复盘：${data.summary || input}`;
       renderRetroPreview();
       retroSetTip('复盘草稿已生成，可确认建议或复制 Markdown。');
+      updateFlowRail('retro');
       return data;
     }
 
@@ -6446,6 +6730,7 @@
       }
       renderRetroPreview();
       retroSetTip('复盘包已取回。');
+      updateFlowRail('retro');
     }
 
     async function approveRetroSuggestion(suggestionId) {
@@ -6476,9 +6761,11 @@
       retroState.preview = null;
       retroState.markdown = '';
       retroState.suggestions = [];
+      retroState.sourceNote = '';
       document.getElementById('retroInput').value = '';
       renderRetroPreview();
       retroSetTip('等待输入。生成后可编辑草稿、确认建议，再复制到任务记忆。');
+      updateFlowRail('retro');
     }
 
     function starterSetTip(text, isError = false) {
@@ -6600,10 +6887,12 @@
       starterState.preview = data;
       starterState.sessionId = data.session_id || '';
       starterState.markdown = '';
+      starterState.sourceNote = `已生成预览：${data.summary || input}`;
       document.getElementById('starterPackage').textContent = 'Markdown 开工包会显示在这里。';
       renderStarterPreview();
       await loadStarterHistory();
       starterSetTip('预览已生成，可继续生成 Markdown 开工包。');
+      updateFlowRail('starter');
       return data;
     }
 
@@ -6628,6 +6917,7 @@
       document.getElementById('starterPackage').textContent = starterState.markdown || '未生成内容。';
       await loadStarterHistory();
       starterSetTip('Markdown 开工包已生成，可复制给 AI。');
+      updateFlowRail('starter');
     }
 
     async function copyStarterPackage() {
@@ -6642,10 +6932,12 @@
       starterState.sessionId = '';
       starterState.preview = null;
       starterState.markdown = '';
+      starterState.sourceNote = '';
       document.getElementById('starterInput').value = '';
       document.getElementById('starterPackage').textContent = 'Markdown 开工包会显示在这里。';
       renderStarterPreview();
       starterSetTip('等待输入。生成预览后可查看历史相似任务、风险、模板、建议文件和验证命令。');
+      updateFlowRail('starter');
     }
 
     async function updatePromptStatus(status) {
@@ -6774,6 +7066,21 @@
         const btn = event.target.closest('button[data-starter-session-id]');
         if (!btn) return;
         openStarterSession(btn.getAttribute('data-starter-session-id') || '');
+      });
+
+      document.querySelectorAll('.flow-rail').forEach((rail) => {
+        rail.addEventListener('click', (event) => {
+          if (!(event.target instanceof Element)) return;
+          const actionBtn = event.target.closest('button[data-flow-action]');
+          if (actionBtn) {
+            handleFlowAction(actionBtn.getAttribute('data-flow-action') || '');
+            return;
+          }
+          const targetBtn = event.target.closest('button[data-flow-target]');
+          if (targetBtn) {
+            setActiveWorkspace(targetBtn.getAttribute('data-flow-target') || 'health');
+          }
+        });
       });
 
       document.getElementById('retroPreviewBtn').addEventListener('click', runRetroPreview);

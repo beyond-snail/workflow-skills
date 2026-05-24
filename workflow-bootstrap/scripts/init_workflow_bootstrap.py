@@ -46,6 +46,14 @@ Mandatory rules:
 - `wf-req` -> `workflow-requirement`
 - `wf-exec` -> `workflow-execution`
 - `wf-arc` -> `workflow-execution` archive
+
+## Codex Token 控制
+- Codex 压缩恢复优先读取 `.ai/memory/context-brief.md` 和 checkpoint 的 `Transcript Digest`，不得默认读取完整 transcript。
+- 多窗口并行时，项目共享稳定状态使用 `.ai/memory/context-brief.md`；窗口级当前焦点优先读取 `.ai/memory/session-briefs/<session_id>.md`。
+- 压缩恢复默认只读取 `AGENTS.md` 与 `.ai/memory/context-brief.md`；除非需要事实结论、代码改动、SQL/接口判断或验证提交，否则不得扩展读取历史文件、完整 transcript、完整 checkpoint 或大文档。
+- `.ai/runtime/conversations/`、`.ai/memory/compact-checkpoints/` 和 `~/.codex/memories/compact-checkpoints/` 视为冷归档；只有追溯证据时才按关键词局部读取。
+- skill 使用只读取触发的 `SKILL.md` 和必要 references；PRD、大日志、大 diff、历史任务文件必须先检索再局部读取。
+- 工具输出需要主动限量，优先使用 `rg`、`sed -n`、`git diff --stat`、tail 摘要，避免把大文件整段送入上下文。
 """
 
 HOST_TEMPLATES = {
@@ -193,6 +201,51 @@ KNOWLEDGE_README = """# Knowledge
 ## 作用
 - 存放跨任务、跨窗口可复用的稳定知识。
 - 仅收录长期有效、复用价值明确、已形成稳定结论的内容。
+"""
+
+CONTEXT_BRIEF = """# Context Brief
+
+## 作用
+- Codex 压缩恢复后的优先上下文摘要。
+- 只保留项目共享稳定状态、关键决策、关键文件、验证、阻塞和下一步。
+- 覆盖更新，不长期追加；建议控制在 120 行以内。
+
+## 当前上下文
+- 当前主线：
+- 项目共享状态：
+- 当前状态：
+- 关键决策：
+- 关键文件：
+- 验证结论：
+- 阻塞风险：
+- 下一步：
+
+## 恢复规则
+- 新窗口或压缩恢复后，先读本文件、`AGENTS.md` 和 `.ai/memory/tasks/index.md`。
+- 如果存在 `.ai/memory/session-briefs/<session_id>.md`，它优先承载当前窗口任务焦点。
+- 默认只读取 `AGENTS.md` 与本文件；除非需要事实结论、代码改动、SQL/接口判断或验证提交，否则不得扩展读取历史文件、完整 transcript、完整 checkpoint 或大文档。
+- 完整 transcript、compact checkpoint、conversation 冷归档仅在追溯证据时按关键词局部读取。
+"""
+
+SESSION_BRIEF = """# Session Brief
+
+## 作用
+- 仅记录当前窗口/当前 session 的任务焦点。
+- 解决多窗口并行时共享 `context-brief.md` 被互相覆盖的问题。
+- 覆盖更新，不长期追加。
+
+## 当前会话
+- session_id：
+- 当前任务：
+- 当前结论：
+- 关键文件：
+- 验证结论：
+- 阻塞风险：
+- 下一步：
+
+## 恢复规则
+- 当前窗口压缩恢复后，优先读本文件，再读 `.ai/memory/context-brief.md`。
+- 本文件只描述当前窗口；跨窗口共享状态以 `context-brief.md` 为准。
 """
 
 REQUIREMENTS_POOL = """# 需求池
@@ -1344,6 +1397,8 @@ def main() -> int:
         ".ai/memory/tasks/_template/issues.md": TASK_ISSUES,
         ".ai/memory/tasks/_template/decisions.md": TASK_DECISIONS,
         ".ai/memory/tasks/_template/verify.md": TASK_VERIFY,
+        ".ai/memory/context-brief.md": CONTEXT_BRIEF,
+        ".ai/memory/session-briefs/README.md": SESSION_BRIEF,
         ".ai/memory/knowledge/README.md": KNOWLEDGE_README,
         ".ai/runtime/profile/project-profile.yml": render_profile(detection),
         ".ai/runtime/project-state.json": render_project_state_with_scan(root, detection, workflow_state, legacy_scan),
@@ -1364,6 +1419,7 @@ def main() -> int:
     actions.append((".ai/runtime/inbox/.gitkeep", ensure_gitkeep(root / ".ai/runtime/inbox/.gitkeep", args.dry_run)))
     actions.append((".ai/runtime/state/.gitkeep", ensure_gitkeep(root / ".ai/runtime/state/.gitkeep", args.dry_run)))
     actions.append((".ai/memory/tasks/archived/.gitkeep", ensure_gitkeep(root / ".ai/memory/tasks/archived/.gitkeep", args.dry_run)))
+    actions.append((".ai/memory/session-briefs/.gitkeep", ensure_gitkeep(root / ".ai/memory/session-briefs/.gitkeep", args.dry_run)))
     actions.append((f"{detection.prd_directory}/.gitkeep", ensure_gitkeep(root / detection.prd_directory / ".gitkeep", args.dry_run)))
 
     warnings, infos = self_check(root, detection)

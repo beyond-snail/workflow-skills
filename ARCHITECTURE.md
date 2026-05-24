@@ -10,9 +10,9 @@ The project is intentionally file-based. It uses repository-local workflow docum
 
 | 模块 | 定位 | 是否必选 | 主要产物 |
 | --- | --- | --- | --- |
-| `workflow-bootstrap` | 初始化仓库协作底座 | 必选 | `AGENTS.md`、`docs/workflow/`、`.ai/`、`project-state.json`、`wf-*` 命令 |
+| `workflow-bootstrap` | 初始化仓库协作底座 | 必选 | `AGENTS.md`、`docs/workflow/`、`.ai/`、`context-brief.md`、`project-state.json`、`wf-*` 命令 |
 | `workflow-requirement` | 把 PRD 治理成可交接任务 | 必选 | 需求池、任务看板、设计/追溯材料、任务记忆、状态回写 |
-| `workflow-execution` | 在人工审核后执行开发收口 | 必选 | 代码改动、验证记录、证据、任务记忆、提交/闸门结论、状态回写 |
+| `workflow-execution` | 在人工审核后执行开发收口 | 必选 | 代码改动、验证记录、证据、任务记忆、提交/闸门结论、状态与恢复摘要回写 |
 | `workflow-statusbar` | 桌面状态聚合与提醒 | 可选 | 菜单栏/托盘面板、悬浮窗、通知、本地知识库 Web/API/MCP |
 
 ## 3. System Architecture
@@ -49,8 +49,9 @@ Core rules:
 
 1. The skills are the action layer.
 2. `project-state.json` is the runtime state source.
-3. `workflow-statusbar` is an observation layer.
-4. Requirement review and execution start remain explicit human-controlled gates.
+3. `.ai/memory/context-brief.md` is the compact recovery source for Codex context compaction.
+4. `workflow-statusbar` is an observation layer.
+5. Requirement review and execution start remain explicit human-controlled gates.
 
 ## 4. Technology Stack
 
@@ -60,7 +61,7 @@ Core rules:
 - 文档与状态格式：`Markdown`、`YAML`、`JSON`
 - 命令入口：`workflow-bootstrap/scripts/workflow_cli.py`
 - 短命令封装：`.ai/bin/workflow`、`wf-init`、`wf-doctor`、`wf-cons`、`wf-req`、`wf-exec`、`wf-arc`
-- 主要数据源：`docs/workflow/`、`.ai/memory/`、`.ai/runtime/project-state.json`
+- 主要数据源：`docs/workflow/`、`.ai/memory/`、`.ai/memory/context-brief.md`、`.ai/runtime/project-state.json`
 
 ### workflow-statusbar
 
@@ -78,6 +79,7 @@ Core rules:
 workflow skills
 -> docs/workflow + .ai/memory
 -> .ai/runtime/project-state.json
+-> .ai/memory/context-brief.md
 -> workflow-statusbar Rust backend
 -> RuntimeState
 -> Tauri get_runtime_state command + runtime-state event

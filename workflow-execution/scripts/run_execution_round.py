@@ -150,6 +150,48 @@ def run_helper(script_name: str, args: list[str], dry_run: bool) -> tuple[int, s
     return run_exec(cmd, dry_run=dry_run)
 
 
+def build_context_brief_args(
+    project_paths: ProjectPaths,
+    selected: TaskRecord,
+    req_id: str | None,
+    req_title: str,
+    task_status: str,
+    mode: str,
+    summary: str,
+    evidence_files: list[str],
+    verification_lines: list[str],
+    blockers: list[str],
+    next_steps: list[str],
+) -> list[str]:
+    helper_args = [
+        "--workspace-root",
+        str(project_paths.workspace_root),
+        "--req-id",
+        req_id or selected.req_id or "",
+        "--req-title",
+        req_title,
+        "--task-id",
+        selected.task_id,
+        "--task-title",
+        selected.title,
+        "--task-status",
+        task_status,
+        "--mode",
+        mode,
+        "--summary",
+        summary,
+    ]
+    for item in evidence_files:
+        helper_args.extend(["--evidence", item])
+    for item in verification_lines:
+        helper_args.extend(["--verification", item])
+    for item in blockers:
+        helper_args.extend(["--blocker", item])
+    for item in next_steps:
+        helper_args.extend(["--next-step", item])
+    return helper_args
+
+
 def find_git_root(start: Path) -> Path:
     current = start.resolve()
     for path in [current, *current.parents]:
@@ -961,6 +1003,7 @@ def main() -> int:
         )
         preview_path = write_project_state(project_paths.workspace_root, preview_state, dry_run=True)
         print(f"- action: update project-state preview at `{preview_path}`")
+        print(f"- action: update context-brief preview at `{project_paths.workspace_root / '.ai/memory/context-brief.md'}`")
         for item in infos:
             print(f"- selfcheck-info: {item}")
         for item in warnings:
@@ -1489,6 +1532,24 @@ def main() -> int:
     )
     state_path = write_project_state(project_paths.workspace_root, state, dry_run=False)
     print(f"- project_state: {state_path}")
+    context_brief_args = build_context_brief_args(
+        project_paths,
+        selected,
+        req_id,
+        req_ctx.title if req_ctx else "",
+        final_task_status,
+        resolved_mode,
+        (args.summary or f"{selected.task_id} 执行回合已{final_task_status}") + f"；{legacy_context['summary']}",
+        [*(str(p) for p in (*record_files, *test_result_files, *gate_doc_files)), *legacy_context["evidence_refs"]],
+        verification_lines,
+        blockers,
+        next_steps,
+    )
+    code, output = run_helper("update_context_brief.py", context_brief_args, dry_run=False)
+    if output:
+        print(output)
+    if code != 0:
+        return code
 
     print(f"- final_task_status: {final_task_status}")
     if final_task_status == "done" and task_memory_dir and not args.archive_task_memory and "archived" not in task_memory_dir.parts:

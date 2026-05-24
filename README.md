@@ -72,6 +72,7 @@ flowchart LR
 - 三个 workflow skill 是动作层，会创建或更新目标仓库中的文件。
 - `.ai/runtime/project-state.json` 是 workflow 进度的共享运行态文件。
 - `.ai/memory/` 保存可复用的任务记忆和项目知识。
+- `.ai/memory/context-brief.md` 保存压缩恢复摘要，`.ai/memory/session-briefs/` 保存窗口级任务焦点。
 - `workflow-statusbar` 是观察层，不负责审核需求、不启动执行、不替代测试。
 - 更详细的架构说明见 [ARCHITECTURE.md](ARCHITECTURE.md)。
 
@@ -165,6 +166,8 @@ docs/workflow/PROJECT_CONTEXT.md
 docs/workflow/开发协作约定.md
 docs/workflow/requirements/需求池.md
 docs/workflow/requirements/任务看板.md
+.ai/memory/context-brief.md
+.ai/memory/session-briefs/README.md
 .ai/memory/tasks/index.md
 .ai/memory/knowledge/README.md
 .ai/runtime/profile/project-profile.yml

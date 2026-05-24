@@ -3,7 +3,7 @@ name: workflow-execution
 description: 当任务已通过人工审核且用户显式要求进入实现阶段时使用。
 ---
 
-# Workflow Execution Skill (v2.6.0)
+# Workflow Execution Skill (v2.6.1)
 
 在人工审核通过且收到显式开工指令后，按任务看板执行实现、验证、证据回写、记忆沉淀与提交收口。
 
@@ -12,7 +12,7 @@ description: 当任务已通过人工审核且用户显式要求进入实现阶�
 1. 用户明确说 `开干` 或等价开工指令。
 2. 需求已完成 requirement 收口并通过人工审核。
 3. 需要推进下一条任务或继续收口指定任务。
-4. 需要在执行后同步更新 `.ai/runtime/project-state.json`。
+4. 需要在执行后同步更新 `.ai/runtime/project-state.json` 与 `.ai/memory/context-brief.md`。
 
 ## 先读什么（按需）
 
@@ -37,7 +37,7 @@ description: 当任务已通过人工审核且用户显式要求进入实现阶�
 2. 无显式开工指令不得进入 execution。
 3. 代码/测试/状态变化必须同步证据与文档。
 4. bugfix/continuation 不能只改代码不补任务记忆。
-5. 收口后必须回写 `.ai/runtime/project-state.json`。
+5. 收口后必须回写 `.ai/runtime/project-state.json` 和 `.ai/memory/context-brief.md`。
 
 ## 关键入口
 
@@ -86,10 +86,10 @@ python3 <skill-dir>/scripts/run_execution_round.py \
 3. 更新了哪些证据与任务记忆。
 4. 当前模式（完整/轻量）。
 5. 当前结论（done/blocked/still doing）。
-6. `project-state.json` 更新结果。
+6. `project-state.json` 与 `context-brief.md` 更新结果。
 
 ## 维护说明
 
-1. 版本：`v2.6.0`。
+1. 版本：`v2.6.1`。
 2. 与 requirement 的 `references/shared-governance.md` 必须一致。
 3. 本 skill 聚焦执行收口，不承载需求整理职责。

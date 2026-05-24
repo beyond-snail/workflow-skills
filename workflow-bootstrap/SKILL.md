@@ -3,7 +3,7 @@ name: workflow-bootstrap
 description: 当需要给一个新仓库或旧仓库补齐 workflow + memory 协作底座时使用。适用于自动初始化 AGENTS、docs/workflow 下的 PROJECT_CONTEXT/开发协作约定/requirements/PRD、.ai 目录骨架、宿主补充文件、任务记忆模板、runtime profile，以及最小 requirements 治理文件。
 ---
 
-# Workflow Bootstrap Skill (v2.6.1)
+# Workflow Bootstrap Skill (v2.6.2)
 
 初始化 workflow + memory 的最小底座，为后续 `workflow-requirement` / `workflow-execution` 提供稳定目录与状态骨架。
 
@@ -56,7 +56,7 @@ python3 <skill-dir>/scripts/workflow_cli.py cons --workspace-root .
 
 1. 协作文件：`AGENTS.md`、`docs/workflow/PROJECT_CONTEXT.md`、`docs/workflow/开发协作约定.md`。
 2. 需求治理：`docs/workflow/requirements/需求池.md`、`docs/workflow/requirements/任务看板.md`、`docs/workflow/PRD/.gitkeep`。
-3. 记忆层：`.ai/memory/tasks/index.md`、`.ai/memory/tasks/_template/*`、`.ai/memory/knowledge/README.md`。
+3. 记忆层：`.ai/memory/context-brief.md`、`.ai/memory/session-briefs/.gitkeep`、`.ai/memory/session-briefs/README.md`、`.ai/memory/tasks/index.md`、`.ai/memory/tasks/_template/*`、`.ai/memory/knowledge/README.md`。
 4. 运行态：`.ai/runtime/profile/project-profile.yml`、`.ai/runtime/project-state.json`、`.ai/runtime/cache/legacy-scan.json`、`.ai/runtime/inbox/.gitkeep`、`.ai/runtime/conversations/.gitkeep`。
 5. 工具入口：`.ai/bin/workflow`、`wf-init`、`wf-doctor`、`wf-cons`、`wf-req`、`wf-exec`、`wf-arc`。
 
@@ -70,6 +70,6 @@ python3 <skill-dir>/scripts/workflow_cli.py cons --workspace-root .
 
 ## 维护说明
 
-1. 版本：`v2.6.1`。
+1. 版本：`v2.6.2`。
 2. 只维护最小底座，不承载需求与执行阶段逻辑。
 3. 与 requirement / execution 共享 `project-state.json` 事实源。
