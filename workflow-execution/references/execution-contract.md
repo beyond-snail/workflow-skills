@@ -21,4 +21,5 @@
 3. 不要因为后面有任务就自动跨阶段。
 4. 默认使用 `compact` 回写，只写可续接摘要；`context-brief.md` 覆盖成短状态，不写审计报告。
 5. 只有用户明确要求“正式验收、发布前回归、审计留痕、完整回写、测试报告、联调记录、验收材料”时，使用 `audit` 回写。
-6. 对 bugfix / continuation，`compact` 至少补一条 `verify.md` 摘要；`audit` 可补 `inbox.md`、`issues.md`、`decisions.md`。
+6. 涉及发布、验收、生产数据、SQL、权限、安全、跨模块接口、客户交付时，默认 compact 自动升级为 `audit`。
+7. 对 bugfix / continuation，`compact` 至少补一条 `verify.md` 摘要；`audit` 可补 `inbox.md`、`issues.md`、`decisions.md`。

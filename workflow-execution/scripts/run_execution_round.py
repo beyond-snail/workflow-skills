@@ -37,6 +37,15 @@ LINK_RE = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
 DECISION_SIGNAL_RE = re.compile(r"(根因|决定|最终发现|改成|结论)")
 CONTINUATION_SIGNAL_RE = re.compile(r"(继续|收口|遗留|上次|延续|接着|未完成)")
 BUGFIX_SIGNAL_RE = re.compile(r"(bug|缺陷|测试问题|报错|异常|失败|修复|修一下|问题)", re.IGNORECASE)
+HIGH_RISK_WRITEBACK_PATTERNS = {
+    "发布/部署": re.compile(r"(发布|上线|部署|release|deploy|上线前|发布前)", re.IGNORECASE),
+    "验收/回归": re.compile(r"(验收|回归|UAT|正式测试|测试报告|联调记录|验收材料)", re.IGNORECASE),
+    "生产数据": re.compile(r"(生产数据|线上数据|生产环境|线上环境|prod|production)", re.IGNORECASE),
+    "SQL/迁移": re.compile(r"(SQL|DDL|DML|数据迁移|数据修复|回滚脚本|sql)", re.IGNORECASE),
+    "权限/安全": re.compile(r"(权限|安全|鉴权|认证|授权|auth|permission|security)", re.IGNORECASE),
+    "跨模块接口": re.compile(r"(跨模块|外部接口|接口联调|开放接口|API|api)", re.IGNORECASE),
+    "客户交付": re.compile(r"(客户|交付|对外交付|客户验收|生产交付)", re.IGNORECASE),
+}
 FOCUS_CODE_PATTERNS = (
     re.compile(r"\b[A-Z]{1,10}-\d{1,8}\b", re.IGNORECASE),
     re.compile(r"\b[A-Z]{1,6}\d{2,8}\b", re.IGNORECASE),
@@ -809,6 +818,13 @@ def audit_writeback(writeback: str) -> bool:
     return writeback == "audit"
 
 
+def high_risk_writeback_reasons(*values: str) -> list[str]:
+    text = " ".join(value for value in values if value)
+    if not text:
+        return []
+    return [label for label, pattern in HIGH_RISK_WRITEBACK_PATTERNS.items() if pattern.search(text)]
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Explicit execution entrypoint: requires manual review approval, then runs validation with compact writeback by default"
@@ -922,6 +938,22 @@ def main() -> int:
 
     pre_task_memory_dir = find_task_memory_dir(project_paths, selected.task_id) or find_task_memory_dir_by_req(project_paths, req_id)
     resolved_mode = infer_execution_mode(args.mode, args.summary or "", selected, args.blocker, pre_task_memory_dir)
+    high_risk_reasons = high_risk_writeback_reasons(
+        selected.title,
+        selected.task_id,
+        req_id or "",
+        req_ctx.title if req_ctx else "",
+        args.summary,
+        " ".join(args.doc_file),
+        " ".join(args.gate_evidence_file),
+        " ".join(args.build_cmd),
+        " ".join(args.test_cmd),
+    )
+    writeback_upgraded = False
+    if args.writeback == "compact" and high_risk_reasons:
+        args.writeback = "audit"
+        writeback_upgraded = True
+        print(f"- writeback_guard: high-risk {', '.join(high_risk_reasons)} -> audit")
 
     print_header(
         "Execution Round",
@@ -934,6 +966,7 @@ def main() -> int:
             "exec_mode": resolved_mode,
             "mode_source": "auto" if args.mode == "auto" else "explicit",
             "writeback": args.writeback,
+            "writeback_guard": "risk-upgrade" if writeback_upgraded else None,
             "mode": "dry-run" if args.dry_run else "live",
         },
     )

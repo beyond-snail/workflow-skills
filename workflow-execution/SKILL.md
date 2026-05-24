@@ -3,7 +3,7 @@ name: workflow-execution
 description: 当任务已通过人工审核且用户显式要求进入实现阶段时使用。
 ---
 
-# Workflow Execution Skill (v2.6.3)
+# Workflow Execution Skill (v2.6.4)
 
 在人工审核通过且收到显式开工指令后，按任务看板执行实现、验证、短证据回写、记忆沉淀与提交收口。
 
@@ -30,6 +30,7 @@ description: 当任务已通过人工审核且用户显式要求进入实现阶�
 3. 默认写回采用 `compact`，只保留可续接状态、验证摘要、风险和下一步。
 4. 遇阻塞可停在 `blocked`，但必须留痕。
 5. 详细测试报告、验收材料、表格行细节、inbox 自动收件仅在 `audit` 模式或用户明确要求时执行。
+6. 涉及发布、验收、生产数据、SQL、权限、安全、跨模块接口、客户交付时，默认 compact 自动升级为 `audit`。
 
 ## 不可跳过原则
 
@@ -89,6 +90,7 @@ python3 <skill-dir>/scripts/run_execution_round.py \
 
 说明：默认 `--writeback compact` 只写测试结果一行摘要、`verify.md` 一行摘要、`project-state.json` 和短版 `context-brief.md`。`--writeback audit` 才会追加步骤级明细表、联调/验收证据块、表格行细节和 bugfix/continuation 的 inbox 自动收件。
 当用户明确说“正式验收”“发布前回归”“审计留痕”“完整回写”“写测试报告”“写联调记录”“生成验收材料”时，使用 `--writeback audit`。
+命中发布、验收、生产数据、SQL、权限、安全、跨模块接口、客户交付时，脚本会把默认 compact 升级为 `audit` 并输出 `writeback_guard`。
 
 ## 输出要求（最小）
 
@@ -104,6 +106,6 @@ python3 <skill-dir>/scripts/run_execution_round.py \
 
 ## 维护说明
 
-1. 版本：`v2.6.3`。
+1. 版本：`v2.6.4`。
 2. 与 requirement 的 `references/shared-governance.md` 必须一致。
 3. 本 skill 聚焦执行收口，不承载需求整理职责。

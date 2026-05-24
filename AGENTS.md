@@ -4,6 +4,7 @@
 - 默认简单明了：先给 3-5 行短分析，再执行。
 - 只有跨模块、SQL/接口、生产故障、安全/数据风险、提交发布或用户要求详细分析时，展开文件/链路/影响范围/根因。
 - 最终回复只写：改了什么、验证结果、提交/推送状态、未覆盖风险。
+- 涉及发布、验收、生产数据、SQL、权限、安全、跨模块接口、客户交付时，不得静默使用 compact；需说明风险并升级 audit 或请求确认。
 
 ## Codex Token 控制
 - Codex 压缩恢复优先读取 `.ai/memory/context-brief.md` 和 checkpoint 的 `Transcript Digest`，不得默认读取完整 transcript。
