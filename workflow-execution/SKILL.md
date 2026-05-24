@@ -3,7 +3,7 @@ name: workflow-execution
 description: 当任务已通过人工审核且用户显式要求进入实现阶段时使用。
 ---
 
-# Workflow Execution Skill (v2.6.2)
+# Workflow Execution Skill (v2.6.3)
 
 在人工审核通过且收到显式开工指令后，按任务看板执行实现、验证、短证据回写、记忆沉淀与提交收口。
 
@@ -92,15 +92,18 @@ python3 <skill-dir>/scripts/run_execution_round.py \
 
 ## 输出要求（最小）
 
-1. 完成了哪些任务。
-2. 执行了哪些验证。
-3. 更新了哪些证据与任务记忆。
-4. 当前回写模式（none/compact/audit）。
-5. 当前结论（done/blocked/still doing）。
-6. `project-state.json` 与 `context-brief.md` 更新结果。
+默认只输出 5 行以内：
+
+1. 任务结果。
+2. 验证结果。
+3. 回写模式与关键文件。
+4. 提交/推送/闸门状态。
+5. 未覆盖风险或下一步。
+
+阻塞、失败、审计模式或用户要求详细时，再展开证据和影响范围。
 
 ## 维护说明
 
-1. 版本：`v2.6.2`。
+1. 版本：`v2.6.3`。
 2. 与 requirement 的 `references/shared-governance.md` 必须一致。
 3. 本 skill 聚焦执行收口，不承载需求整理职责。
