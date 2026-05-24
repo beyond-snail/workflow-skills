@@ -183,7 +183,7 @@ python3 <skill-dir>/scripts/sync_task_board.py \
 
 ### 4. 自动回写 PRD追溯 / 测试结果 / 联调验收
 
-推荐使用以下脚本，避免手工改表格和长文档：
+推荐使用以下脚本，避免手工改表格。测试结果与联调验收默认写 compact 一行摘要；正式测试报告或验收材料再加 `--format audit`。
 
 ```bash
 python3 <skill-dir>/scripts/sync_prd_trace.py \

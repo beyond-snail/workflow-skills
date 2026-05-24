@@ -1,20 +1,13 @@
 # Context Brief
 
-## 作用
-- Codex 压缩恢复后的优先上下文摘要。
-- 只保留当前任务、关键决策、关键文件、验证、阻塞和下一步。
-- 覆盖更新，不长期追加；建议控制在 120 行以内。
-
-## 当前上下文
-- 当前需求：待补充
-- 当前任务：待补充
-- 当前状态：initialized
-- 关键决策：优先使用本文件恢复上下文，避免默认读取完整 transcript 或大历史文件。
-- 关键文件：AGENTS.md；.ai/memory/tasks/index.md；.ai/runtime/project-state.json
-- 验证结论：待项目任务收口时由 workflow-execution 更新。
-- 阻塞风险：暂无
-- 下一步：执行任务收口后覆盖更新本文件。
-
-## 恢复规则
-- 新窗口或压缩恢复后，先读 `AGENTS.md`、本文件、`.ai/memory/tasks/index.md` 和 `.ai/runtime/project-state.json`。
-- 完整 transcript、compact checkpoint、conversation 冷归档仅在追溯证据时按关键词局部读取。
+- updated_at: 2026-05-24T17:35:43+08:00
+- workspace: /Users/wucongpeng/Documents/ai/skill/workflow-skills-copy
+- requirement: `N/A` 未指定
+- task: `SKILL-WRITEBACK-COMPACT` workflow skills 默认短回写
+- status: done / compact
+- summary: 将 execution/requirement 默认回写改为 compact；audit 显式触发；context-brief 改为短恢复摘要。
+- files: workflow-requirement/scripts/record_test_result.py；workflow-requirement/scripts/record_acceptance_result.py；workflow-execution/scripts/run_execution_round.py；workflow-execution/scripts/update_context_brief.py；workflow-bootstrap/scripts/init_workflow_bootstrap.py
+- evidence: workflow-execution/SKILL.md
+- verified: python3 -m py_compile workflow-bootstrap/scripts/*.py workflow-requirement/scripts/*.py workflow-execution/scripts/*.py -> PASS；git diff --check -> PASS；record_test_result/record_acceptance_result/update_context_brief dry-run -> PASS
+- risk: 无
+- next: commit + push

@@ -7,7 +7,7 @@
 3. 改成 doing
 4. 实现
 5. 校验
-6. 补证据与任务记忆
+6. 按回写模式补证据与任务记忆
 7. 改成 done / blocked
 8. commit
 9. push
@@ -19,4 +19,6 @@
 1. 不要跳过证据回写。
 2. 不要绕过项目的发布闸门。
 3. 不要因为后面有任务就自动跨阶段。
-4. 对 bugfix / continuation，至少补 `verify.md`，必要时补 `inbox.md`、`issues.md`、`decisions.md`。
+4. 默认使用 `compact` 回写，只写可续接摘要；`context-brief.md` 覆盖成短状态，不写审计报告。
+5. 只有用户明确要求“正式验收、发布前回归、审计留痕、完整回写、测试报告、联调记录、验收材料”时，使用 `audit` 回写。
+6. 对 bugfix / continuation，`compact` 至少补一条 `verify.md` 摘要；`audit` 可补 `inbox.md`、`issues.md`、`decisions.md`。

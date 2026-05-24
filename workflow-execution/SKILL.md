@@ -3,9 +3,9 @@ name: workflow-execution
 description: 当任务已通过人工审核且用户显式要求进入实现阶段时使用。
 ---
 
-# Workflow Execution Skill (v2.6.1)
+# Workflow Execution Skill (v2.6.2)
 
-在人工审核通过且收到显式开工指令后，按任务看板执行实现、验证、证据回写、记忆沉淀与提交收口。
+在人工审核通过且收到显式开工指令后，按任务看板执行实现、验证、短证据回写、记忆沉淀与提交收口。
 
 ## 什么时候用
 
@@ -27,9 +27,9 @@ description: 当任务已通过人工审核且用户显式要求进入实现阶�
 
 1. 必须满足“人工审核已完成 + 显式开工”。
 2. 不得因 requirement 已拆任务而自动进入 execution。
-3. 默认推进到验证、证据、提交、推送、发布闸门；仅在用户明确缩小范围时降级。
+3. 默认写回采用 `compact`，只保留可续接状态、验证摘要、风险和下一步。
 4. 遇阻塞可停在 `blocked`，但必须留痕。
-5. 有记忆层时，执行前先检索历史，执行后至少回写一种任务记忆。
+5. 详细测试报告、验收材料、表格行细节、inbox 自动收件仅在 `audit` 模式或用户明确要求时执行。
 
 ## 不可跳过原则
 
@@ -37,7 +37,7 @@ description: 当任务已通过人工审核且用户显式要求进入实现阶�
 2. 无显式开工指令不得进入 execution。
 3. 代码/测试/状态变化必须同步证据与文档。
 4. bugfix/continuation 不能只改代码不补任务记忆。
-5. 收口后必须回写 `.ai/runtime/project-state.json` 和 `.ai/memory/context-brief.md`。
+5. 收口后必须回写 `.ai/runtime/project-state.json` 和短版 `.ai/memory/context-brief.md`。
 
 ## 关键入口
 
@@ -60,6 +60,17 @@ python3 <skill-dir>/scripts/workflow_cli.py exec --workspace-root . --req-id REQ
 python3 <skill-dir>/scripts/workflow_cli.py exec --workspace-root . --req-id REQ-xxxx --task-id TASK-xxxx --no-commit --no-push --no-release-gate
 ```
 
+详细审计/正式验收：
+
+```bash
+python3 <skill-dir>/scripts/run_execution_round.py \
+  --confirm-start \
+  --req-id REQ-xxxx \
+  --task-id TASK-xxxx \
+  --summary "正式验收回写" \
+  --writeback audit
+```
+
 部分需求 + 自测回写（不跑整套）：
 
 ```bash
@@ -76,20 +87,20 @@ python3 <skill-dir>/scripts/run_execution_round.py \
   --no-commit --no-push --no-release-gate
 ```
 
-说明：默认会在 `测试结果/联调记录` 中同时追加“自动回写记录”并更新对应表格行（`实际/证据/状态`），且会自动生成“步骤级明细表（动作/预期/实际/证据）”。
-默认会自动使用 `task_id + task_title + req_id + req_title + summary` 识别目标行，不传 `--focus-keyword` 也可回写；`--focus-keyword` 仅用于人工纠偏。
+说明：默认 `--writeback compact` 只写测试结果一行摘要、`verify.md` 一行摘要、`project-state.json` 和短版 `context-brief.md`。`--writeback audit` 才会追加步骤级明细表、联调/验收证据块、表格行细节和 bugfix/continuation 的 inbox 自动收件。
+当用户明确说“正式验收”“发布前回归”“审计留痕”“完整回写”“写测试报告”“写联调记录”“生成验收材料”时，使用 `--writeback audit`。
 
 ## 输出要求（最小）
 
 1. 完成了哪些任务。
 2. 执行了哪些验证。
 3. 更新了哪些证据与任务记忆。
-4. 当前模式（完整/轻量）。
+4. 当前回写模式（none/compact/audit）。
 5. 当前结论（done/blocked/still doing）。
 6. `project-state.json` 与 `context-brief.md` 更新结果。
 
 ## 维护说明
 
-1. 版本：`v2.6.1`。
+1. 版本：`v2.6.2`。
 2. 与 requirement 的 `references/shared-governance.md` 必须一致。
 3. 本 skill 聚焦执行收口，不承载需求整理职责。

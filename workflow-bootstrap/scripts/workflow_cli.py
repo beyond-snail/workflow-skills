@@ -60,6 +60,7 @@ def main() -> int:
     p_execution.add_argument("--task-id", default="")
     p_execution.add_argument("--summary", default="")
     p_execution.add_argument("--mode", choices=("auto", "feature", "bugfix", "continuation"), default="auto")
+    p_execution.add_argument("--writeback", choices=("none", "compact", "audit"), default="compact")
     p_execution.add_argument("--dry-run", action="store_true")
     p_execution.add_argument("--no-commit", action="store_true")
     p_execution.add_argument("--no-push", action="store_true")
@@ -135,6 +136,8 @@ def main() -> int:
             args.summary,
             "--mode",
             args.mode,
+            "--writeback",
+            args.writeback,
         ]
         if args.req_id:
             cmd.extend(["--req-id", args.req_id])

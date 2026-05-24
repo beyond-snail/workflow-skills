@@ -159,6 +159,7 @@ def build_context_brief_args(
     mode: str,
     summary: str,
     evidence_files: list[str],
+    changed_files: list[str],
     verification_lines: list[str],
     blockers: list[str],
     next_steps: list[str],
@@ -181,6 +182,8 @@ def build_context_brief_args(
         "--summary",
         summary,
     ]
+    for item in changed_files:
+        helper_args.extend(["--changed-file", item])
     for item in evidence_files:
         helper_args.extend(["--evidence", item])
     for item in verification_lines:
@@ -533,6 +536,7 @@ def append_task_evidence(
     blockers: list[str],
     next_steps: list[str],
     dry_run: bool,
+    record_format: str = "audit",
 ) -> int:
     for file in files:
         helper_args = [
@@ -545,13 +549,16 @@ def append_task_evidence(
         ]
         if summary:
             helper_args.extend(["--summary", summary])
-        for item in verification_lines:
+        selected_verifications = verification_lines if record_format == "audit" else verification_lines[:2]
+        for item in selected_verifications:
             helper_args.extend(["--verification", item])
         for item in artifacts:
             helper_args.extend(["--artifact", item])
-        for item in blockers:
+        selected_blockers = blockers if record_format == "audit" else blockers[:2]
+        selected_next_steps = next_steps if record_format == "audit" else next_steps[:1]
+        for item in selected_blockers:
             helper_args.extend(["--blocker", item])
-        for item in next_steps:
+        for item in selected_next_steps:
             helper_args.extend(["--next-step", item])
         if dry_run:
             helper_args.append("--dry-run")
@@ -575,6 +582,7 @@ def append_test_results(
     blockers: list[str],
     alternatives: list[str],
     dry_run: bool,
+    record_format: str = "compact",
 ) -> int:
     if not files:
         return 0
@@ -589,14 +597,18 @@ def append_test_results(
             title,
             "--status",
             status,
+            "--format",
+            record_format,
         ]
         if summary:
             helper_args.extend(["--summary", summary])
         for item in commands:
             helper_args.extend(["--command", item])
-        for item in results:
+        selected_results = results if record_format == "audit" else results[:2]
+        selected_steps = steps if record_format == "audit" else []
+        for item in selected_results:
             helper_args.extend(["--result", item])
-        for item in steps:
+        for item in selected_steps:
             helper_args.extend(["--step", json.dumps(item, ensure_ascii=False)])
         for item in conclusions:
             helper_args.extend(["--conclusion", item])
@@ -789,9 +801,17 @@ def update_execution_table_rows(
         print(f"[PASS] table writeback: {file}:{row.line_index + 1}")
 
 
+def writeback_enabled(writeback: str) -> bool:
+    return writeback != "none"
+
+
+def audit_writeback(writeback: str) -> bool:
+    return writeback == "audit"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Explicit execution entrypoint: requires manual review approval, then auto-runs validation, evidence, commit/push, and release gate"
+        description="Explicit execution entrypoint: requires manual review approval, then runs validation with compact writeback by default"
     )
     add_profile_arg(parser)
     parser.add_argument("--task-file", help="Task board path")
@@ -799,6 +819,7 @@ def main() -> int:
     parser.add_argument("--task-id", help="Explicit task id; otherwise select doing or earliest todo")
     parser.add_argument("--confirm-start", action="store_true", help="Confirm manual review is complete and execution is explicitly authorized")
     parser.add_argument("--summary", default="", help="Execution summary for evidence and reporting")
+    parser.add_argument("--writeback", choices=("none", "compact", "audit"), default="compact", help="Writeback detail. compact is default; audit keeps detailed evidence records.")
     parser.add_argument("--record-file", action="append", default=[], help="Markdown file to append task evidence into, repeatable")
     parser.add_argument("--test-result-file", action="append", default=[], help="Markdown file to append test result into, repeatable")
     parser.add_argument("--build-cmd", action="append", default=[], help="Build/compile command, repeatable")
@@ -912,6 +933,7 @@ def main() -> int:
             "req_title": req_ctx.title if req_ctx else None,
             "exec_mode": resolved_mode,
             "mode_source": "auto" if args.mode == "auto" else "explicit",
+            "writeback": args.writeback,
             "mode": "dry-run" if args.dry_run else "live",
         },
     )
@@ -972,7 +994,9 @@ def main() -> int:
         print(f"- default_test_fallback: {'disabled' if args.no_default_test_cmd else 'enabled'}")
         print(f"- self_test_notes: {', '.join(self_test_notes) or '(none)'}")
         print(f"- focus_keywords: {', '.join(focus_keywords) or '(none)'}")
-        print(f"- table_row_writeback: {'disabled' if args.skip_table_row_writeback else 'enabled'}")
+        table_row_writeback = audit_writeback(args.writeback) and not args.skip_table_row_writeback
+        print(f"- writeback: {args.writeback}")
+        print(f"- table_row_writeback: {'enabled' if table_row_writeback else 'disabled'}")
         print(f"- gate_doc_files: {', '.join(str(p) for p in gate_doc_files) or '(none)'}")
         print(f"- stage_files: {', '.join(args.stage_file) or '(none)'}")
         print(f"- commit_enabled: {'no' if args.no_commit else 'yes'}")
@@ -1190,22 +1214,24 @@ def main() -> int:
     if task_blocked:
         conclusions = ["自动执行存在测试阻塞，已保留阻塞说明与替代验证"]
 
-    if append_test_results(
-        test_result_files,
-        test_status,
-        test_title,
-        test_summary,
-        build_commands + test_commands,
-        result_lines,
-        step_rows,
-        conclusions,
-        blockers,
-        alternatives,
-        dry_run=False,
-    ) != 0:
-        return 1
+    if writeback_enabled(args.writeback):
+        if append_test_results(
+            test_result_files,
+            test_status,
+            test_title,
+            test_summary,
+            build_commands + test_commands,
+            result_lines,
+            step_rows,
+            conclusions,
+            blockers,
+            alternatives,
+            dry_run=False,
+            record_format="audit" if audit_writeback(args.writeback) else "compact",
+        ) != 0:
+            return 1
 
-    if not args.skip_table_row_writeback:
+    if audit_writeback(args.writeback) and not args.skip_table_row_writeback:
         status_cn = to_status_cn(test_status)
         row_actual_text = build_row_actual_text(status_cn, test_summary, self_test_notes, args.row_actual)
         row_evidence_text = build_row_evidence_text(
@@ -1233,6 +1259,7 @@ def main() -> int:
 
     commit_message = build_commit_message(selected, args.commit_type)
     commit_failed = False
+    changed_files_for_brief = [item for item in args.stage_file if item.strip()]
     if not fatal_failure and not args.no_commit:
         code, output = run_shell("git status --short", git_root)
         if output:
@@ -1243,9 +1270,13 @@ def main() -> int:
             blockers.append("git status --short 执行失败")
         else:
             stage_files = args.stage_file[:] if args.stage_file else parse_git_status_output(output)
+            if stage_files:
+                changed_files_for_brief = stage_files[:]
             guard = load_local_config_guard(project_paths.workspace_root, args.local_config_guard_file)
             if guard:
                 stage_files, guard_logs, guard_blockers = apply_local_config_guard(stage_files, guard, git_root)
+                if stage_files:
+                    changed_files_for_brief = stage_files[:]
                 for line in guard_logs:
                     print(line)
                 blockers.extend(guard_blockers)
@@ -1316,45 +1347,35 @@ def main() -> int:
     elif not args.no_release_gate and req_id:
         verification_lines.append("release gate -> PASS")
 
-    if append_task_evidence(
-        record_files,
-        selected,
-        final_task_status,
-        args.summary or f"{selected.task_id} 自动收口",
-        verification_lines,
-        args.artifact,
-        blockers,
-        next_steps,
-        dry_run=False,
-    ) != 0:
-        return 1
+    if audit_writeback(args.writeback):
+        if append_task_evidence(
+            record_files,
+            selected,
+            final_task_status,
+            args.summary or f"{selected.task_id} 自动收口",
+            verification_lines,
+            args.artifact,
+            blockers,
+            next_steps,
+            dry_run=False,
+            record_format="audit",
+        ) != 0:
+            return 1
 
-    if task_memory_dir:
+    if task_memory_dir and writeback_enabled(args.writeback):
         verify_file = task_memory_dir / "verify.md"
         inbox_file = task_memory_dir / "inbox.md"
         issues_file = task_memory_dir / "issues.md"
         decisions_file = task_memory_dir / "decisions.md"
+        verify_entries: list[tuple[str, str, str]] = []
         for cmd in build_commands:
-            code, output = run_helper(
-                "record_task_verify.py",
-                [
-                    "--file",
-                    str(verify_file),
-                    "--action",
+            verify_entries.append(
+                (
                     cmd,
-                    "--result",
                     "PASS" if all("FAIL" not in item for item in verification_lines if cmd in item) else "FAIL",
-                    "--coverage",
                     "自动执行构建校验",
-                    "--risk",
-                    "; ".join(blockers),
-                ],
-                dry_run=False,
+                )
             )
-            if output:
-                print(output)
-            if code != 0:
-                return code
         for cmd in test_commands:
             matched = next((item for item in verification_lines if cmd in item), "")
             result = "PASS"
@@ -1362,6 +1383,41 @@ def main() -> int:
                 result = "BLOCKED"
             elif "FAIL" in matched:
                 result = "FAIL"
+            verify_entries.append((cmd, result, "自动执行测试校验"))
+
+        if not audit_writeback(args.writeback) and verify_entries:
+            compact_results = {result for _, result, _ in verify_entries}
+            if "FAIL" in compact_results:
+                compact_result = "FAIL"
+            elif "BLOCKED" in compact_results:
+                compact_result = "BLOCKED"
+            else:
+                compact_result = "PASS"
+            compact_action = "；".join(shorten_text(cmd, 48) for cmd, _, _ in verify_entries[:3])
+            if len(verify_entries) > 3:
+                compact_action += f"；+{len(verify_entries) - 3}"
+            code, output = run_helper(
+                "record_task_verify.py",
+                [
+                    "--file",
+                    str(verify_file),
+                    "--action",
+                    compact_action,
+                    "--result",
+                    compact_result,
+                    "--coverage",
+                    "自动执行验证摘要",
+                    "--risk",
+                    shorten_text("; ".join(blockers), 160),
+                ],
+                dry_run=False,
+            )
+            if output:
+                print(output)
+            if code != 0:
+                return code
+
+        for cmd, result, coverage in verify_entries if audit_writeback(args.writeback) else []:
             code, output = run_helper(
                 "record_task_verify.py",
                 [
@@ -1372,7 +1428,7 @@ def main() -> int:
                     "--result",
                     result,
                     "--coverage",
-                    "自动执行测试校验",
+                    coverage,
                     "--risk",
                     "; ".join(blockers),
                 ],
@@ -1382,7 +1438,7 @@ def main() -> int:
                 print(output)
             if code != 0:
                 return code
-        if resolved_mode in {"bugfix", "continuation"} and inbox_file.exists():
+        if audit_writeback(args.writeback) and resolved_mode in {"bugfix", "continuation"} and inbox_file.exists():
             code, output = run_helper(
                 "append_memory_inbox.py",
                 [
@@ -1541,6 +1597,7 @@ def main() -> int:
         resolved_mode,
         (args.summary or f"{selected.task_id} 执行回合已{final_task_status}") + f"；{legacy_context['summary']}",
         [*(str(p) for p in (*record_files, *test_result_files, *gate_doc_files)), *legacy_context["evidence_refs"]],
+        changed_files_for_brief,
         verification_lines,
         blockers,
         next_steps,

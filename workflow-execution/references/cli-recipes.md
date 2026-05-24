@@ -11,6 +11,18 @@ python3 <skill-dir>/scripts/run_execution_round.py \
   --summary "本轮开发摘要"
 ```
 
+默认 `--writeback compact`：只写测试摘要、`verify.md` 摘要、`project-state.json` 和短版 `context-brief.md`。
+
+正式验收/审计留痕再追加：
+
+```bash
+python3 <skill-dir>/scripts/run_execution_round.py \
+  --confirm-start \
+  --req-id REQ-xxxx \
+  --summary "正式验收回写" \
+  --writeback audit
+```
+
 bugfix / continuation 建议追加：
 
 ```bash

@@ -72,7 +72,7 @@ flowchart LR
 - 三个 workflow skill 是动作层，会创建或更新目标仓库中的文件。
 - `.ai/runtime/project-state.json` 是 workflow 进度的共享运行态文件。
 - `.ai/memory/` 保存可复用的任务记忆和项目知识。
-- `.ai/memory/context-brief.md` 保存压缩恢复摘要，`.ai/memory/session-briefs/` 保存窗口级任务焦点。
+- `.ai/memory/context-brief.md` 保存压缩恢复用的短摘要，默认覆盖更新；`.ai/memory/session-briefs/` 保存窗口级任务焦点。
 - `workflow-statusbar` 是观察层，不负责审核需求、不启动执行、不替代测试。
 - 更详细的架构说明见 [ARCHITECTURE.md](ARCHITECTURE.md)。
 
@@ -236,6 +236,8 @@ python3 ~/.codex/skills/workflow-bootstrap/scripts/workflow_cli.py exec \
   --task-id TASK-xxxx \
   --summary "本轮实现与验证摘要"
 ```
+
+执行阶段默认 `--writeback compact`，只写必要摘要；正式验收、发布前回归、审计留痕、完整测试报告或联调记录再使用 `--writeback audit`。
 
 初始化完成后，目标仓库的 `.ai/bin/` 下会有 `wf-init`、`wf-req`、`wf-exec` 等短命令。
 

@@ -49,7 +49,7 @@ Core rules:
 
 1. The skills are the action layer.
 2. `project-state.json` is the runtime state source.
-3. `.ai/memory/context-brief.md` is the compact recovery source for Codex context compaction.
+3. `.ai/memory/context-brief.md` is the short recovery source for Codex context compaction; it is overwritten with current focus, not used as an audit log.
 4. `workflow-statusbar` is an observation layer.
 5. Requirement review and execution start remain explicit human-controlled gates.
 

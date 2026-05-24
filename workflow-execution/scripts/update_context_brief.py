@@ -3,15 +3,14 @@
 from __future__ import annotations
 
 import argparse
-import subprocess
 from datetime import datetime
 from pathlib import Path
 
 from cli_common import add_dry_run_arg, print_header
 
 
-MAX_TEXT = 360
-MAX_ITEMS = 12
+MAX_TEXT = 160
+MAX_ITEMS = 5
 
 
 def compact_text(value: str, max_chars: int = MAX_TEXT) -> str:
@@ -48,82 +47,32 @@ def display_path(path_text: str, root: Path) -> str:
         return str(path)
 
 
-def git_status_paths(root: Path) -> list[str]:
-    try:
-        proc = subprocess.run(
-            ["git", "status", "--short"],
-            cwd=str(root),
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            timeout=5,
-            check=False,
-        )
-    except Exception:
-        return []
-    if proc.returncode != 0:
-        return []
-    paths: list[str] = []
-    for line in proc.stdout.splitlines():
-        if len(line) < 4:
-            continue
-        payload = line[3:].strip()
-        if " -> " in payload:
-            payload = payload.split(" -> ", 1)[1].strip()
-        if payload:
-            paths.append(payload)
-    return paths
-
-
-def bullet_lines(items: list[str], empty: str = "- 暂无") -> list[str]:
+def inline_items(items: list[str], empty: str = "无") -> str:
     cleaned = unique([compact_text(item) for item in items])[:MAX_ITEMS]
     if not cleaned:
-        return [empty]
-    return [f"- {item}" for item in cleaned]
+        return empty
+    return "；".join(cleaned)
 
 
 def build_brief(args: argparse.Namespace, root: Path) -> str:
     updated_at = datetime.now().astimezone().isoformat(timespec="seconds")
-    changed_files = unique(
-        [display_path(item, root) for item in args.changed_file]
-        + [display_path(item, root) for item in git_status_paths(root)]
-    )[:MAX_ITEMS]
+    changed_files = unique([display_path(item, root) for item in args.changed_file])[:MAX_ITEMS]
     evidence = unique([display_path(item, root) for item in args.evidence])[:MAX_ITEMS]
 
     lines = [
         "# Context Brief",
         "",
-        "## Snapshot",
         f"- updated_at: {updated_at}",
         f"- workspace: {root}",
-        f"- mode: {args.mode or 'unknown'}",
-        f"- task_status: {args.task_status or 'unknown'}",
-        "",
-        "## Current Focus",
-        f"- requirement: `{args.req_id or 'N/A'}` {compact_text(args.req_title)}",
-        f"- task: `{args.task_id or 'N/A'}` {compact_text(args.task_title)}",
+        f"- requirement: `{args.req_id or 'N/A'}` {compact_text(args.req_title) or '未指定'}",
+        f"- task: `{args.task_id or 'N/A'}` {compact_text(args.task_title) or '未指定'}",
+        f"- status: {args.task_status or 'unknown'} / {args.mode or 'unknown'}",
         f"- summary: {compact_text(args.summary) or '待补充'}",
-        "",
-        "## Key Files",
-        *bullet_lines(changed_files),
-        "",
-        "## Evidence",
-        *bullet_lines(evidence),
-        "",
-        "## Verification",
-        *bullet_lines(args.verification),
-        "",
-        "## Blockers",
-        *bullet_lines(args.blocker),
-        "",
-        "## Next Steps",
-        *bullet_lines(args.next_step),
-        "",
-        "## Recovery Rules",
-        "- 新窗口或压缩恢复后，先读 `AGENTS.md`、本文件、`.ai/memory/tasks/index.md` 和 `.ai/runtime/project-state.json`。",
-        "- 默认只读取 `AGENTS.md` 与本文件；除非需要事实结论、代码改动、SQL/接口判断或验证提交，否则不得扩展读取历史文件、完整 transcript、完整 checkpoint 或大文档。",
-        "- 完整 transcript、compact checkpoint、conversation 冷归档只在追溯证据时按关键词局部读取。",
-        "- 如果本文件与任务看板冲突，以任务看板和最新代码状态为准，并在收口时覆盖更新本文件。",
+        f"- files: {inline_items(changed_files)}",
+        f"- evidence: {inline_items(evidence)}",
+        f"- verified: {inline_items(args.verification)}",
+        f"- risk: {inline_items(args.blocker)}",
+        f"- next: {inline_items(args.next_step)}",
         "",
     ]
     return "\n".join(lines)

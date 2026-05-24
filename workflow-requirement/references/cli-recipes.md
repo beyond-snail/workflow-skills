@@ -98,6 +98,8 @@ python3 <skill-dir>/scripts/record_test_result.py \
   --summary "本次补跑摘要"
 ```
 
+默认写 compact 一行摘要；正式测试报告再加 `--format audit`。
+
 ```bash
 python3 <skill-dir>/scripts/record_acceptance_result.py \
   --file docs/workflow/requirements/.../testing/YYYY-MM-DD-联调验收记录-主题.md \
@@ -105,3 +107,5 @@ python3 <skill-dir>/scripts/record_acceptance_result.py \
   --status pass \
   --summary "本次联调摘要"
 ```
+
+默认写 compact 一行摘要；正式联调/验收材料再加 `--format audit`。

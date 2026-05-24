@@ -10,11 +10,11 @@
 - **状态管理**：自动更新任务状态（todo → doing → done）
 - **实现验证**：执行项目的必要校验命令，确保代码质量
 - **一句话开工入口**：通过 `run_execution_round.py` 在显式授权后自动推进收口链路
-- **自动收口**：收到显式开工指令后，默认继续完成验证、证据回写、提交推送和发布闸门
+- **自动收口**：收到显式开工指令后，默认继续完成验证、compact 证据回写、提交推送和发布闸门
 - **代码提交**：生成规范的 commit message，执行 git 提交和推送
 - **发布闸门检查**：运行项目发布闸门，判断是否允许部署
 - **记忆上下文加载**：开工前优先检索 `.ai/memory/tasks/index.md` 和 `.ai/memory/knowledge/`，老仓库兼容回退
-- **任务记忆回写**：支持自动回写 `verify.md`、`inbox.md`，并可追加 `issues.md`、`decisions.md`、知识条目
+- **任务记忆回写**：默认只写 `verify.md` 摘要；`--writeback audit` 时可自动写详细测试/验收、`inbox.md`，并可追加 `issues.md`、`decisions.md`、知识条目
 - **执行自检**：dry-run 和 live 模式都会输出 execution 自检结果，检查任务看板、记忆目录、知识目录和校验命令是否齐全
 - **任务记忆归档**：支持在任务收口后把 `.ai/memory/tasks/<task>/` 归档到 `archived/`
 - **自动建议**：会根据 `bugfix/continuation`、根因/决策信号和复用信号，主动建议补 `issue`、`decision`、`knowledge`
@@ -70,7 +70,9 @@ python3 <skill-dir>/scripts/run_execution_round.py \
 6. 如需强制指定，仍可显式传 `--mode bugfix|continuation|feature`
 7. 若任务已经彻底收口，可加 `--archive-task-memory` 自动归档任务记忆目录
 8. 若没有显式传 `--archive-task-memory`，execution 会在 `done / continuation` 场景主动提示是否归档
-8. 若嫌命令过长，可改用统一入口：
+9. 默认 `--writeback compact`，只写测试/验证摘要和短版 `context-brief.md`
+10. 若用户明确要求正式验收、发布前回归、审计留痕、完整回写、测试报告、联调记录或验收材料，追加 `--writeback audit`
+11. 若嫌命令过长，可改用统一入口：
 
 ```bash
 ./.ai/bin/workflow exec \

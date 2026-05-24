@@ -165,35 +165,20 @@ TASK_INBOX = """# Inbox
 
 TASK_ISSUES = """# Issues
 
-## 记录模板
-### ISSUE-001
-- 现象：
-- 触发条件：
-- 根因：
-- 处理方案：
-- 验证结果：
-- 状态：
+| ID | 现象 | 根因 | 处理 | 验证 | 状态 |
+| --- | --- | --- | --- | --- | --- |
 """
 
 TASK_DECISIONS = """# Decisions
 
-## 记录模板
-### DEC-001
-- 决策：
-- 背景：
-- 选择原因：
-- 放弃方案：
-- 风险：
+| ID | 时间 | 决策 | 原因 | 风险 | 证据 |
+| --- | --- | --- | --- | --- | --- |
 """
 
 TASK_VERIFY = """# Verify
 
-## 记录模板
-### YYYY-MM-DD HH:MM
-- 验证动作：
-- 验证命令：
-- 验证结果：
-- 未覆盖风险：
+| 时间 | 验证 | 结果 | 覆盖 | 风险 |
+| --- | --- | --- | --- | --- |
 """
 
 KNOWLEDGE_README = """# Knowledge
@@ -205,36 +190,21 @@ KNOWLEDGE_README = """# Knowledge
 
 CONTEXT_BRIEF = """# Context Brief
 
-## 作用
-- Codex 压缩恢复后的优先上下文摘要。
-- 只保留项目共享稳定状态、关键决策、关键文件、验证、阻塞和下一步。
-- 覆盖更新，不长期追加；建议控制在 120 行以内。
-
-## 当前上下文
-- 当前主线：
-- 项目共享状态：
-- 当前状态：
-- 关键决策：
-- 关键文件：
-- 验证结论：
-- 阻塞风险：
-- 下一步：
-
-## 恢复规则
-- 新窗口或压缩恢复后，先读本文件、`AGENTS.md` 和 `.ai/memory/tasks/index.md`。
-- 如果存在 `.ai/memory/session-briefs/<session_id>.md`，它优先承载当前窗口任务焦点。
-- 默认只读取 `AGENTS.md` 与本文件；除非需要事实结论、代码改动、SQL/接口判断或验证提交，否则不得扩展读取历史文件、完整 transcript、完整 checkpoint 或大文档。
-- 完整 transcript、compact checkpoint、conversation 冷归档仅在追溯证据时按关键词局部读取。
+- updated_at:
+- workspace:
+- requirement:
+- task:
+- status:
+- summary:
+- files:
+- evidence:
+- verified:
+- risk:
+- next:
 """
 
 SESSION_BRIEF = """# Session Brief
 
-## 作用
-- 仅记录当前窗口/当前 session 的任务焦点。
-- 解决多窗口并行时共享 `context-brief.md` 被互相覆盖的问题。
-- 覆盖更新，不长期追加。
-
-## 当前会话
 - session_id：
 - 当前任务：
 - 当前结论：
@@ -242,10 +212,6 @@ SESSION_BRIEF = """# Session Brief
 - 验证结论：
 - 阻塞风险：
 - 下一步：
-
-## 恢复规则
-- 当前窗口压缩恢复后，优先读本文件，再读 `.ai/memory/context-brief.md`。
-- 本文件只描述当前窗口；跨窗口共享状态以 `context-brief.md` 为准。
 """
 
 REQUIREMENTS_POOL = """# 需求池
